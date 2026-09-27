@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #fafbfc;
+  --surface-3: #f1f3f6;
+  --line: #e6e9ee;
+  --line-strong: #d6dbe3;
+  --text: #12161f;
+  --text-soft: #475063;
+  --muted: #7b8496;
+  --accent: #16a34a;
+  --accent-soft: #e8f6ec;
+  --info: #2563eb;
+  --info-soft: #e8efff;
+  --warn: #d97706;
+  --warn-soft: #fdf1e0;
+  --bad: #dc2626;
+  --bad-soft: #fdecec;
+  --violet: #7c3aed;
+  --shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px -12px rgb(16 24 40 / 0.12);
+}
+
+.dark {
+  --bg: #070b14;
+  --surface: #0e1522;
+  --surface-2: #121a2a;
+  --surface-3: #172033;
+  --line: #1e293b;
+  --line-strong: #2b3a51;
+  --text: #e8edf6;
+  --text-soft: #b3bdd0;
+  --muted: #7d899e;
+  --accent: #34d399;
+  --accent-soft: #10321f;
+  --info: #60a5fa;
+  --info-soft: #12233d;
+  --warn: #fbbf24;
+  --warn-soft: #33260a;
+  --bad: #f87171;
+  --bad-soft: #3a1414;
+  --violet: #a78bfa;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -16px rgb(0 0 0 / 0.7);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--text);
+  --color-ink-soft: var(--text-soft);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-violet: var(--violet);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "tnum";
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.card-flat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.divide-line {
+  border-color: var(--line);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes ocx-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.pulse-dot {
+  animation: ocx-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes ocx-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.fade-in {
+  animation: ocx-fade-in 0.25s ease-out both;
+}

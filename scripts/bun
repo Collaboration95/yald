@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Resolves a Bun runtime without requiring a global install.
+# Order: BUN_BIN env -> PATH -> opencodex's bundled runtime -> npm global root.
+set -euo pipefail
+
+if [[ -n "${BUN_BIN:-}" && -x "${BUN_BIN}" ]]; then
+  exec "${BUN_BIN}" "$@"
+fi
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun "$@"
+fi
+
+native_cache="${HOME}/.cache/ocx-observatory/bun-path"
+if [[ -f "${native_cache}" ]]; then
+  cached="$(cat "${native_cache}")"
+  if [[ -x "${cached}" ]]; then
+    exec "${cached}" "$@"
+  fi
+fi
+
+candidates=(
+  "/opt/homebrew/lib/node_modules/@bitkyc08/opencodex/node_modules/bun/bin/bun.exe"
+  "/usr/local/lib/node_modules/@bitkyc08/opencodex/node_modules/bun/bin/bun.exe"
+  "/usr/local/lib/node_modules/@bitkyc08/opencodex/node_modules/bun/bin/bun"
+)
+
+if command -v npm >/dev/null 2>&1; then
+  global_root="$(npm root -g 2>/dev/null || true)"
+  if [[ -n "${global_root}" ]]; then
+    candidates+=(
+      "${global_root}/@bitkyc08/opencodex/node_modules/bun/bin/bun.exe"
+      "${global_root}/@bitkyc08/opencodex/node_modules/bun/bin/bun"
+    )
+  fi
+fi
+
+for candidate in "${candidates[@]}"; do
+  if [[ -x "${candidate}" ]]; then
+    # Caching the resolved path is a convenience only: a read-only or sandboxed
+    # HOME must never stop the script from launching Bun.
+    if mkdir -p "$(dirname "${native_cache}")" 2>/dev/null; then
+      printf '%s' "${candidate}" > "${native_cache}" 2>/dev/null || true
+    fi
+    exec "${candidate}" "$@"
+  fi
+done
+
+echo "Could not find a Bun runtime." >&2
+echo "Install one (https://bun.sh) or point BUN_BIN at the binary, for example:" >&2
+echo "  BUN_BIN=/path/to/bun ./scripts/serve.sh" >&2
+exit 127

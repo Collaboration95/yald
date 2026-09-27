@@ -1,0 +1,12 @@
+node_modules
+dist
+.DS_Store
+*.log
+.ocx-observatory
+web/dist
+server/dist
+.env
+.env.*
+!.env.example
+coverage
+*.tsbuildinfo
