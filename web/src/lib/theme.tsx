@@ -17,12 +17,19 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-const STORAGE_KEY = "ocx-observatory-theme";
+const STORAGE_KEY = "yald-theme";
+const LEGACY_STORAGE_KEY = "ocx-observatory-theme";
 
 function readTheme(): Theme {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "dark" || stored === "light") return stored;
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy === "dark" || legacy === "light") {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      return legacy;
+    }
   } catch {
     // Private mode or blocked storage: fall through to the OS preference.
   }

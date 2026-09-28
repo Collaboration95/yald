@@ -56,6 +56,8 @@ export class ApiError extends Error {
   }
 }
 
+const responseCache = new Map<string, { etag: string; value: unknown }>();
+
 export async function fetchJson<T>(path: string, params?: Record<string, unknown> | string): Promise<T> {
   const query = typeof params === "string" ? params : params ? new URLSearchParams(
     Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
@@ -64,12 +66,19 @@ export async function fetchJson<T>(path: string, params?: Record<string, unknown
     }, {}),
   ).toString() : "";
   const url = query ? `${path}?${query}` : path;
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+  const cached = responseCache.get(url);
+  const response = await fetch(url, {
+    headers: { accept: "application/json", ...(cached ? { "if-none-match": cached.etag } : {}) },
+  });
+  if (response.status === 304 && cached) return cached.value as T;
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new ApiError(body.slice(0, 200) || `Request failed with ${response.status}`, response.status);
   }
-  return (await response.json()) as T;
+  const value = await response.json() as T;
+  const etag = response.headers.get("etag");
+  if (etag) responseCache.set(url, { etag, value });
+  return value;
 }
 
 export function useEndpoint<T>(
@@ -84,6 +93,7 @@ export function useEndpoint<T>(
     queryFn: () => fetchJson<T>(path, params),
     staleTime: options.staleTime ?? 15_000,
     refetchInterval: options.refetchInterval ?? 30_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     enabled: options.enabled ?? true,
   });

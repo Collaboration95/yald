@@ -6,7 +6,7 @@ import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, ModelTag, OutcomeDot, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, scatterChart } from "../components/chartOptions";
-import { formatCompact, formatDateTime, formatDuration, formatPercent, shortId } from "../lib/format";
+import { formatCompact, formatDateTime, formatDuration, formatPercent } from "../lib/format";
 import type { PerformanceResponse } from "../types";
 
 export function PerformancePage() {

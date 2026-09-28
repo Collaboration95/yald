@@ -4,8 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${root}"
 
-port="${PORT:-4318}"
-api_port="${OCX_OBSERVATORY_API_PORT:-4318}"
+port="${YALD_PORT:-${PORT:-4318}}"
+api_port="${YALD_API_PORT:-${OCX_OBSERVATORY_API_PORT:-${port}}}"
 
 echo "API  -> http://127.0.0.1:${api_port}"
 echo "Web  -> http://127.0.0.1:5317 (proxies /api to the API)"

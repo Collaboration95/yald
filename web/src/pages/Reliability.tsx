@@ -7,7 +7,7 @@ import { Card, CardHeader, Legend, ModelTag, ProgressBar, Stat, StateBlock, Tabl
 import { Chart } from "../components/Chart";
 import { barChart, donutChart, stackedBarChart } from "../components/chartOptions";
 import { OUTCOME_COLORS } from "../lib/palette";
-import { formatCompact, formatDateTime, formatDuration, formatInteger, formatPercent, formatRelative, shortId } from "../lib/format";
+import { formatCompact, formatDateTime, formatDuration, formatInteger, formatPercent, formatRelative } from "../lib/format";
 import type { ReliabilityResponse } from "../types";
 
 export function ReliabilityPage() {

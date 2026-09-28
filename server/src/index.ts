@@ -23,10 +23,10 @@ if (hasWebDist) {
     if (c.req.path.startsWith("/api/")) {
       return c.json({ ok: false, error: "not found", path: c.req.path }, 404);
     }
-    return c.html(indexHtml ?? "<!doctype html><title>OCX Observatory</title>");
+    return c.html(indexHtml ?? "<!doctype html><title>yald</title>");
   });
 } else {
-  api.get("/", c => c.text("ocx-observatory API is running. Build the web app with: bun run build"));
+  api.get("/", c => c.text("yald API is running. Build the web app with: bun run build"));
 }
 
 await loadPricing();
@@ -34,7 +34,7 @@ const boot = await getDataset();
 
 console.log(
   [
-    `ocx-observatory`,
+    `yald`,
     `  home      ${OCX_HOME}`,
     `  requests  ${boot.rows.length} parsed in ${boot.parse.durationMs}ms`,
     `  pricing   ${pricingStatus().available ? pricingStatus().detail : `unavailable — ${pricingStatus().detail}`}`,

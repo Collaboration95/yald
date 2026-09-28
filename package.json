@@ -1,6 +1,12 @@
 {
-  "name": "ocx-observatory",
-  "private": true,
+  "name": "yald-dashboard",
+  "version": "0.1.0",
+  "description": "Read-only analytics dashboard for opencodex usage, cost, and quota",
+  "license": "MIT",
+  "bin": { "yald": "scripts/yald.mjs" },
+  "files": ["server", "web/dist", "scripts/bun", "scripts/yald.mjs", "LICENSE", "README.md", "CHANGELOG.md", "docs"],
+  "dependencies": { "bun": "^1.4.0", "hono": "^4.13.9" },
+  "devDependencies": { "oxlint": "^1.86.0" },
   "type": "module",
   "workspaces": ["server", "web"],
   "scripts": {
@@ -9,9 +15,12 @@
     "build": "bash -c 'scripts/bun run --cwd web vite build'",
     "start": "bash -c 'scripts/bun run server/src/index.ts'",
     "smoke": "bash scripts/smoke.sh",
-    "typecheck": "bash -c 'scripts/bun run --cwd web typecheck && scripts/bun run --cwd server typecheck'"
+    "typecheck": "bash -c 'scripts/bun run --cwd web typecheck && scripts/bun run --cwd server typecheck'",
+    "test": "scripts/bun test",
+    "lint": "scripts/bun x oxlint server/src web/src",
+    "prepack": "scripts/bun run build"
   },
   "engines": {
-    "bun": ">=1.1.0"
+    "node": ">=18"
   }
 }

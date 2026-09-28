@@ -1,13 +1,24 @@
-# OCX Observatory
+# yald
 
-[![ci](https://github.com/Collaboration95/yald/actions/workflows/ci.yml/badge.svg)](https://github.com/Collaboration95/yald/actions/workflows/ci.yml)
+[![yald CI](https://github.com/Collaboration95/yald/actions/workflows/ci.yml/badge.svg)](https://github.com/Collaboration95/yald/actions/workflows/ci.yml)
 
 A read-only analytics dashboard for [opencodex](https://github.com/lidge-jun/opencodex). opencodex already records everything
 worth charting — this puts it on one screen: token volume, estimated spend, cache economics, latency, reliability,
 quota burn, model comparison and per-conversation drill-down.
 
-The dashboard reads the ledgers directly, so it works whether or not the proxy is running. Pages refresh every 30
-seconds, and the Refresh button forces an immediate re-read.
+The dashboard reads the ledgers directly, so it works whether or not the proxy is running. Visible pages poll every 30
+seconds, unchanged responses use ETags, and polling pauses in background tabs. The Refresh button forces an immediate re-read.
+
+![yald Overview dashboard](docs/screenshots/overview.png)
+
+| View | Screenshot | View | Screenshot |
+| --- | --- | --- | --- |
+| Overview | [PNG](docs/screenshots/overview.png) | Usage | [PNG](docs/screenshots/usage.png) |
+| Cost | [PNG](docs/screenshots/cost.png) | Performance | [PNG](docs/screenshots/performance.png) |
+| Reliability | [PNG](docs/screenshots/reliability.png) | Models | [PNG](docs/screenshots/models.png) |
+| Quota | [PNG](docs/screenshots/quota.png) | Conversations | [PNG](docs/screenshots/conversations.png) |
+
+Regenerate captures with `./scripts/screenshots.sh` (requires Chrome or Chromium). The script uses generated fixture data, a fresh browser profile for each route, and fails on blank or oversized images. The repository social preview source and PNG are in `docs/`.
 
 ## Quick start
 
@@ -26,10 +37,19 @@ Environment variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PORT` | `4318` | API / UI port |
+| `YALD_PORT` (`PORT` fallback) | `4318` | API / UI port |
+| `YALD_HOST` (`HOST` fallback) | `127.0.0.1` | Bind address |
 | `OCX_HOME` | `~/.opencodex` | Where the ledgers live |
 | `OCX_PACKAGE_DIR` | auto-detected | Location of the installed `@bitkyc08/opencodex` package |
-| `OCX_OBSERVATORY_TZ` | system timezone | Timezone used for calendar bucketing |
+| `YALD_TZ` (`OCX_OBSERVATORY_TZ` fallback) | system timezone | Timezone used for calendar bucketing |
+
+## Install
+
+```bash
+npx -p yald-dashboard yald --port 4318 --host 127.0.0.1 --ocx-home ~/.opencodex --open
+```
+
+The npm package is named `yald-dashboard` because the unscoped `yald` name is already published by an unrelated package. It exposes the `yald` executable and includes its Bun runtime and prebuilt web app. Alternatively, clone this repository and run `bun install && ./scripts/serve.sh`.
 
 ## Where the numbers come from
 
@@ -93,9 +113,9 @@ web/src/pages/*                one file per view
 web/src/components/chartOptions.ts  shared ECharts option builders
 ```
 
-The whole ledger is parsed and priced in roughly 200 ms for ~66k requests, so the server re-reads the files whenever
-their size or mtime changes instead of caching stale aggregates. Pages poll every 30 seconds, and the Refresh button
-forces a rebuild.
+The whole ledger is parsed and priced in roughly 120 ms for ~66k requests in a local synthetic benchmark, so the server
+re-reads the files whenever their size or mtime changes instead of caching stale aggregates. Pages poll every 30 seconds
+while visible; ETags make unchanged polls cheap, and the Refresh button forces a rebuild.
 
 ## Verification
 
@@ -127,6 +147,15 @@ does: it swaps `globalThis.fetch` for the app's own handler and renders each pag
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+
+## Reference
+
+- [Metric definitions](docs/metrics.md)
+- [API reference](docs/api.md)
+- [Architecture and refresh behavior](docs/architecture.md)
+- [Performance measurements and recommendations](docs/performance.md)
+- [Changelog](CHANGELOG.md)
+- [Release procedure](docs/releasing.md)
 
 ## Known limits
 

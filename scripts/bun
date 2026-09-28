@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Resolves a Bun runtime without requiring a global install.
-# Order: BUN_BIN env -> PATH -> opencodex's bundled runtime -> npm global root.
+# Order: package-local Bun -> BUN_BIN -> PATH -> opencodex bundle -> npm global root.
 set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for bundled in "${script_dir}/../node_modules/bun/bin/bun.exe" "${script_dir}/../node_modules/bun/bin/bun"; do
+  if [[ -x "${bundled}" ]]; then
+    exec "${bundled}" "$@"
+  fi
+done
 
 if [[ -n "${BUN_BIN:-}" && -x "${BUN_BIN}" ]]; then
   exec "${BUN_BIN}" "$@"
@@ -11,7 +18,7 @@ if command -v bun >/dev/null 2>&1; then
   exec bun "$@"
 fi
 
-native_cache="${HOME}/.cache/ocx-observatory/bun-path"
+native_cache="${HOME}/.cache/yald/bun-path"
 if [[ -f "${native_cache}" ]]; then
   cached="$(cat "${native_cache}")"
   if [[ -x "${cached}" ]]; then
@@ -46,7 +53,6 @@ for candidate in "${candidates[@]}"; do
   fi
 done
 
-echo "Could not find a Bun runtime." >&2
-echo "Install one (https://bun.sh) or point BUN_BIN at the binary, for example:" >&2
+echo "Could not find a Bun runtime. Install the bun package or point BUN_BIN at the binary, for example:" >&2
 echo "  BUN_BIN=/path/to/bun ./scripts/serve.sh" >&2
 exit 127

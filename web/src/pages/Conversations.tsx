@@ -7,7 +7,7 @@ import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Legend, ModelTag, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { donutChart, lineChart } from "../components/chartOptions";
-import { formatCompact, formatDateTime, formatDuration, formatInteger, formatPercent, formatRelative, shortId } from "../lib/format";
+import { formatCompact, formatDateTime, formatDuration, formatInteger, formatRelative, shortId } from "../lib/format";
 import type { ConversationDetailResponse, ConversationsResponse } from "../types";
 
 export function ConversationsPage() {

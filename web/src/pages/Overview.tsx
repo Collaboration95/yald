@@ -8,7 +8,7 @@ import { Badge, Card, CardHeader, Legend, MiniSpark, ModelTag, OutcomeDot, Progr
 import { Chart } from "../components/Chart";
 import { barChart, donutChart, heatmapChart, stackedAreaChart } from "../components/chartOptions";
 import { COMPOSITION_COLORS } from "../lib/palette";
-import { formatCompact, formatCountdown, formatDateTime, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
+import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
 import type { OverviewResponse } from "../types";
 
 export function OverviewPage() {

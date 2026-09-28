@@ -6,11 +6,11 @@ import { dirname, join, resolve } from "node:path";
 /** Where opencodex keeps its ledgers. Overridable for tests and multi-home setups. */
 export const OCX_HOME = process.env.OCX_HOME ?? join(homedir(), ".opencodex");
 
-export const PORT = Number(process.env.PORT ?? process.env.OCX_OBSERVATORY_PORT ?? 4317);
-export const HOSTNAME = process.env.HOST ?? "127.0.0.1";
+export const PORT = Number(process.env.YALD_PORT ?? process.env.OCX_OBSERVATORY_PORT ?? process.env.PORT ?? 4317);
+export const HOSTNAME = process.env.YALD_HOST ?? process.env.HOST ?? "127.0.0.1";
 
 /** Local timezone used for calendar bucketing; defaults to the machine's zone. */
-export const TIME_ZONE = process.env.OCX_OBSERVATORY_TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+export const TIME_ZONE = process.env.YALD_TZ ?? process.env.OCX_OBSERVATORY_TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export const PATHS = {
   usage: join(OCX_HOME, "usage.jsonl"),

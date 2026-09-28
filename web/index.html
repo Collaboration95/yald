@@ -4,10 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>OCX Observatory · LLM usage control plane</title>
+    <meta name="description" content="A read-only analytics dashboard for opencodex usage, cost, performance, reliability, and quota." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="yald · opencodex analytics" />
+    <meta property="og:description" content="A local, read-only dashboard for opencodex usage, cost, and quota." />
+    <meta property="og:image" content="https://raw.githubusercontent.com/Collaboration95/yald/main/docs/social-preview.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="yald · opencodex analytics" />
+    <meta name="twitter:description" content="A local, read-only dashboard for opencodex usage, cost, and quota." />
+    <meta name="twitter:image" content="https://raw.githubusercontent.com/Collaboration95/yald/main/docs/social-preview.png" />
+    <title>yald · opencodex analytics</title>
     <script>
+      if (new URLSearchParams(location.search).has("yaldPerf")) {
+        const longTasks = [];
+        if (PerformanceObserver.supportedEntryTypes?.includes("longtask")) {
+          new PerformanceObserver(list => longTasks.push(...list.getEntries())).observe({ type: "longtask", buffered: true });
+        }
+        setTimeout(() => {
+          const fcp = performance.getEntriesByType("paint").find(entry => entry.name === "first-contentful-paint");
+          const max = Math.max(0, ...longTasks.map(entry => entry.duration));
+          document.documentElement.dataset.yaldPerf = `fcp=${fcp?.startTime.toFixed(1) ?? "na"};longtasks=${longTasks.length};max=${max.toFixed(1)}`;
+        }, 8_000);
+      }
       try {
-        const stored = localStorage.getItem("ocx-observatory-theme");
+        const stored = localStorage.getItem("yald-theme") || localStorage.getItem("ocx-observatory-theme");
         if (stored === "dark") document.documentElement.classList.add("dark");
       } catch {}
     </script>

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import {
   breakdown,
   bucketLabel,
@@ -140,6 +141,19 @@ function toCsv(rows: Record<string, unknown>[]): string {
 }
 
 export const api = new Hono();
+
+api.use("/api/*", async (c, next) => {
+  if (c.req.path === "/api/dataset/refresh") {
+    await next();
+    return;
+  }
+  const dataset = await getDataset();
+  const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}`).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  c.header("Cache-Control", "no-cache");
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  await next();
+});
 
 api.get("/api/health", async c => {
   const dataset = await getDataset();
@@ -520,7 +534,7 @@ api.get("/api/filters", async c => {
 });
 
 function histogram(values: number[], edges: number[], labels: string[]): { name: string; value: number }[] {
-  const counts = new Array(labels.length).fill(0);
+  const counts = Array.from({ length: labels.length }, () => 0);
   for (const value of values) {
     for (let i = 0; i < labels.length; i++) {
       if (value >= edges[i]! && value < edges[i + 1]!) {
