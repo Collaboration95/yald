@@ -81,7 +81,7 @@ function usageRow(index: number, ts: number, spec: FixtureModel, conversationId:
 }
 
 export async function materializeFixtureHome(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "ocx-observatory-fixture-"));
+  const root = await mkdtemp(join(tmpdir(), "yald-fixture-"));
   const now = Date.now();
   const rows: string[] = [];
   const ledger: string[] = [];

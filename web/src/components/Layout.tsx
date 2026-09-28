@@ -58,7 +58,7 @@ export function Layout() {
   });
 
   const activeFilters = filters.providers.length + filters.models.length + filters.efforts.length + filters.statuses.length;
-  const heading = TITLES[location.pathname] ?? { title: "Observatory", subtitle: "" };
+  const heading = TITLES[location.pathname] ?? { title: "yald", subtitle: "" };
 
   const refresh = async () => {
     await fetchJson("/api/dataset/refresh");
@@ -73,8 +73,8 @@ export function Layout() {
             <TrendingUp size={15} strokeWidth={2.4} />
           </span>
           <span className="leading-tight">
-            <span className="block text-[13px] font-semibold tracking-[-0.01em] text-ink">OCX Observatory</span>
-            <span className="block text-[10.5px] text-muted">usage control plane</span>
+            <span className="block text-[13px] font-semibold tracking-[-0.01em] text-ink">yald</span>
+            <span className="block text-[10.5px] text-muted">opencodex analytics</span>
           </span>
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto">

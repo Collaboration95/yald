@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -6,14 +6,15 @@ import "./index.css";
 import { ThemeProvider } from "./lib/theme";
 import { FiltersProvider } from "./lib/useFilters";
 import { Layout } from "./components/Layout";
-import { OverviewPage } from "./pages/Overview";
-import { UsagePage } from "./pages/Usage";
-import { CostPage } from "./pages/Cost";
-import { PerformancePage } from "./pages/Performance";
-import { ReliabilityPage } from "./pages/Reliability";
-import { ModelsPage } from "./pages/Models";
-import { QuotaPage } from "./pages/Quota";
-import { ConversationDetailPage, ConversationsPage } from "./pages/Conversations";
+const OverviewPage = lazy(() => import("./pages/Overview").then(m => ({ default: m.OverviewPage })));
+const UsagePage = lazy(() => import("./pages/Usage").then(m => ({ default: m.UsagePage })));
+const CostPage = lazy(() => import("./pages/Cost").then(m => ({ default: m.CostPage })));
+const PerformancePage = lazy(() => import("./pages/Performance").then(m => ({ default: m.PerformancePage })));
+const ReliabilityPage = lazy(() => import("./pages/Reliability").then(m => ({ default: m.ReliabilityPage })));
+const ModelsPage = lazy(() => import("./pages/Models").then(m => ({ default: m.ModelsPage })));
+const QuotaPage = lazy(() => import("./pages/Quota").then(m => ({ default: m.QuotaPage })));
+const ConversationsPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationsPage })));
+const ConversationDetailPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationDetailPage })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +31,7 @@ createRoot(document.getElementById("root")!).render(
       <ThemeProvider>
         <BrowserRouter>
           <FiltersProvider>
+            <Suspense fallback={<div className="p-6 text-sm text-muted">Loading view…</div>}>
             <Routes>
               <Route element={<Layout />}>
                 <Route index element={<OverviewPage />} />
@@ -44,6 +46,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
+            </Suspense>
           </FiltersProvider>
         </BrowserRouter>
       </ThemeProvider>

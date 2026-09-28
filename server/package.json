@@ -1,5 +1,5 @@
 {
-  "name": "@ocx-observatory/server",
+  "name": "@yald/server",
   "private": true,
   "type": "module",
   "scripts": {

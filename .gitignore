@@ -2,7 +2,7 @@ node_modules
 dist
 .DS_Store
 *.log
-.ocx-observatory
+.yald
 web/dist
 server/dist
 .env

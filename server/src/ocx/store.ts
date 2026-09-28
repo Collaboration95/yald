@@ -369,7 +369,7 @@ async function build(force: boolean): Promise<Dataset> {
     },
     parse: { malformedLines: usage.malformed, durationMs: Math.round(performance.now() - startedAt) },
     builtAt: Date.now(),
-    revision: `${usage.rows.length}:${Math.round(performance.now() - startedAt)}:${nextSignature}`,
+    revision: `${usage.rows.length}:${nextSignature}`,
   };
   signature = nextSignature;
   return dataset;

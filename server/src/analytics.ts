@@ -183,6 +183,8 @@ export function summarize(rows: RequestRow[]): Summary {
   let estimatedCost = 0;
   let savings = 0;
   let observed = 0;
+  let observedCacheRead = 0;
+  let observedInput = 0;
   let synthesized = 0;
   let unknown = 0;
   let retried = 0;
@@ -215,7 +217,11 @@ export function summarize(rows: RequestRow[]): Summary {
         savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
       }
     }
-    if (row.cacheProvenance === "observed") observed++;
+    if (row.cacheProvenance === "observed") {
+      observed++;
+      observedCacheRead += row.cacheReadTokens;
+      observedInput += row.inputTokens;
+    }
     else if (row.cacheProvenance === "synthesized") synthesized++;
     else unknown++;
 
@@ -285,7 +291,7 @@ export function summarize(rows: RequestRow[]): Summary {
       observedRequests: observed,
       synthesizedRequests: synthesized,
       unknownRequests: unknown,
-      hitRate: tokens.input > 0 ? round(tokens.cacheRead / tokens.input, 4) : null,
+      hitRate: observedInput > 0 ? round(observedCacheRead / observedInput, 4) : null,
       savingsUsd: round(savings, 4),
     },
     waste,
@@ -825,7 +831,7 @@ export function quotaView(dataset: Dataset, selected?: { from?: number; to?: num
 
 export function sparkline(rows: RequestRow[], from: number, to: number, metric: Metric, buckets = 24): number[] {
   const step = Math.max(1, Math.floor((to - from) / buckets));
-  const values = new Array(buckets).fill(0);
+  const values = Array.from({ length: buckets }, () => 0);
   for (const row of rows) {
     const index = Math.min(buckets - 1, Math.max(0, Math.floor((row.ts - from) / step)));
     values[index] += metricValue(row, metric);
@@ -912,8 +918,10 @@ export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, 
     const key = bucketStart(row.ts, bucket);
     const entry = buckets.get(key);
     if (!entry) continue;
-    entry.read += row.cacheReadTokens;
-    entry.input += row.inputTokens;
+    if (row.cacheProvenance === "observed") {
+      entry.read += row.cacheReadTokens;
+      entry.input += row.inputTokens;
+    }
     if (row.rateIn !== null && row.rateCacheRead !== null) {
       entry.savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
     }
@@ -933,7 +941,7 @@ export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, 
 export function contextPressure(rows: RequestRow[]): { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null } {
   const edges = [0, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 512_000, Infinity];
   const labels = ["<8k", "8-16k", "16-32k", "32-64k", "64-128k", "128-256k", "256-512k", "512k+"];
-  const counts = new Array(labels.length).fill(0);
+  const counts = Array.from({ length: labels.length }, () => 0);
   const inputs: number[] = [];
   for (const row of rows) {
     inputs.push(row.inputTokens);
