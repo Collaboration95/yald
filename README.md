@@ -23,12 +23,14 @@ Regenerate captures with `./scripts/screenshots.sh` (requires Chrome or Chromium
 ## Quick start
 
 ```bash
-./scripts/serve.sh          # build the web app, then serve API + UI on one port
+make install  # install workspace dependencies
+make run      # build the web app, then serve API + UI on one port
 # → http://127.0.0.1:4318
-
-./scripts/dev.sh            # API on :4318 + Vite HMR on :5317 (proxies /api)
-./scripts/smoke.sh          # render every page against your real ledgers
 ```
+
+Run `make` or `make help` to see the available commands. `make dev` starts the API with Vite HMR; `make test`, `make lint`,
+`make typecheck`, `make build`, and `make smoke` run the matching checks. `make check` runs the full local verification set.
+These Make targets are for a repository checkout; the npm install command below works without Make or a source clone.
 
 The scripts resolve a Bun runtime on their own: `BUN_BIN`, then `bun` on `PATH`, then the runtime bundled inside the
 opencodex npm package. Nothing else needs installing beyond `bun install` for dependencies.
@@ -120,10 +122,13 @@ while visible; ETags make unchanged polls cheap, and the Refresh button forces a
 ## Verification
 
 ```bash
-./scripts/smoke.sh                 # server-renders every page against your real ledgers
-./scripts/smoke.sh --fixtures      # same, against a generated synthetic ledger
-bun run typecheck                  # web + server TypeScript
-bun run build                      # production web bundle
+make test
+make lint
+make typecheck
+make build
+make smoke                         # synthetic ledger fixtures
+make screenshots                   # requires Chrome or Chromium
+make check                         # typecheck, lint, test, build, and smoke
 ```
 
 The smoke test fails if a page throws, if an expected section is missing, if the HTML contains `NaN`, `Invalid Date`,
