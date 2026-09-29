@@ -510,12 +510,27 @@ export function costComposition(rows: RequestRow[]): {
   };
 }
 
-export function heatmap(rows: RequestRow[], metric: Metric = "tokens"): { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number } {
+const calendarFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function calendarParts(ts: number, timeZone: string): { date: string; weekday: number; hour: number } {
+  let formatter = calendarFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", hourCycle: "h23",
+    });
+    calendarFormatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(ts);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? "00";
+  const weekdays: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, weekday: weekdays[get("weekday")] ?? 0, hour: Number(get("hour")) };
+}
+
+export function heatmap(rows: RequestRow[], metric: Metric = "tokens", timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone): { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number } {
   const grid = new Map<string, { value: number; requests: number }>();
   for (const row of rows) {
-    const d = new Date(row.ts);
-    const weekday = (d.getDay() + 6) % 7;
-    const key = `${weekday}:${d.getHours()}`;
+    const { weekday, hour } = calendarParts(row.ts, timeZone);
+    const key = `${weekday}:${hour}`;
     const cell = grid.get(key) ?? { value: 0, requests: 0 };
     cell.value += metricValue(row, metric);
     cell.requests += 1;
@@ -531,6 +546,42 @@ export function heatmap(rows: RequestRow[], metric: Metric = "tokens"): { cells:
     }
   }
   return { cells, max: round(max, 4) };
+}
+
+export interface HeatmapDateBreakdown {
+  weekday: number;
+  hour: number;
+  metric: Metric;
+  total: number;
+  dates: { date: string; value: number; requests: number }[];
+  totalDates: number;
+  hasMore: boolean;
+  limit: number;
+  offset: number;
+}
+
+/** Ranked local calendar dates for one weekday/hour cell. */
+export function heatmapDateBreakdown(
+  rows: RequestRow[], options: { weekday: number; hour: number; metric: Metric; timeZone: string; limit?: number; offset?: number },
+): HeatmapDateBreakdown {
+  const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 20)));
+  const offset = Math.max(0, Math.floor(options.offset ?? 0));
+  const byDate = new Map<string, { value: number; requests: number }>();
+  let total = 0;
+  for (const row of rows) {
+    const local = calendarParts(row.ts, options.timeZone);
+    if (local.weekday !== options.weekday || local.hour !== options.hour) continue;
+    const value = metricValue(row, options.metric);
+    total += value;
+    const current = byDate.get(local.date) ?? { value: 0, requests: 0 };
+    current.value += value;
+    current.requests++;
+    byDate.set(local.date, current);
+  }
+  const ranked = [...byDate.entries()].map(([date, value]) => ({ date, value: round(value.value, 4), requests: value.requests }))
+    .sort((a, b) => b.value - a.value || b.date.localeCompare(a.date));
+  const dates = ranked.slice(offset, offset + limit);
+  return { weekday: options.weekday, hour: options.hour, metric: options.metric, total: round(total, 4), dates, totalDates: ranked.length, hasMore: offset + dates.length < ranked.length, limit, offset };
 }
 
 export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number): {

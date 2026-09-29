@@ -97,6 +97,40 @@ test("analytics exports cover bucketing, filters, summaries, and view aggregates
   expect(analytics.bucketStart(nextDay, "day") - analytics.bucketStart(now, "day")).toBe(23 * 60 * 60 * 1000);
 });
 
+test("heatmap date detail ranks actual local dates across range boundaries and DST", () => {
+  // New York jumps over 02:00 in spring and repeats 01:00 in fall.
+  const samples = [
+    row({ id: "before-midnight", ts: new Date("2026-03-08T04:59:59Z").getTime(), totalTokens: 9 }),
+    row({ id: "sunday-1", ts: new Date("2026-03-08T06:30:00Z").getTime(), totalTokens: 30 }),
+    row({ id: "sunday-3", ts: new Date("2026-03-08T07:30:00Z").getTime(), totalTokens: 500 }),
+    row({ id: "next-sunday", ts: new Date("2026-03-15T05:30:00Z").getTime(), totalTokens: 10 }),
+  ];
+  const tokens = analytics.heatmapDateBreakdown(samples, { weekday: 6, hour: 1, metric: "tokens", timeZone: "America/New_York", limit: 1 });
+  expect(tokens.total).toBe(40);
+  expect(tokens.totalDates).toBe(2);
+  expect(tokens.dates).toEqual([{ date: "2026-03-08", value: 30, requests: 1 }]);
+  expect(tokens.hasMore).toBe(true);
+  const requests = analytics.heatmapDateBreakdown(samples, { weekday: 6, hour: 1, metric: "requests", timeZone: "America/New_York" });
+  expect(requests.dates).toEqual([
+    { date: "2026-03-15", value: 1, requests: 1 },
+    { date: "2026-03-08", value: 1, requests: 1 },
+  ]);
+  expect(analytics.heatmap(samples, "tokens", "America/New_York").cells.find(cell => cell.weekday === 6 && cell.hour === 1)?.value).toBe(40);
+  expect(analytics.heatmapDateBreakdown([], { weekday: 6, hour: 1, metric: "tokens", timeZone: "America/New_York" })).toMatchObject({ total: 0, dates: [], totalDates: 0, hasMore: false });
+
+  const fallBack = [
+    row({ id: "fall-before-midnight", ts: new Date("2026-11-01T03:59:59Z").getTime(), totalTokens: 7 }),
+    row({ id: "fall-first-one", ts: new Date("2026-11-01T05:30:00Z").getTime(), totalTokens: 11 }),
+    row({ id: "fall-second-one", ts: new Date("2026-11-01T06:30:00Z").getTime(), totalTokens: 13 }),
+    row({ id: "fall-after-midnight", ts: new Date("2026-11-02T05:00:00Z").getTime(), totalTokens: 17 }),
+  ];
+  const repeatedHour = analytics.heatmapDateBreakdown(fallBack, { weekday: 6, hour: 1, metric: "tokens", timeZone: "America/New_York" });
+  expect(repeatedHour.total).toBe(24);
+  expect(repeatedHour.dates).toEqual([{ date: "2026-11-01", value: 24, requests: 2 }]);
+  expect(analytics.heatmapDateBreakdown(fallBack, { weekday: 5, hour: 23, metric: "tokens", timeZone: "America/New_York" }).dates)
+    .toEqual([{ date: "2026-10-31", value: 7, requests: 1 }]);
+});
+
 test("API routes return their documented payloads and range-scoped quota and ledger", async () => {
   const home = await mkdtemp(join(tmpdir(), "yald-api-test-"));
   const usage = rows.map((r, i) => ({ requestId: r.id, timestamp: r.ts, provider: r.provider, model: r.model, requestedModel: r.requestedModel, effectiveEffort: r.effort, status: r.status, durationMs: r.durationMs, firstOutputMs: r.ttftMs, usageStatus: r.usageStatus, usage: { inputTokens: r.inputTokens, outputTokens: r.outputTokens, totalTokens: r.totalTokens, cacheReadInputTokens: r.cacheReadTokens, cachedInputTokens: r.cacheWriteTokens, reasoningOutputTokens: r.reasoningTokens }, totalTokens: r.totalTokens, cacheProvenance: r.cacheProvenance, conversationId: r.conversationId, attempts: [], routeDecision: { selected: { provider: r.provider, model: r.model } }, errorCode: r.errorCode, spend: { sends: 1, settled: 1 }, _i: i }));
@@ -108,6 +142,7 @@ test("API routes return their documented payloads and range-scoped quota and led
   const paths: [string, string][] = [
     ["/api/health", "revision"], ["/api/meta", "totals"], ["/api/overview?range=7d", "summary"],
     ["/api/timeseries?range=7d", "series"], ["/api/models?range=7d", "scatter"], ["/api/usage?range=7d", "composition"],
+    ["/api/usage/heatmap-dates?range=all&weekday=6&hour=12&metric=tokens", "dates"],
     ["/api/cost?range=7d", "cumulative"], ["/api/performance?range=7d", "percentiles"], ["/api/reliability?range=7d", "metering"],
     ["/api/quota?range=7d", "burn"], ["/api/ledger?range=7d", "buckets"], ["/api/conversations?range=7d", "conversations"],
     ["/api/conversations/c1", "points"], ["/api/filters?range=7d", "providers"],
@@ -131,4 +166,6 @@ test("API routes return their documented payloads and range-scoped quota and led
   expect(ledger.distinctSends).toBe(1);
   expect((await api.request("/api/export?range=7d")).headers.get("content-type")).toContain("text/csv");
   expect((await api.request("/api/conversations/missing")).status).toBe(404);
+  const invalidHeatmapDate = await api.request("/api/usage/heatmap-dates?weekday=7&hour=24");
+  expect(invalidHeatmapDate.status).toBe(400);
 });

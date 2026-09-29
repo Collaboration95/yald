@@ -13,6 +13,7 @@ import {
   costComposition,
   filterRows,
   heatmap,
+  heatmapDateBreakdown,
   latencyTimeline,
   outcome,
   percentile,
@@ -322,13 +323,31 @@ api.get("/api/usage", async c => {
     composition,
     cache: cacheTimeline(rows, query.bucket, query.from, query.to),
     series: buildSeries(rows, { bucket: query.bucket, metric: query.metric, groupBy: query.groupBy, from: query.from, to: query.to, limit: 8 }),
-    heatmap: heatmap(rows, query.metric),
+    heatmap: heatmap(rows, query.metric, TIME_ZONE),
     context: contextPressure(rows),
     byModel: breakdown(rows, row => row.model),
     byProvider: breakdown(rows, row => row.provider),
     byEffort: breakdown(rows, row => row.effort ?? "unknown"),
     byRoute: breakdown(rows, row => row.routeKind ?? "unrouted"),
   });
+});
+
+api.get("/api/usage/heatmap-dates", async c => {
+  const dataset = await getDataset();
+  const params = c.req.query();
+  const weekday = numberParam(params.weekday);
+  const hour = numberParam(params.hour);
+  if (weekday === undefined || !Number.isInteger(weekday) || weekday < 0 || weekday > 6
+    || hour === undefined || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+    return c.json({ ok: false, error: "weekday must be 0–6 and hour must be 0–23" }, 400);
+  }
+  const query = parseQuery(params, dataset);
+  const metric = params.metric === "requests" ? "requests" : "tokens";
+  const breakdown = heatmapDateBreakdown(filterRows(dataset.rows, query.filter), {
+    weekday, hour, metric, timeZone: TIME_ZONE,
+    limit: numberParam(params.limit), offset: numberParam(params.offset),
+  });
+  return c.json({ ok: true, window: { from: query.from, to: query.to, range: query.range, timeZone: TIME_ZONE }, ...breakdown });
 });
 
 api.get("/api/cost", async c => {
