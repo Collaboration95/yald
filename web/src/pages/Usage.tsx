@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
@@ -6,13 +6,43 @@ import { Card, CardHeader, Segmented, Stat, StateBlock, TableShell, Td, Th } fro
 import { Chart } from "../components/Chart";
 import { barChart, heatmapChart, lineChart, stackedAreaChart } from "../components/chartOptions";
 import { formatCompact, formatDuration, formatPercent } from "../lib/format";
-import type { UsageResponse } from "../types";
+import type { UsageHeatmapDatesResponse, UsageResponse } from "../types";
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const DETAIL_PAGE_SIZE = 20;
+type HeatmapSelection = { weekday: number; hour: number; filterKey: string; metric: "tokens" | "requests" };
+
+function formatLocalDate(timestamp: number, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(timestamp);
+}
 
 export function UsagePage() {
   const { filters, set } = useFilters();
   const { chartTheme } = useTheme();
   const query = useEndpoint<UsageResponse>("/api/usage", filters, { metric: filters.metric, groupBy: filters.groupBy });
+  const tokenHeatmapQuery = useEndpoint<UsageResponse>("/api/usage", filters, { metric: "tokens", groupBy: filters.groupBy });
   const data = query.data;
+  const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
+  const [minimumActivity, setMinimumActivity] = useState(0);
+  const filterKey = JSON.stringify([filters.range, filters.providers, filters.models, filters.efforts, filters.statuses, filters.metric, filters.groupBy, filters.bucket, filters.search]);
+  useEffect(() => setMinimumActivity(0), [heatmapMetric, filterKey]);
+  const [selection, setSelection] = useState<HeatmapSelection | null>(null);
+  const [detailOffset, setDetailOffset] = useState(0);
+  const [detailRows, setDetailRows] = useState<UsageHeatmapDatesResponse["dates"]>([]);
+  const activeSelection = selection?.filterKey === filterKey && selection.metric === heatmapMetric ? selection : null;
+  const detailQuery = useEndpoint<UsageHeatmapDatesResponse>("/api/usage/heatmap-dates", filters, {
+    weekday: activeSelection?.weekday, hour: activeSelection?.hour, metric: heatmapMetric, limit: DETAIL_PAGE_SIZE, offset: detailOffset,
+  }, { enabled: Boolean(activeSelection), refetchInterval: false });
+  useEffect(() => {
+    setSelection(current => current && current.filterKey === filterKey && current.metric === heatmapMetric ? current : null);
+    setDetailOffset(0);
+    setDetailRows([]);
+  }, [filterKey, heatmapMetric]);
+  useEffect(() => {
+    const result = detailQuery.data;
+    if (!result || !activeSelection || result.weekday !== activeSelection.weekday || result.hour !== activeSelection.hour || result.metric !== heatmapMetric) return;
+    setDetailRows(current => detailOffset === 0 ? result.dates : current.length === detailOffset ? [...current, ...result.dates] : current);
+  }, [detailQuery.data, detailOffset, activeSelection, heatmapMetric]);
 
   const compositionOption = useMemo(() => {
     if (!data) return null;
@@ -44,10 +74,33 @@ export function UsagePage() {
     ], { formatter: value => value.toFixed(value < 10 ? 2 : 0) });
   }, [data, chartTheme]);
 
+  const heatmap = tokenHeatmapQuery.data?.heatmap;
+  const heatmapCells = useMemo(() => heatmap?.cells.map(cell => ({
+    ...cell,
+    value: heatmapMetric === "tokens" ? cell.value : cell.requests,
+  })) ?? [], [heatmap, heatmapMetric]);
+  const heatmapMax = heatmapCells.reduce((max, cell) => Math.max(max, cell.value), 0);
+  const matchingCells = heatmapCells.filter(cell => cell.value >= minimumActivity && (heatmapMax > 0 || cell.value > 0)).length;
+  const heatmapUnit = heatmapMetric === "tokens" ? "tokens" : "requests";
   const heatmapOption = useMemo(() => {
-    if (!data) return null;
-    return heatmapChart(chartTheme, data.heatmap.cells, data.heatmap.max, { formatter: value => formatCompact(value) });
-  }, [data, chartTheme]);
+    if (!heatmap) return null;
+    return heatmapChart(chartTheme, heatmapCells, heatmapMax, {
+      formatter: value => formatCompact(value), unit: heatmapUnit, minimum: minimumActivity,
+    });
+  }, [heatmap, heatmapCells, heatmapMax, chartTheme, heatmapUnit, minimumActivity]);
+  const chooseCell = (weekday: number, hour: number) => {
+    setSelection({ weekday, hour, filterKey, metric: heatmapMetric });
+    setDetailOffset(0);
+    setDetailRows([]);
+  };
+  const heatmapEvents = useMemo(() => ({
+    click: (raw: unknown) => {
+      const params = raw as { dataIndex?: number };
+      const cell = typeof params.dataIndex === "number" ? heatmapCells[params.dataIndex] : undefined;
+      if (cell) chooseCell(cell.weekday, cell.hour);
+    },
+  }), [heatmapCells, filterKey, heatmapMetric]);
+  const keyboardCell = activeSelection ? activeSelection.weekday * 24 + activeSelection.hour : 0;
 
   const contextOption = useMemo(() => {
     if (!data) return null;
@@ -125,10 +178,69 @@ export function UsagePage() {
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHeader title="Activity heatmap" subtitle="When the tokens actually flow" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {heatmapOption ? <Chart option={heatmapOption} height={230} /> : null}
+          <CardHeader className="flex-col sm:flex-row" title="Activity heatmap" subtitle="Local weekday and hour activity" action={
+            <Segmented size="sm" value={heatmapMetric} options={[{ id: "tokens", label: "Tokens" }, { id: "requests", label: "Requests" }]} onChange={setHeatmapMetric} />
+          } />
+          <StateBlock loading={tokenHeatmapQuery.isLoading} error={tokenHeatmapQuery.error} empty={!heatmap}>
+            {heatmapOption ? <>
+              <div className="mb-2 grid gap-2 sm:grid-cols-[minmax(160px,1fr)_auto] sm:items-center">
+                <label className="min-w-0 text-[11.5px] text-muted">
+                  <span className="mb-1 flex flex-wrap items-center justify-between gap-x-2">
+                    <span>Minimum activity</span>
+                    <span className="num font-medium text-ink" aria-live="polite">At least {formatCompact(minimumActivity)} {heatmapUnit} · {matchingCells} of 168 cells</span>
+                  </span>
+                  <input
+                    aria-label={`Minimum activity in ${heatmapUnit}`}
+                    type="range" min={0} max={heatmapMax} step={1}
+                    value={Math.min(minimumActivity, heatmapMax)} disabled={heatmapMax === 0}
+                    onChange={event => setMinimumActivity(Number(event.currentTarget.value))}
+                    className="w-full accent-blue-600 disabled:opacity-50"
+                  />
+                </label>
+                <div className="flex items-center gap-2 text-[10px] text-muted" aria-label={`${heatmapUnit} scale from 0 to ${formatCompact(heatmapMax)}`}>
+                  <span>0</span><span className="h-2 w-20 rounded-full" style={{ background: chartTheme.split === "#1e293b" ? "linear-gradient(90deg, #132033, #1d4ed8, #22c55e, #fbbf24)" : "linear-gradient(90deg, #eef1f5, #bfdbfe, #4ade80, #facc15)" }} /><span>{formatCompact(heatmapMax)} {heatmapUnit}</span>
+                </div>
+              </div>
+              {heatmapMax > 0
+                ? <>
+                  <Chart option={heatmapOption} height={230} onEvents={heatmapEvents} />
+                  <div role="group" aria-label={`Activity heatmap cells by weekday and hour, values in ${heatmapUnit}`} className="sr-only overflow-hidden focus-within:not-sr-only focus-within:fixed focus-within:inset-x-4 focus-within:bottom-4 focus-within:z-50 focus-within:w-[calc(100vw-2rem)] focus-within:max-h-56 focus-within:flex focus-within:flex-col focus-within:overflow-x-hidden focus-within:overflow-y-auto focus-within:rounded-lg focus-within:border focus-within:border-line focus-within:bg-surface focus-within:p-2 focus-within:shadow-lg" onKeyDown={event => {
+                    const moves: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 24, ArrowUp: -24 };
+                    if (event.key in moves) {
+                      event.preventDefault();
+                      const next = Math.max(0, Math.min(167, keyboardCell + moves[event.key]));
+                      chooseCell(Math.floor(next / 24), next % 24);
+                      document.getElementById(`heatmap-cell-${next}`)?.focus();
+                    }
+                  }}>
+                    {heatmapCells.map(cell => {
+                      const index = cell.weekday * 24 + cell.hour;
+                      return <button id={`heatmap-cell-${index}`} key={index} tabIndex={keyboardCell === index ? 0 : -1}
+                        aria-label={`${WEEKDAYS[cell.weekday]} at ${String(cell.hour).padStart(2, "0")}:00, ${formatCompact(cell.value)} ${heatmapUnit}, ${cell.requests} requests`}
+                        className="w-full shrink-0 rounded px-2 py-1 text-left text-[11px] text-ink hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                        onClick={() => chooseCell(cell.weekday, cell.hour)}>{WEEKDAYS[cell.weekday]} {cell.hour}:00</button>;
+                    })}
+                  </div>
+                  </>
+                : <p className="flex h-[120px] items-center justify-center text-[12px] text-muted">No activity for these filters</p>}
+            </> : null}
           </StateBlock>
+          {activeSelection ? <section className="mt-3 border-t border-line pt-3" aria-live="polite" aria-label="Selected heatmap cell dates">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div><h3 className="text-[13px] font-semibold text-ink">{WEEKDAYS[activeSelection.weekday]} at {String(activeSelection.hour).padStart(2, "0")}:00 · {detailQuery.data ? `${formatLocalDate(detailQuery.data.window.from, detailQuery.data.window.timeZone)} – ${formatLocalDate(detailQuery.data.window.to, detailQuery.data.window.timeZone)} (${detailQuery.data.window.timeZone})` : filters.range}</h3><p className="text-[11px] text-muted">Ranked dates by {heatmapUnit}</p></div>
+              <button type="button" className="rounded px-2 py-1 text-[11px] text-muted hover:bg-surface-2 hover:text-ink" onClick={() => { setSelection(null); setDetailRows([]); setDetailOffset(0); }}>Clear selection</button>
+            </div>
+            {detailQuery.isLoading && detailOffset === 0 ? <p className="py-4 text-center text-[12px] text-muted">Loading dates…</p> : null}
+            {detailQuery.error ? <div className="py-3 text-center text-[12px] text-danger">Could not load dates. <button className="underline" onClick={() => void detailQuery.refetch()}>Try again</button></div> : null}
+            {!detailQuery.isLoading && !detailQuery.error && detailQuery.data?.totalDates === 0 ? <p className="py-4 text-center text-[12px] text-muted">No dates with activity in this cell.</p> : null}
+            {detailRows.length > 0 ? <>
+              <div className="mb-2 flex justify-between text-[11px] text-muted"><span>{formatCompact(detailQuery.data?.total ?? 0)} {heatmapUnit} total</span><span>{detailRows.length} of {detailQuery.data?.totalDates ?? detailRows.length} dates</span></div>
+              <div className="max-h-56 overflow-y-auto rounded border border-line"><table className="w-full text-[11px]"><thead className="sticky top-0 bg-surface text-muted"><tr><Th>Date</Th><Th align="right">{heatmapUnit}</Th><Th align="right">Requests</Th></tr></thead><tbody>
+                {detailRows.map(row => <tr key={row.date} className="border-t border-line"><Td>{row.date}</Td><Td align="right">{formatCompact(row.value)}</Td><Td align="right">{row.requests.toLocaleString()}</Td></tr>)}
+              </tbody></table></div>
+              {detailQuery.data?.hasMore ? <button type="button" disabled={detailQuery.isFetching} className="mt-2 w-full rounded border border-line px-3 py-1.5 text-[11px] text-ink disabled:opacity-50" onClick={() => setDetailOffset(detailRows.length)}>{detailQuery.isFetching ? "Loading…" : "Reveal more dates"}</button> : null}
+            </> : null}
+          </section> : null}
         </Card>
         <Card>
           <CardHeader title="Context pressure" subtitle="Input tokens per request" />

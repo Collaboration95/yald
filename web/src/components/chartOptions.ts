@@ -217,7 +217,7 @@ export function heatmapChart(
   theme: ThemeTokens,
   cells: { weekday: number; hour: number; value: number; requests: number }[],
   max: number,
-  options: { formatter?: (value: number) => string } = {},
+  options: { formatter?: (value: number) => string; unit?: string; minimum?: number } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -233,7 +233,7 @@ export function heatmapChart(
       formatter: (params: { dataIndex: number }) => {
         const cell = cells[params.dataIndex];
         if (!cell) return "";
-        return `${weekdays[cell.weekday]} ${hours[cell.hour]}:00<br/><b>${formatter(cell.value)}</b><br/>${cell.requests.toLocaleString()} requests`;
+        return `${weekdays[cell.weekday]} ${hours[cell.hour]}:00<br/><b>${formatter(cell.value)} ${options.unit ?? ""}</b><br/>${cell.requests.toLocaleString()} requests`;
       },
     },
     xAxis: { type: "category", data: hours, axisLine: axis.axisLine, axisTick: axis.axisTick, axisLabel: { color: theme.axis, fontSize: 10, interval: 1 }, splitLine: { show: false } },
@@ -246,7 +246,10 @@ export function heatmapChart(
     },
     series: [{
       type: "heatmap",
-      data: cells.map(cell => [cell.hour, cell.weekday, cell.value]),
+      data: cells.map(cell => ({
+        value: [cell.hour, cell.weekday, cell.value],
+        ...(options.minimum !== undefined && cell.value < options.minimum ? { itemStyle: { opacity: 0.2 } } : {}),
+      })),
       itemStyle: { borderColor: "transparent", borderWidth: 2, borderRadius: 3 },
       emphasis: { itemStyle: { borderColor: theme.text, borderWidth: 1 } },
     }],

@@ -183,7 +183,7 @@ export function Layout() {
             </div>
           </div>
         </header>
-        <main className="min-w-0 flex-1 px-4 pb-10 pt-4">
+        <main className="min-w-0 flex-1 overflow-x-clip px-4 pb-10 pt-4">
           <Outlet />
         </main>
       </div>
