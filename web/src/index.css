@@ -86,6 +86,70 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.heatmap-slider {
+  appearance: none;
+  height: 42px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.heatmap-slider:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+.heatmap-slider:disabled {
+  cursor: not-allowed;
+}
+
+.heatmap-slider::-webkit-slider-runnable-track {
+  height: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.heatmap-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 28px;
+  height: 40px;
+  margin-top: -18px;
+  border: 2px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+}
+
+.heatmap-slider::-moz-range-track {
+  height: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.heatmap-slider::-moz-range-progress {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+.heatmap-slider::-moz-range-thumb {
+  width: 24px;
+  height: 36px;
+  border: 2px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+}
+
+.heatmap-slider:disabled::-webkit-slider-thumb,
+.heatmap-slider:disabled::-moz-range-thumb {
+  opacity: 0.45;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);

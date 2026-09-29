@@ -191,10 +191,10 @@ export function UsagePage() {
                   </span>
                   <input
                     aria-label={`Minimum activity in ${heatmapUnit}`}
-                    type="range" min={0} max={heatmapMax} step={1}
+                    type="range" min={0} max={heatmapMax} step={Math.max(1, Math.floor(heatmapMax / 100))}
                     value={Math.min(minimumActivity, heatmapMax)} disabled={heatmapMax === 0}
                     onChange={event => setMinimumActivity(Number(event.currentTarget.value))}
-                    className="w-full accent-blue-600 disabled:opacity-50"
+                    className="heatmap-slider w-full disabled:opacity-50"
                   />
                 </label>
                 <div className="flex items-center gap-2 text-[10px] text-muted" aria-label={`${heatmapUnit} scale from 0 to ${formatCompact(heatmapMax)}`}>

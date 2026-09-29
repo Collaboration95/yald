@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Activity, CircleDollarSign, Flame, Gauge, Layers, Timer, TrendingUp, Zap } from "lucide-react";
 import { useEndpoint } from "../api";
@@ -16,6 +16,10 @@ export function OverviewPage() {
   const { chartTheme } = useTheme();
   const { search } = useLocation();
   const [metric, setMetric] = useState<"tokens" | "cost" | "requests">("tokens");
+  const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
+  const [minimumActivity, setMinimumActivity] = useState(0);
+  const heatmapFilterKey = JSON.stringify([filters.range, filters.providers, filters.models, filters.efforts, filters.statuses, filters.metric, filters.groupBy, filters.bucket, filters.search]);
+  useEffect(() => setMinimumActivity(0), [heatmapMetric, heatmapFilterKey]);
 
   const query = useEndpoint<OverviewResponse>("/api/overview", filters, { metric: filters.metric });
   const data = query.data;
@@ -48,10 +52,19 @@ export function OverviewPage() {
     });
   }, [data, chartTheme]);
 
+  const heatmapCells = useMemo(() => data?.heatmap.cells.map(cell => ({
+    ...cell,
+    value: heatmapMetric === "tokens" ? cell.value : cell.requests,
+  })) ?? [], [data, heatmapMetric]);
+  const heatmapMax = heatmapCells.reduce((max, cell) => Math.max(max, cell.value), 0);
+  const heatmapUnit = heatmapMetric === "tokens" ? "tokens" : "requests";
+  const matchingHeatmapCells = heatmapCells.filter(cell => cell.value >= minimumActivity && (heatmapMax > 0 || cell.value > 0)).length;
   const heatmapOption = useMemo(() => {
     if (!data) return null;
-    return heatmapChart(chartTheme, data.heatmap.cells, data.heatmap.max, { formatter: value => formatCompact(value) });
-  }, [data, chartTheme]);
+    return heatmapChart(chartTheme, heatmapCells, heatmapMax, {
+      formatter: value => formatCompact(value), unit: heatmapUnit, minimum: minimumActivity,
+    });
+  }, [data, chartTheme, heatmapCells, heatmapMax, heatmapUnit, minimumActivity]);
 
   const contextOption = useMemo(() => {
     if (!data) return null;
@@ -231,14 +244,29 @@ export function OverviewPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Activity heatmap" subtitle="Tokens by weekday and hour (local time)" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.heatmap.max === 0}>
+          <CardHeader title="Activity heatmap" subtitle={`${heatmapMetric === "tokens" ? "Tokens" : "Requests"} by weekday and hour (local time)`} action={
+            <Segmented size="sm" value={heatmapMetric} options={[{ id: "tokens", label: "Tokens" }, { id: "requests", label: "Requests" }]} onChange={value => { setHeatmapMetric(value); setMinimumActivity(0); }} />
+          } />
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || heatmapMax === 0}>
+            <label className="mb-1 block text-[10.5px] text-muted">
+              <span className="mb-0.5 flex flex-wrap items-center justify-between gap-x-2">
+                <span>Minimum activity</span>
+                <span className="num font-medium text-ink" aria-live="polite">At least {formatCompact(minimumActivity)} {heatmapUnit} · {matchingHeatmapCells} of 168 cells</span>
+              </span>
+              <input
+                aria-label={`Minimum activity in ${heatmapUnit}`}
+                type="range" min={0} max={heatmapMax} step={Math.max(1, Math.floor(heatmapMax / 100))}
+                value={Math.min(minimumActivity, heatmapMax)} disabled={heatmapMax === 0}
+                onChange={event => setMinimumActivity(Number(event.currentTarget.value))}
+                className="heatmap-slider w-full disabled:opacity-50"
+              />
+            </label>
             {heatmapOption ? <Chart option={heatmapOption} height={196} /> : null}
           </StateBlock>
           <div className="mt-2 flex items-center justify-between text-[10.5px] text-muted">
             <span>quiet</span>
             <span className="mx-2 h-1.5 flex-1 rounded-full bg-gradient-to-r from-line to-accent" />
-            <span>{formatCompact(data?.heatmap.max ?? 0)} peak</span>
+            <span>{formatCompact(heatmapMax)} {heatmapUnit} peak</span>
           </div>
         </Card>
 
