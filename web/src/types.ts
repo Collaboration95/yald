@@ -351,6 +351,20 @@ export interface UsageResponse {
   byRoute: BreakdownRow[];
 }
 
+export interface UsageHeatmapDatesResponse {
+  ok: boolean;
+  window: { from: number; to: number; range: string; timeZone: string };
+  weekday: number;
+  hour: number;
+  metric: "tokens" | "requests";
+  total: number;
+  dates: { date: string; value: number; requests: number }[];
+  totalDates: number;
+  hasMore: boolean;
+  limit: number;
+  offset: number;
+}
+
 export interface CostResponse {
   ok: boolean;
   window: { from: number; to: number; bucket: "hour" | "day" | "week" };

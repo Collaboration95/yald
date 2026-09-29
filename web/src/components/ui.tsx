@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, ChevronDown, Loader2 } from "lucide-react";
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
-  return <section className={clsx("card", padded && "p-4", className)}>{children}</section>;
+  return <section className={clsx("card min-w-0", padded && "p-4", className)}>{children}</section>;
 }
 
 export function CardHeader({ title, subtitle, action, className }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode; className?: string }) {
@@ -235,7 +235,7 @@ export function StateBlock({ loading, error, empty, children, emptyLabel = "No d
 }
 
 export function TableShell({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={clsx("-mx-4 overflow-x-auto px-4", className)}><table className="w-full min-w-[560px] border-collapse text-[11.5px]">{children}</table></div>;
+  return <div className={clsx("-mx-4 min-w-0 max-w-[calc(100vw-2rem)] overflow-x-auto px-4", className)}><table className="w-full min-w-[560px] border-collapse text-[11.5px]">{children}</table></div>;
 }
 
 export function Th({ children, align = "left", className, onClick, active, asc }: { children: ReactNode; align?: "left" | "right" | "center"; className?: string; onClick?: () => void; active?: boolean; asc?: boolean }) {

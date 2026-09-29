@@ -1,11 +1,13 @@
 # Launch drafts for maintainer review
 
+Hero image for the launch materials: [Overview dashboard](screenshots/overview.png).
+
 ## opencodex community note (Discussion or issue)
 
-I built yald, a read-only dashboard for opencodex usage, cost, performance, reliability, quota, and conversation data. It reads the existing ledgers and reuses opencodex's pricing engine. The project is at https://github.com/Collaboration95/yald. Feedback on useful views and metric definitions is welcome.
+I built yald, a read-only local dashboard for opencodex usage, cost, performance, reliability, quota, and conversation data. It reads the existing usage ledger and reuses opencodex's pricing engine. The project is at https://github.com/Collaboration95/yald. I’d welcome feedback on useful views and metric definitions.
 
 ## Launch post
 
-Introducing yald: an analytics dashboard for opencodex. It turns the usage, spend, and quota ledgers into eight views covering token composition, estimated cost, latency, reliability, quota burn, model comparisons, and conversation drill-downs. It is read-only, runs locally, and uses opencodex's own pricing engine. Install with `npx -p yald-dashboard yald` or see https://github.com/Collaboration95/yald.
+Introducing yald, a read-only local analytics dashboard for opencodex. Its eight views cover token composition, estimated cost, latency, reliability, quota burn, model comparisons, and conversation drill-downs. Cost estimates use opencodex’s pricing engine. Start it with `npx -p yald-dashboard yald --open`; installation details and the overview screenshot are in the project README: https://github.com/Collaboration95/yald.
 
-Suggested hero: `docs/screenshots/overview.png`. Install example: `npx -p yald-dashboard yald`. These drafts are not posted.
+These drafts are for maintainer review and have not been posted.
