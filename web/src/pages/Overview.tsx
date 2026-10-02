@@ -309,7 +309,7 @@ export function OverviewPage() {
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHeader title="Recent requests" subtitle="Newest rows in the ledger" />
+          <CardHeader title="Recent requests" subtitle="Your latest requests" />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.recent.length === 0}>
             <TableShell>
               <thead>
@@ -402,7 +402,7 @@ export function OverviewPage() {
       </div>
 
       <p className="px-1 text-[10.5px] text-muted">
-        Source: <span className="font-mono">usage.jsonl</span>, <span className="font-mono">spend-ledger.jsonl</span> and <span className="font-mono">codex-quota-cache.json</span>
+        Source: request history, send accounting and quota snapshots
         {query.dataUpdatedAt ? ` · recomputed ${formatRelative(query.dataUpdatedAt)}` : ""}
       </p>
     </div>
