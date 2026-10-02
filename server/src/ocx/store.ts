@@ -1,6 +1,6 @@
 import { stat, readFile } from "node:fs/promises";
 import { PATHS } from "../env";
-import { loadPricing, priceEntry } from "./pricing";
+import { loadPricing, priceEntry, pricingGeneration } from "./pricing";
 
 export interface RequestRow {
   id: string;
@@ -268,10 +268,20 @@ function normalizeLedger(events: SpendEvent[]): Dataset["ledger"] {
   return { events, byKind, settledTokens, updatedAt: updatedAt || null };
 }
 
-async function fileInfo(path: string): Promise<{ bytes: number; mtimeMs: number } | null> {
+interface FileInfo {
+  bytes: number;
+  mtimeMs: number;
+  fingerprint: string;
+}
+
+async function fileInfo(path: string): Promise<FileInfo | null> {
   try {
-    const info = await stat(path);
-    return { bytes: info.size, mtimeMs: info.mtimeMs };
+    const info = await stat(path, { bigint: true });
+    return {
+      bytes: Number(info.size),
+      mtimeMs: Number(info.mtimeNs / 1_000_000n) + Number(info.mtimeNs % 1_000_000n) / 1_000_000,
+      fingerprint: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`,
+    };
   } catch {
     return null;
   }
@@ -325,54 +335,125 @@ let dataset: Dataset | null = null;
 let inFlight: Promise<Dataset> | null = null;
 let signature = "";
 
-async function currentSignature(): Promise<string> {
+type Usage = Awaited<ReturnType<typeof parseUsage>>;
+interface Snapshot<T> {
+  readonly fingerprint: string;
+  readonly value: T;
+}
+
+let usageSnapshot: (Snapshot<Usage> & { readonly generation: string | null }) | null = null;
+let spendSnapshot: Snapshot<Dataset["ledger"]> | null = null;
+let quotaSnapshot: Snapshot<Dataset["quota"]> | null = null;
+
+function fingerprint(info: FileInfo | null): string {
+  return info?.fingerprint ?? "-";
+}
+
+function disappearedDuringRead(error: unknown): boolean {
+  return error !== null && typeof error === "object" && "code" in error
+    && (error.code === "ENOENT" || error.code === "ENOTDIR");
+}
+
+async function currentFiles() {
   const [usage, spend, quota] = await Promise.all([
     fileInfo(PATHS.usage),
     fileInfo(PATHS.spendLedger),
     fileInfo(PATHS.quotaCache),
   ]);
-  return [usage, spend, quota].map(info => (info ? `${info.bytes}:${Math.round(info.mtimeMs)}` : "-")).join("|");
+  return { usage, spend, quota, signature: [usage, spend, quota].map(fingerprint).join("|") };
 }
 
 async function build(force: boolean): Promise<Dataset> {
-  const nextSignature = await currentSignature();
-  if (!force && dataset && nextSignature === signature) return dataset;
+  const initialFiles = await currentFiles();
+  // Preserve the existing file-driven whole-dataset fast path. Pricing-only
+  // changes still require force; generation guards component reuse on rebuild.
+  if (!force && dataset && initialFiles.signature === signature) return dataset;
 
   await loadPricing();
   const startedAt = performance.now();
-  const [usageInfo, spendInfo, quotaInfo] = await Promise.all([
-    fileInfo(PATHS.usage),
-    fileInfo(PATHS.spendLedger),
-    fileInfo(PATHS.quotaCache),
-  ]);
+  // Retry the entire composition if any source changes while it is being read.
+  // Failed attempts never replace the last published dataset or snapshots.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const files = await currentFiles();
+    const generation = pricingGeneration();
+    const usageKey = fingerprint(files.usage);
+    const spendKey = fingerprint(files.spend);
+    const quotaKey = fingerprint(files.quota);
 
-  const usage = usageInfo ? await parseUsage(PATHS.usage) : { rows: [], lines: 0, malformed: 0 };
-  const ledgerEvents = spendInfo ? await parseLedger(PATHS.spendLedger) : [];
-  let quota = { windows: [], samples: [], updatedAt: null } as Dataset["quota"];
-  if (quotaInfo) {
-    try {
-      quota = normalizeQuota(JSON.parse(await readFile(PATHS.quotaCache, "utf8")));
-    } catch {
-      // A corrupt quota cache must not take the whole dashboard down.
+    let nextUsage = !force && usageSnapshot?.fingerprint === usageKey
+      && generation !== null && usageSnapshot.generation === generation
+      ? usageSnapshot
+      : null;
+    if (!nextUsage) {
+      let usage: Usage;
+      try {
+        usage = files.usage ? await parseUsage(PATHS.usage) : { rows: [], lines: 0, malformed: 0 };
+      } catch (error) {
+        // Rotation/deletion can land after stat. Start a fresh composition rather
+        // than assigning the observed fingerprint to missing or different bytes.
+        if (disappearedDuringRead(error) && attempt < 2) continue;
+        throw error;
+      }
+      usage.rows.sort((a, b) => a.ts - b.ts);
+      nextUsage = { fingerprint: usageKey, generation, value: usage };
     }
-  }
 
-  usage.rows.sort((a, b) => a.ts - b.ts);
-  dataset = {
-    rows: usage.rows,
-    quota,
-    ledger: normalizeLedger(ledgerEvents),
-    files: {
-      usage: usageInfo ? { path: PATHS.usage, ...usageInfo, lines: usage.lines } : null,
-      spend: spendInfo ? { path: PATHS.spendLedger, ...spendInfo } : null,
-      quota: quotaInfo ? { path: PATHS.quotaCache, ...quotaInfo } : null,
-    },
-    parse: { malformedLines: usage.malformed, durationMs: Math.round(performance.now() - startedAt) },
-    builtAt: Date.now(),
-    revision: `${usage.rows.length}:${nextSignature}`,
-  };
-  signature = nextSignature;
-  return dataset;
+    let nextSpend = !force && spendSnapshot?.fingerprint === spendKey ? spendSnapshot : null;
+    if (!nextSpend) {
+      let events: SpendEvent[];
+      try {
+        events = files.spend ? await parseLedger(PATHS.spendLedger) : [];
+      } catch (error) {
+        if (disappearedDuringRead(error) && attempt < 2) continue;
+        throw error;
+      }
+      nextSpend = { fingerprint: spendKey, value: normalizeLedger(events) };
+    }
+
+    let nextQuota = !force && quotaSnapshot?.fingerprint === quotaKey ? quotaSnapshot : null;
+    if (!nextQuota) {
+      let quota: Dataset["quota"] = { windows: [], samples: [], updatedAt: null };
+      if (files.quota) {
+        try {
+          quota = normalizeQuota(JSON.parse(await readFile(PATHS.quotaCache, "utf8")));
+        } catch (error) {
+          if (disappearedDuringRead(error)) {
+            if (attempt < 2) continue;
+            throw error;
+          }
+          // A corrupt quota cache must not take the whole dashboard down.
+        }
+      }
+      nextQuota = { fingerprint: quotaKey, value: quota };
+    }
+
+    const after = await currentFiles();
+    if (after.signature !== files.signature || pricingGeneration() !== generation) continue;
+
+    const usage = nextUsage.value;
+    const nextDataset: Dataset = {
+      rows: usage.rows,
+      quota: nextQuota.value,
+      ledger: nextSpend.value,
+      files: {
+        usage: files.usage ? { path: PATHS.usage, bytes: files.usage.bytes, mtimeMs: files.usage.mtimeMs, lines: usage.lines } : null,
+        spend: files.spend ? { path: PATHS.spendLedger, bytes: files.spend.bytes, mtimeMs: files.spend.mtimeMs } : null,
+        quota: files.quota ? { path: PATHS.quotaCache, bytes: files.quota.bytes, mtimeMs: files.quota.mtimeMs } : null,
+      },
+      parse: { malformedLines: usage.malformed, durationMs: Math.round(performance.now() - startedAt) },
+      builtAt: Date.now(),
+      revision: `${usage.rows.length}:${files.signature}`,
+    };
+    // Publication is synchronous: callers see either the prior composition or
+    // all three verified components together. Reused arrays are never re-sorted.
+    usageSnapshot = nextUsage;
+    spendSnapshot = nextSpend;
+    quotaSnapshot = nextQuota;
+    signature = files.signature;
+    dataset = nextDataset;
+    return nextDataset;
+  }
+  throw new Error("Usage, spend, quota, or pricing changed repeatedly during dataset rebuild; retry the request");
 }
 
 /** Returns the parsed dataset, rebuilding only when the ledgers changed on disk. */
