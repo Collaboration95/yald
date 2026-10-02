@@ -1,11 +1,20 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const args = process.argv.slice(2);
+if (args.includes("--version") || args.includes("-v")) {
+  console.log(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version);
+  process.exit(0);
+}
+if (args.includes("--help") || args.includes("-h")) {
+  console.log("Usage: yald [--port PORT] [--host HOST] [--ocx-home PATH] [--open] [--version]");
+  process.exit(0);
+}
 const require = createRequire(import.meta.url);
 const candidates = [
   join(root, "node_modules/bun/bin/bun.exe"),
@@ -19,12 +28,7 @@ if (!runtime) {
   process.exit(1);
 }
 
-const args = process.argv.slice(2);
 let open = false;
-if (args.includes("--help") || args.includes("-h")) {
-  console.log("Usage: yald [--port PORT] [--host HOST] [--ocx-home PATH] [--open]");
-  process.exit(0);
-}
 for (let i = 0; i < args.length; i++) {
   const flag = args[i];
   if (flag === "--open") {
