@@ -1,0 +1,134 @@
+{
+  "quota-health": {
+    "baseline": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 124.68666700000176,
+      "p95Ms": 132.510542,
+      "minMs": 121.20466599999781,
+      "maxMs": 187.64145899999858
+    },
+    "candidate": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 0.3702499999999418,
+      "p95Ms": 0.48045799999817973,
+      "minMs": 0.32520800000202144,
+      "maxMs": 0.6659170000020822
+    },
+    "pairedMedianDifferenceMs": 124.28858400000172,
+    "p50ReductionPercent": 99.70305566031375
+  },
+  "quota-overview": {
+    "baseline": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 243.7892079999874,
+      "p95Ms": 256.20650000000023,
+      "minMs": 237.0856669999921,
+      "maxMs": 263.1449999999895
+    },
+    "candidate": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 118.97158399999898,
+      "p95Ms": 123.30466600001091,
+      "minMs": 116.4223750000092,
+      "maxMs": 135.1756250000035
+    },
+    "pairedMedianDifferenceMs": 123.36049999998068,
+    "p50ReductionPercent": 51.19899482999053
+  },
+  "spend-health": {
+    "baseline": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 125.81241600000067,
+      "p95Ms": 191.55320799999754,
+      "minMs": 121.54824999999255,
+      "maxMs": 381.77150000000256
+    },
+    "candidate": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 0.39737500000046566,
+      "p95Ms": 0.47808400000212714,
+      "minMs": 0.3617920000106096,
+      "maxMs": 6.043000000005122
+    },
+    "pairedMedianDifferenceMs": 125.40191600000253,
+    "p50ReductionPercent": 99.6841527945855
+  },
+  "unchanged-overview": {
+    "baseline": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 0.1461669999989681,
+      "p95Ms": 0.17683400001260452,
+      "minMs": 0.12466599998879246,
+      "maxMs": 0.2077080000017304
+    },
+    "candidate": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 0.14487499999813735,
+      "p95Ms": 0.16183399999863468,
+      "minMs": 0.12954199998057447,
+      "maxMs": 0.16354100001626648
+    },
+    "pairedMedianDifferenceMs": -0.0013749999925494194,
+    "p50ReductionPercent": 0.8839204477343456
+  },
+  "usage-append-health": {
+    "baseline": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 124.43375000002561,
+      "p95Ms": 146.74941699998453,
+      "minMs": 120.83420799998567,
+      "maxMs": 162.20375000004424
+    },
+    "candidate": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 124.90495799999917,
+      "p95Ms": 138.07870800001547,
+      "minMs": 120.46583300002385,
+      "maxMs": 390.0776659999974
+    },
+    "pairedMedianDifferenceMs": -0.7687910000095144,
+    "p50ReductionPercent": -0.37868182866261035
+  },
+  "forced-refresh": {
+    "baseline": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 124.24620799999684,
+      "p95Ms": 130.91679199994542,
+      "minMs": 120.47179199999664,
+      "maxMs": 149.92887499998324
+    },
+    "candidate": {
+      "attempted": 50,
+      "successful": 50,
+      "errors": 0,
+      "p50Ms": 124.5802079999703,
+      "p95Ms": 128.88649999996414,
+      "minMs": 122.17258300003596,
+      "maxMs": 135.0758340000175
+    },
+    "pairedMedianDifferenceMs": -0.17783400003099814,
+    "p50ReductionPercent": -0.26882108142364053
+  }
+}

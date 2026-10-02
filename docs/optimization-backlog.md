@@ -1,7 +1,7 @@
 # Deferred performance experiments
 
-Saved on 2026-10-02 during UI design exploration. Implement
-neither these experiments nor benchmark instrumentation during the design work.
+Saved on 2026-10-02 during UI design exploration. The design-only phase deferred
+these experiments until the chosen UI was complete and verified.
 
 After choosing a design, freeze its complete, correct implementation as the
 baseline. Compare that baseline against the same UI with one optimization at a
@@ -31,3 +31,8 @@ only after the improvement repeats outside measurement noise.
 Relay has been chosen as the production design. Capture its verified commit as
 the baseline for a separate, stacked performance PR. Earlier discovery timings
 are not validated before/after performance gains.
+
+The separate snapshot experiment now uses Relay commit `66fa67d` as its baseline.
+Its [results and raw evidence](benchmarks/relay-refresh/README.md) cover automatic
+quota/spend changes and full-rebuild controls. ECharts import overlap, SSR,
+incremental parsing, workers, and browser reload measurement remain deferred.

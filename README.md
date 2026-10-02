@@ -122,9 +122,13 @@ web/src/pages/*                one file per view
 web/src/components/chartOptions.ts  shared ECharts option builders
 ```
 
-The whole ledger is parsed and priced in roughly 120 ms for ~66k requests in a local synthetic benchmark, so the server
-re-reads the files whenever their size or mtime changes instead of caching stale aggregates. Pages poll every 30 seconds
-while visible; ETags make unchanged polls cheap, and the Refresh button forces a rebuild.
+The server checks file identity, size, and precise modification/change times on each API read. Automatic rebuilds reuse
+unchanged usage, spend, and quota components; usage reuse also requires an audited, unchanged pricing generation.
+Other pricing engines keep the full usage parse. Changed usage and explicit Refresh still reread, price, and sort all rows.
+Pages poll every 30 seconds while visible; ETags keep unchanged polls cheap.
+
+See [the refresh experiment](docs/benchmarks/relay-refresh/README.md) for balanced before/after measurements, controls,
+raw samples, and the exact scope of the improvement. Browser reload and chart painting are not measured by this experiment.
 
 ## Verification
 
