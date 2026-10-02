@@ -1,19 +1,20 @@
+import { useChartStyle } from "../lib/chartStyle";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, ChevronDown, Loader2 } from "lucide-react";
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
-  return <section className={clsx("card min-w-0", padded && "p-4", className)}>{children}</section>;
+  return <section className={clsx("card widget-card min-w-0", padded && "p-4", className)}>{children}</section>;
 }
 
 export function CardHeader({ title, subtitle, action, className }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode; className?: string }) {
   return (
-    <header className={clsx("mb-3 flex items-start justify-between gap-3", className)}>
+    <header data-widget-title={typeof title === "string" ? title : undefined} className={clsx("widget-header mb-3 flex items-start justify-between gap-3", className)}>
       <div className="min-w-0">
         <h2 className="text-[13.5px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
         {subtitle ? <p className="mt-0.5 text-[11.5px] leading-4 text-muted">{subtitle}</p> : null}
       </div>
-      {action ? <div className="flex shrink-0 items-center gap-1.5">{action}</div> : null}
+      {action ? <div className="widget-action flex shrink-0 items-center gap-1.5">{action}</div> : null}
     </header>
   );
 }
@@ -74,15 +75,15 @@ export function Stat({
     violet: "bg-violet",
   };
   return (
-    <div className="card relative overflow-hidden p-3.5">
-      <div className={clsx("absolute left-0 top-0 h-full w-[3px]", accentBar[tone])} />
+    <div className="card stat-card relative overflow-hidden p-3.5" data-stat={label} data-tone={tone}>
+      <div className={clsx("stat-accent absolute left-0 top-0 h-full w-[3px]", accentBar[tone])} />
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</p>
+        <p className="stat-label text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</p>
         {icon ? <span className="text-muted">{icon}</span> : null}
       </div>
-      <p className="num mt-2 text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">{value}</p>
+      <p className="stat-value num mt-2 text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">{value}</p>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-[11px] text-muted">{hint}</div>
+        <div className="stat-hint min-w-0 truncate text-[11px] text-muted">{hint}</div>
         {delta !== undefined ? (
           <span className={clsx("num shrink-0 text-[11px] font-semibold", deltaColor)}>
             {delta === null ? "—" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(1)}%`}
@@ -112,12 +113,13 @@ export function MiniSpark({ values, className, color = "var(--accent)" }: { valu
 
 export function Segmented<T extends string>({ value, options, onChange, size = "md" }: { value: T; options: { id: T; label: string }[]; onChange: (value: T) => void; size?: "sm" | "md" }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-lg bg-surface-3 p-0.5">
+    <div className="segmented flex items-center gap-0.5 rounded-lg bg-surface-3 p-0.5">
       {options.map(option => (
         <button
           key={option.id}
           type="button"
           onClick={() => onChange(option.id)}
+          aria-pressed={value === option.id}
           className={clsx(
             "rounded-[7px] font-medium transition",
             size === "sm" ? "px-2 py-[3px] text-[11px]" : "px-2.5 py-1 text-[11.5px]",
@@ -235,7 +237,7 @@ export function StateBlock({ loading, error, empty, children, emptyLabel = "No d
 }
 
 export function TableShell({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={clsx("-mx-4 min-w-0 max-w-[calc(100vw-2rem)] overflow-x-auto px-4", className)}><table className="w-full min-w-[560px] border-collapse text-[11.5px]">{children}</table></div>;
+  return <div className={clsx("table-shell -mx-4 min-w-0 max-w-[calc(100vw-2rem)] overflow-x-auto px-4", className)}><table className="w-full min-w-[560px] border-collapse text-[11.5px]">{children}</table></div>;
 }
 
 export function Th({ children, align = "left", className, onClick, active, asc }: { children: ReactNode; align?: "left" | "right" | "center"; className?: string; onClick?: () => void; active?: boolean; asc?: boolean }) {
@@ -276,10 +278,11 @@ export function Td({ children, align = "left", className, colSpan }: { children:
 }
 
 export function ModelTag({ model, provider, className }: { model: string; provider?: string; className?: string }) {
+  const design = useChartStyle();
   const hue = [...model].reduce((acc, char) => acc + char.charCodeAt(0), 0) % 360;
   return (
-    <span className={clsx("inline-flex min-w-0 items-center gap-1.5", className)}>
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: `hsl(${hue} 55% 52%)` }} />
+    <span title={provider ? `${model} · ${provider}` : model} className={clsx("inline-flex min-w-0 items-center gap-1.5", className)}>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: design?.modelColor(model) ?? `hsl(${hue} 55% 52%)` }} />
       <span className="truncate font-medium text-ink">{model}</span>
       {provider ? <span className="shrink-0 text-[10px] text-muted">{provider}</span> : null}
     </span>
@@ -292,12 +295,13 @@ export function OutcomeDot({ outcome }: { outcome: string }) {
 }
 
 export function Legend({ items }: { items: { label: string; color: string; value?: ReactNode }[] }) {
+  const design = useChartStyle();
   return (
-    <ul className="space-y-1.5">
+    <ul className="legend space-y-1.5">
       {items.map(item => (
         <li key={item.label} className="flex items-center justify-between gap-3 text-[11.5px]">
           <span className="flex min-w-0 items-center gap-1.5 text-ink-soft">
-            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: item.color }} />
+            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: design?.colorFor(item.label, item.color) ?? item.color }} />
             <span className="truncate">{item.label}</span>
           </span>
           {item.value !== undefined ? <span className="num shrink-0 font-medium text-ink">{item.value}</span> : null}

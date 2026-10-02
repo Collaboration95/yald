@@ -1,0 +1,427 @@
+{
+  "overview": {
+    "charts": 4,
+    "overflow": false,
+    "sections": [
+      "Usage over time",
+      "Cost composition",
+      "Model leaderboard",
+      "Activity heatmap",
+      "Quota",
+      "Recent requests",
+      "Context pressure",
+      "Biggest conversations",
+      "Throughput & latency"
+    ],
+    "stats": [
+      "Requests",
+      "Tokens",
+      "Estimated cost",
+      "Success rate",
+      "Median TTFT",
+      "Cache savings"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "When",
+          "Model",
+          "Tokens",
+          "Cost",
+          "TTFT",
+          "Total",
+          "Status"
+        ],
+        "rows": 25
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "usage": {
+    "charts": 5,
+    "overflow": false,
+    "sections": [
+      "Token composition",
+      "Cache efficiency",
+      "Grouped volume",
+      "Activity heatmap",
+      "Context pressure",
+      "By model",
+      "By effort",
+      "By route & provider"
+    ],
+    "stats": [
+      "Total tokens",
+      "Output tokens",
+      "Reasoning tokens",
+      "Cache hit rate"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "Model",
+          "Req",
+          "Tokens",
+          "Share",
+          "Cost",
+          "p50"
+        ],
+        "rows": 4
+      },
+      {
+        "columns": [
+          "Effort",
+          "Req",
+          "Tokens",
+          "Share",
+          "Cost",
+          "p50"
+        ],
+        "rows": 4
+      },
+      {
+        "columns": [
+          "Dimension",
+          "Req",
+          "Tokens",
+          "Share",
+          "Cost",
+          "p50"
+        ],
+        "rows": 4
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "cost": {
+    "charts": 5,
+    "overflow": false,
+    "sections": [
+      "Spend over time",
+      "Where the dollars go",
+      "Cumulative spend",
+      "Cache savings over time",
+      "Blended price per 1M tokens",
+      "Most expensive sessions",
+      "Cost by model"
+    ],
+    "stats": [
+      "Estimated cost",
+      "Cost / 1M tokens",
+      "Cache savings",
+      "Output spend",
+      "Unpriced share"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "Model",
+          "Requests",
+          "Tokens",
+          "Cost",
+          "Cost / 1M",
+          "Share",
+          "Unpriced"
+        ],
+        "rows": 4
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "performance": {
+    "charts": 6,
+    "overflow": false,
+    "sections": [
+      "Latency and first-token timeline",
+      "Generation speed over time",
+      "Latency distribution",
+      "TTFT distribution",
+      "Throughput distribution",
+      "TTFT vs output length",
+      "Slowest requests",
+      "Performance by model",
+      "Context pressure"
+    ],
+    "stats": [
+      "TTFT p50",
+      "TTFT p95",
+      "Latency p50",
+      "Latency p95",
+      "Latency p99",
+      "Output tok/s p50"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "When",
+          "Model",
+          "TTFT",
+          "Total",
+          "Out",
+          "Status"
+        ],
+        "rows": 15
+      },
+      {
+        "columns": [
+          "Model",
+          "Req",
+          "TTFT p50",
+          "p50",
+          "p95",
+          "tok/s"
+        ],
+        "rows": 4
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "reliability": {
+    "charts": 4,
+    "overflow": false,
+    "sections": [
+      "Outcomes",
+      "HTTP status codes",
+      "Attempts per request",
+      "Outcomes over time",
+      "Error breakdown",
+      "Failure rate by model",
+      "Recent failures"
+    ],
+    "stats": [
+      "Requests",
+      "Success rate",
+      "Distinct errors",
+      "Retried requests",
+      "Metered"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "Error",
+          "Count",
+          "Models",
+          "Last seen",
+          "Tokens burned"
+        ],
+        "rows": 1
+      },
+      {
+        "columns": [
+          "When",
+          "Model",
+          "Error",
+          "Attempts",
+          "Waited",
+          "Status"
+        ],
+        "rows": 2
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "models": {
+    "charts": 3,
+    "overflow": false,
+    "sections": [
+      "Price vs time-to-first-token",
+      "Tokens by provider",
+      "Tokens by model",
+      "Effort mix",
+      "Model comparison",
+      "Effort × model matrix"
+    ],
+    "stats": [],
+    "tables": [
+      {
+        "columns": [
+          "Model",
+          "Req",
+          "Tokens",
+          "Share",
+          "Cost",
+          "$/1M",
+          "TTFT p50",
+          "p50",
+          "tok/s",
+          "Success",
+          "Cache"
+        ],
+        "rows": 4
+      },
+      {
+        "columns": [
+          "Effort",
+          "gpt-6-astra",
+          "gpt-6-luna",
+          "gpt-6-sol",
+          "deepseek-flash"
+        ],
+        "rows": 4
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "quota": {
+    "charts": 3,
+    "overflow": false,
+    "sections": [
+      "Utilisation history",
+      "Current windows",
+      "Settled sends",
+      "Settled tokens",
+      "Burn table",
+      "Spend ledger",
+      "How to read this",
+      "All quota series"
+    ],
+    "stats": [
+      "weekly window",
+      "Burn rate",
+      "Resets",
+      "Projected exhaustion"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "Account",
+          "Window",
+          "Used now",
+          "%/day",
+          "Resets",
+          "Projected exhaustion",
+          "Risk"
+        ],
+        "rows": 2
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "conversations": {
+    "charts": 0,
+    "overflow": false,
+    "sections": [
+      "Sessions ranked"
+    ],
+    "stats": [
+      "Conversations",
+      "Attributed requests",
+      "Median requests",
+      "Median tokens"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "Conversation",
+          "Models",
+          "Req",
+          "Tokens",
+          "Cost",
+          "Span",
+          "Tok/hr",
+          "Errors",
+          "Last seen"
+        ],
+        "rows": 2
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  },
+  "detail": {
+    "charts": 2,
+    "overflow": false,
+    "sections": [
+      "Token growth",
+      "Models used",
+      "Requests in this conversation"
+    ],
+    "stats": [
+      "Requests",
+      "Tokens",
+      "Cost",
+      "Span",
+      "Median latency",
+      "Errors"
+    ],
+    "tables": [
+      {
+        "columns": [
+          "When",
+          "Model",
+          "Input",
+          "Cached",
+          "Output",
+          "Cost",
+          "TTFT",
+          "Total",
+          "Status"
+        ],
+        "rows": 49
+      }
+    ],
+    "matches": true,
+    "checks": {
+      "charts": true,
+      "stats": true,
+      "sections": true,
+      "tables": true,
+      "overflow": true
+    }
+  }
+}

@@ -9,6 +9,10 @@ quota burn, model comparison and per-conversation drill-down.
 The dashboard reads the ledgers directly, so it works whether or not the proxy is running. Visible pages poll every 30
 seconds, unchanged responses use ETags, and polling pauses in background tabs. The Refresh button forces an immediate re-read.
 
+The desktop UI uses Relay: paper surfaces, ink and coral charts, open numerical summaries, and consistent model colors.
+All eight views and conversation detail retain their original data, filters, tables, and drilldowns. Light and dark themes
+use your saved preference. Mobile and tablet layouts are outside the supported design scope.
+
 ![yald Overview dashboard](docs/screenshots/overview.png)
 
 | View | Screenshot | View | Screenshot |
@@ -19,6 +23,9 @@ seconds, unchanged responses use ETags, and polling pauses in background tabs. T
 | Quota | [PNG](docs/screenshots/quota.png) | Conversations | [PNG](docs/screenshots/conversations.png) |
 
 Regenerate captures with `./scripts/screenshots.sh` (requires Chrome or Chromium). The script uses generated fixture data, a fresh browser profile for each route, and fails on blank or oversized images. The repository social preview source and PNG are in `docs/`.
+
+Preview the production UI with isolated synthetic data using `scripts/bun run preview:fixture` (localhost port 5329;
+override with `YALD_PREVIEW_PORT`). It does not read your private ledger. See [Relay verification](docs/relay-ui/README.md).
 
 ## Quick start
 
@@ -115,9 +122,13 @@ web/src/pages/*                one file per view
 web/src/components/chartOptions.ts  shared ECharts option builders
 ```
 
-The whole ledger is parsed and priced in roughly 120 ms for ~66k requests in a local synthetic benchmark, so the server
-re-reads the files whenever their size or mtime changes instead of caching stale aggregates. Pages poll every 30 seconds
-while visible; ETags make unchanged polls cheap, and the Refresh button forces a rebuild.
+The server checks file identity, size, and precise modification/change times on each API read. Automatic rebuilds reuse
+unchanged usage, spend, and quota components; usage reuse also requires an audited, unchanged pricing generation.
+Other pricing engines keep the full usage parse. Changed usage and explicit Refresh still reread, price, and sort all rows.
+Pages poll every 30 seconds while visible; ETags keep unchanged polls cheap.
+
+See [the refresh experiment](docs/benchmarks/relay-refresh/README.md) for balanced before/after measurements, controls,
+raw samples, and the exact scope of the improvement. Browser reload and chart painting are not measured by this experiment.
 
 ## Verification
 

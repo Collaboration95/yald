@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 type Theme = "light" | "dark";
 
-interface ThemeContextValue {
+export interface ThemeContextValue {
   theme: Theme;
   toggle: () => void;
   chartTheme: {
@@ -15,7 +15,7 @@ interface ThemeContextValue {
   };
 }
 
-const ThemeContext = createContext<ThemeContextValue | null>(null);
+export const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = "yald-theme";
 const LEGACY_STORAGE_KEY = "ocx-observatory-theme";
@@ -56,20 +56,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     toggle,
     chartTheme: theme === "dark"
       ? {
-          text: "#e8edf6",
-          axis: "#7d899e",
-          split: "#1e293b",
-          tooltipBg: "rgba(14, 21, 34, 0.96)",
-          tooltipBorder: "#2b3a51",
-          area: "rgba(52, 211, 153, 0.14)",
+          text: "#eee9e2",
+          axis: "#b9b6b2",
+          split: "#474743",
+          tooltipBg: "#302f2c",
+          tooltipBorder: "#57554f",
+          area: "rgba(82,106,203,.1)",
         }
       : {
-          text: "#12161f",
-          axis: "#7b8496",
-          split: "#eef1f5",
-          tooltipBg: "rgba(255, 255, 255, 0.98)",
-          tooltipBorder: "#e6e9ee",
-          area: "rgba(22, 163, 74, 0.12)",
+          text: "#29292b",
+          axis: "#69696c",
+          split: "#e5e5e2",
+          tooltipBg: "#ffffff",
+          tooltipBorder: "#d5d5d1",
+          area: "rgba(82,106,203,.1)",
         },
   }), [theme, toggle]);
 
