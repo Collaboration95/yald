@@ -1,0 +1,267 @@
+{
+  "normalization": [
+    "relative ages",
+    "clock-dependent countdowns",
+    "Send accounting title",
+    "intentional Overview section reordering"
+  ],
+  "pages": [
+    {
+      "page": "overview",
+      "charts": 4,
+      "metrics": 6,
+      "sections": 9,
+      "tables": 1,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Overview"
+    },
+    {
+      "page": "usage",
+      "charts": 5,
+      "metrics": 4,
+      "sections": 8,
+      "tables": 3,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Usage"
+    },
+    {
+      "page": "cost",
+      "charts": 5,
+      "metrics": 5,
+      "sections": 7,
+      "tables": 1,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Cost & spend"
+    },
+    {
+      "page": "performance",
+      "charts": 6,
+      "metrics": 6,
+      "sections": 9,
+      "tables": 2,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Performance"
+    },
+    {
+      "page": "reliability",
+      "charts": 4,
+      "metrics": 5,
+      "sections": 7,
+      "tables": 2,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Reliability"
+    },
+    {
+      "page": "models",
+      "charts": 3,
+      "metrics": 0,
+      "sections": 6,
+      "tables": 2,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Models"
+    },
+    {
+      "page": "quota",
+      "charts": 3,
+      "metrics": 4,
+      "sections": 8,
+      "tables": 1,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Quota"
+    },
+    {
+      "page": "conversations",
+      "charts": 0,
+      "metrics": 4,
+      "sections": 1,
+      "tables": 1,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Conversations"
+    },
+    {
+      "page": "conversation",
+      "charts": 2,
+      "metrics": 6,
+      "sections": 3,
+      "tables": 1,
+      "chartsMatch": true,
+      "metricsMatch": true,
+      "sectionsMatch": true,
+      "tablesMatch": true,
+      "overflow": false,
+      "tagline": false,
+      "ledgerCopy": false,
+      "activeNav": "Conversations"
+    }
+  ],
+  "before": {
+    "usageHeight": 568.21875,
+    "costHeight": 568.21875,
+    "modelsTop": 988.15625
+  },
+  "after": {
+    "clientWidth": 1791,
+    "cost": {
+      "bottom": 964.15625,
+      "height": 568.21875,
+      "left": 1267.625,
+      "right": 1605.484375,
+      "top": 395.9375,
+      "width": 337.859375,
+      "x": 1267.625,
+      "y": 395.9375
+    },
+    "frame": {
+      "bottom": 2729.671875,
+      "height": 2729.671875,
+      "left": 155.5,
+      "right": 1635.5,
+      "top": 0,
+      "width": 1480,
+      "x": 155.5,
+      "y": 0
+    },
+    "heatmap": {
+      "bottom": 1192.421875,
+      "height": 375.640625,
+      "left": 821.5625,
+      "right": 1243.625,
+      "top": 816.78125,
+      "width": 422.0625,
+      "x": 821.5625,
+      "y": 816.78125
+    },
+    "modelStyles": {
+      "label": "10.5px",
+      "name": "13.5px",
+      "value": "12px"
+    },
+    "models": {
+      "bottom": 1359.8125,
+      "height": 543.03125,
+      "left": 375.5,
+      "right": 797.5625,
+      "top": 816.78125,
+      "width": 422.0625,
+      "x": 375.5,
+      "y": 816.78125
+    },
+    "overflow": false,
+    "usage": {
+      "bottom": 792.78125,
+      "height": 396.84375,
+      "left": 375.5,
+      "right": 1243.625,
+      "top": 395.9375,
+      "width": 868.125,
+      "x": 375.5,
+      "y": 395.9375
+    },
+    "viewport": 1801
+  },
+  "desktopWidths": [
+    {
+      "clientWidth": 1430,
+      "costHeight": 568.21875,
+      "frame": {
+        "bottom": 2729.671875,
+        "height": 2729.671875,
+        "left": 24,
+        "right": 1406,
+        "top": 0,
+        "width": 1382,
+        "x": 24,
+        "y": 0
+      },
+      "modelOverflows": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "overflow": false,
+      "usageHeight": 396.84375,
+      "viewport": 1440
+    },
+    {
+      "clientWidth": 2550,
+      "costHeight": 568.21875,
+      "frame": {
+        "bottom": 2729.671875,
+        "height": 2729.671875,
+        "left": 535,
+        "right": 2015,
+        "top": 0,
+        "width": 1480,
+        "x": 535,
+        "y": 0
+      },
+      "modelOverflows": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "overflow": false,
+      "usageHeight": 396.84375,
+      "viewport": 2560
+    }
+  ],
+  "sourceCheck": "All query/chart definitions and eight non-leaderboard widgets have identical content and callbacks after normalizing source indentation and Card classes",
+  "wordmark": {
+    "animation": "relay-wordmark-nudge",
+    "delaySeconds": 1.8,
+    "periodSeconds": 14,
+    "observedRunningTransform": "matrix(0.999668, -0.0257735, 0.0257735, 0.999668, 0, 0)",
+    "keyboardFocus": true,
+    "taglineRemoved": true
+  }
+}

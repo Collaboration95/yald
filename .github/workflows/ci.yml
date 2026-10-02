@@ -41,3 +41,13 @@ jobs:
       # synthetic fixture home and still exercises every page with data.
       - name: Server-render smoke test
         run: bun run smoke
+
+      - name: Install the distribution package
+        run: |
+          release_version="$(node -p 'require("./package.json").version')"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+          npm install --prefix "$RUNNER_TEMP/yald-install" --no-audit --no-fund \
+            "$RUNNER_TEMP/yald-dashboard-${release_version}.tgz"
+          installed_version="$(node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" --version)"
+          test "$installed_version" = "$release_version"
+          node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" --help

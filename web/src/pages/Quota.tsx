@@ -166,13 +166,13 @@ export function QuotaPage() {
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Card>
           <CardHeader title="Settled sends" subtitle={"Physical upstream sends that reached a terminal status · " + windowLabel} />
-          <StateBlock loading={ledger.isLoading} error={ledger.error} empty={!ledgerOption} emptyLabel="No ledger activity in this range">
+          <StateBlock loading={ledger.isLoading} error={ledger.error} empty={!ledgerOption} emptyLabel="No send activity in this range">
             {ledgerOption ? <Chart option={ledgerOption} height={230} /> : null}
           </StateBlock>
         </Card>
         <Card>
-          <CardHeader title="Settled tokens" subtitle={"Token volume charged back through the spend ledger · " + windowLabel} />
-          <StateBlock loading={ledger.isLoading} error={ledger.error} empty={!tokensOption} emptyLabel="No ledger activity in this range">
+          <CardHeader title="Settled tokens" subtitle={"Token volume charged back through send accounting · " + windowLabel} />
+          <StateBlock loading={ledger.isLoading} error={ledger.error} empty={!tokensOption} emptyLabel="No send activity in this range">
             {tokensOption ? <Chart option={tokensOption} height={230} /> : null}
           </StateBlock>
         </Card>
@@ -229,7 +229,7 @@ export function QuotaPage() {
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Card>
-          <CardHeader title="Spend ledger" subtitle={"Reserve, dispatch and settle accounting · " + windowLabel} />
+          <CardHeader title="Send accounting" subtitle={"Reserve, dispatch and settle accounting · " + windowLabel} />
           <StateBlock loading={ledger.isLoading} error={ledger.error} empty={!ledger.data}>
             <ul className="space-y-2.5 text-[11.5px]">
               {Object.entries(ledger.data?.byKind ?? {}).map(([kind, count]) => (
@@ -265,7 +265,7 @@ export function QuotaPage() {
             <p><strong className="text-ink">Burn rate</strong> is measured from the samples inside the selected range, which is why switching between 24h, 7d and 30d changes it. One sample before the range is kept so short ranges still show the change across their boundary.</p>
             <p><strong className="text-ink">Settled sends</strong> count physical upstream calls, which is larger than logical requests whenever a retry or combo fan-out happened. Lost entries are sends charged with no terminal outcome.</p>
             <p className="rounded-xl bg-surface-2 p-2.5 text-[11px] text-muted">
-              Quota samples refresh while the proxy runs. The ledger rotates, so older ranges may show fewer sends than requests.
+              Quota samples refresh while the proxy runs. Send history rotates, so older ranges may show fewer sends than requests.
             </p>
           </div>
         </Card>

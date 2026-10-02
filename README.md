@@ -54,11 +54,22 @@ Environment variables:
 
 ## Install
 
+The first GitHub preview is `v0.1.0`. Install its tested, prebuilt package:
+
+```bash
+gh release download v0.1.0 --repo Collaboration95/yald --pattern 'yald-dashboard-0.1.0.tgz'
+npm install -g ./yald-dashboard-0.1.0.tgz
+yald --version
+yald --open
+```
+
+After npm registry publication, users can also run:
+
 ```bash
 npx -p yald-dashboard yald --port 4318 --host 127.0.0.1 --ocx-home ~/.opencodex --open
 ```
 
-The npm package is named `yald-dashboard` because the unscoped `yald` name is already published by an unrelated package. It exposes the `yald` executable and includes its Bun runtime and prebuilt web app. Alternatively, clone this repository and run `bun install && ./scripts/serve.sh`.
+The npm package is named `yald-dashboard` because the unscoped `yald` name is already published by an unrelated package. It exposes the `yald` executable, installs its Bun runtime, and includes the prebuilt web app. Alternatively, clone this repository and run `bun install && ./scripts/serve.sh`. See [distribution steps](docs/releasing.md) for npm publishing and a Homebrew tap.
 
 ## Where the numbers come from
 

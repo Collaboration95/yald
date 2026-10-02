@@ -1,0 +1,32 @@
+{
+  "version": "0.1.0",
+  "package": {
+    "entries": 31,
+    "bytes": 375031,
+    "testsAndDesignFilesExcluded": true,
+    "latestWordmarkCssPresent": true
+  },
+  "executable": "yald",
+  "date": "2026-10-03",
+  "localChecks": {
+    "tests": 60,
+    "assertions": 1269,
+    "typecheck": "pass",
+    "lint": "pass",
+    "build": "pass",
+    "fixturePages": 9
+  },
+  "cleanInstall": {
+    "system": "Darwin",
+    "machine": "arm64",
+    "node": "26.3.1",
+    "version": "pass",
+    "help": "pass",
+    "apiViews": 9,
+    "spaRoutes": 8,
+    "entryAssets": 3,
+    "syntheticRequests": 98,
+    "runtimeFilesMatchFinalArtifact": true
+  },
+  "scope": "Local clean installation verified on macOS arm64; CI also checks Linux and macOS source tests and package installation."
+}
