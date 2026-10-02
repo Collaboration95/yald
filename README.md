@@ -54,11 +54,22 @@ Environment variables:
 
 ## Install
 
+The first GitHub preview is `v0.1.0`. Install its tested, prebuilt package:
+
+```bash
+gh release download v0.1.0 --repo Collaboration95/yald --pattern 'yald-dashboard-0.1.0.tgz'
+npm install -g ./yald-dashboard-0.1.0.tgz
+yald --version
+yald --open
+```
+
+After npm registry publication, users can also run:
+
 ```bash
 npx -p yald-dashboard yald --port 4318 --host 127.0.0.1 --ocx-home ~/.opencodex --open
 ```
 
-The npm package is named `yald-dashboard` because the unscoped `yald` name is already published by an unrelated package. It exposes the `yald` executable and includes its Bun runtime and prebuilt web app. Alternatively, clone this repository and run `bun install && ./scripts/serve.sh`.
+The npm package is named `yald-dashboard` because the unscoped `yald` name is already published by an unrelated package. It exposes the `yald` executable, installs its Bun runtime, and includes the prebuilt web app. Alternatively, clone this repository and run `bun install && ./scripts/serve.sh`. See [distribution steps](docs/releasing.md) for npm publishing and a Homebrew tap.
 
 ## Where the numbers come from
 
@@ -122,9 +133,13 @@ web/src/pages/*                one file per view
 web/src/components/chartOptions.ts  shared ECharts option builders
 ```
 
-The whole ledger is parsed and priced in roughly 120 ms for ~66k requests in a local synthetic benchmark, so the server
-re-reads the files whenever their size or mtime changes instead of caching stale aggregates. Pages poll every 30 seconds
-while visible; ETags make unchanged polls cheap, and the Refresh button forces a rebuild.
+The server checks file identity, size, and precise modification/change times on each API read. Automatic rebuilds reuse
+unchanged usage, spend, and quota components; usage reuse also requires an audited, unchanged pricing generation.
+Other pricing engines keep the full usage parse. Changed usage and explicit Refresh still reread, price, and sort all rows.
+Pages poll every 30 seconds while visible; ETags keep unchanged polls cheap.
+
+See [the refresh experiment](docs/benchmarks/relay-refresh/README.md) for balanced before/after measurements, controls,
+raw samples, and the exact scope of the improvement. Browser reload and chart painting are not measured by this experiment.
 
 ## Verification
 

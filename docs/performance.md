@@ -1,5 +1,9 @@
 # Performance investigation
 
+The [2026-10-02 refresh experiment](benchmarks/relay-refresh/README.md) adds balanced before/after results for per-file
+snapshot reuse on the frozen Relay UI. The measurements below are historical investigations of earlier implementations;
+their mobile checks and browser probes do not describe the desktop-only Relay change.
+
 Measured 2026-09-28 on this development Mac with Bun 1.4.2 and the repository's lockfile dependencies. The API benchmark uses a generated fixture expanded to 66,000 usage rows; it contains no personal ledger data. Bundle totals sum built JavaScript and CSS files and their gzip sizes. Baseline is clean `main` (`8838cfa`); both builds used the same installed dependencies.
 
 ## Bundle
