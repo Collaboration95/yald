@@ -18,7 +18,8 @@
     "typecheck": "bash -c 'scripts/bun run --cwd web typecheck && scripts/bun run --cwd server typecheck'",
     "test": "scripts/bun test",
     "lint": "scripts/bun x oxlint server/src web/src",
-    "prepack": "scripts/bun run build"
+    "prepack": "scripts/bun run build",
+    "preview:fixture": "scripts/bun run build && scripts/bun run scripts/preview-fixture.ts"
   },
   "engines": {
     "node": ">=18"

@@ -7,10 +7,12 @@ import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Legend, ModelTag, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { donutChart, lineChart } from "../components/chartOptions";
+import { colorAt } from "../lib/palette";
 import { formatCompact, formatDateTime, formatDuration, formatInteger, formatRelative, shortId } from "../lib/format";
 import type { ConversationDetailResponse, ConversationsResponse } from "../types";
 
 export function ConversationsPage() {
+  const { search } = useLocation();
   const { filters } = useFilters();
   const [sort, setSort] = useState<"tokens" | "cost" | "requests" | "recent" | "errors">("tokens");
   const query = useEndpoint<ConversationsResponse>("/api/conversations", filters, { sort, limit: 200 });
@@ -66,7 +68,7 @@ export function ConversationsPage() {
               {data?.conversations.map(conversation => (
                 <tr key={conversation.id} className="transition hover:bg-surface-2">
                   <Td>
-                    <Link to={"/conversations/" + conversation.id} className="font-mono text-[11px] text-info hover:underline">
+                    <Link to={{ pathname: "/conversations/" + conversation.id, search }} className="font-mono text-[11px] text-info hover:underline">
                       {shortId(conversation.id, 14)}
                     </Link>
                   </Td>
@@ -153,7 +155,7 @@ export function ConversationDetailPage() {
           <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.models.length === 0}>
             <div className="flex flex-col items-center gap-3">
               {modelOption ? <Chart option={modelOption} height={180} className="max-w-[200px]" /> : null}
-              <Legend items={(data?.models ?? []).map((model, index) => ({ label: model.name, color: index === 0 ? "#16a34a" : "#2563eb", value: formatInteger(model.value) }))} />
+              <Legend items={(data?.models ?? []).map((model, index) => ({ label: model.name, color: colorAt(index), value: formatInteger(model.value) }))} />
             </div>
           </StateBlock>
         </Card>

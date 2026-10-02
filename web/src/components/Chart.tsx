@@ -1,5 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import type { EChartsCoreOption } from "echarts/core";
+import { useChartStyle } from "../lib/chartStyle";
 
 export type ChartOption = EChartsCoreOption;
 
@@ -15,9 +16,11 @@ const ChartRenderer = lazy(() => import("./ChartRenderer").then(module => ({ def
 
 export function Chart(props: ChartProps) {
   const height = props.height ?? 260;
+  const design = useChartStyle();
+  const option = useMemo(() => design ? design.chart(props.option) : props.option, [design, props.option]);
   return (
     <Suspense fallback={<div className={`w-full ${props.className ?? ""}`} style={{ height }} aria-hidden="true" />}>
-      <ChartRenderer {...props} />
+      <ChartRenderer {...props} option={option} />
     </Suspense>
   );
 }

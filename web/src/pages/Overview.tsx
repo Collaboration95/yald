@@ -15,13 +15,14 @@ export function OverviewPage() {
   const { filters, set } = useFilters();
   const { chartTheme } = useTheme();
   const { search } = useLocation();
-  const [metric, setMetric] = useState<"tokens" | "cost" | "requests">("tokens");
+  const metric = filters.metric === "cost" || filters.metric === "requests" ? filters.metric : "tokens";
+  const groupBy = filters.groupBy === "provider" || filters.groupBy === "effort" ? filters.groupBy : "model";
   const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
   const [minimumActivity, setMinimumActivity] = useState(0);
   const heatmapFilterKey = JSON.stringify([filters.range, filters.providers, filters.models, filters.efforts, filters.statuses, filters.metric, filters.groupBy, filters.bucket, filters.search]);
   useEffect(() => setMinimumActivity(0), [heatmapMetric, heatmapFilterKey]);
 
-  const query = useEndpoint<OverviewResponse>("/api/overview", filters, { metric: filters.metric });
+  const query = useEndpoint<OverviewResponse>("/api/overview", filters, { metric, groupBy });
   const data = query.data;
 
   const seriesOption = useMemo(() => {
@@ -152,13 +153,12 @@ export function OverviewPage() {
                     { id: "requests", label: "Requests" },
                   ]}
                   onChange={value => {
-                    setMetric(value);
                     set({ metric: value });
                   }}
                 />
                 <Segmented
                   size="sm"
-                  value={filters.groupBy as "model" | "provider" | "effort" | "route"}
+                  value={groupBy}
                   options={[
                     { id: "model", label: "Model" },
                     { id: "provider", label: "Provider" },
@@ -363,7 +363,7 @@ export function OverviewPage() {
               <ul className="space-y-2">
                 {data?.topConversations.map(conversation => (
                   <li key={conversation.id} className="flex items-center justify-between gap-2">
-                    <Link to={`/conversations/${conversation.id}`} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
+                    <Link to={{ pathname: `/conversations/${conversation.id}`, search }} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
                       {shortId(conversation.id, 12)}
                     </Link>
                     <span className="num shrink-0 text-[11px] text-muted">
