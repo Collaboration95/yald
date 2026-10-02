@@ -1,0 +1,794 @@
+.relay-app { min-height:100vh; }
+.relay-skip { position:absolute; left:-9999px; }
+.relay-skip:focus { left:10px; top:10px; padding:10px; background:white; color:black; z-index:100; }
+.relay-app button,.relay-app a,.relay-app input { outline-offset:4px; }
+.relay-app button:focus-visible,.relay-app a:focus-visible,.relay-app input:focus-visible { outline:2px solid var(--info); }
+.relay-frame { display:flex; min-height:100vh; }
+.relay-sidebar { width:188px; flex-shrink:0; display:flex; flex-direction:column; padding:30px 16px 22px; }
+.relay-brand { display:flex; align-items:center; gap:12px; text-decoration:none; font-size:34px; font-weight:800; line-height:1; letter-spacing:-2px; }
+.relay-brand-mark { display:flex; align-items:flex-end; height:20px; gap:3px; transform:rotate(-8deg); }
+.relay-brand-mark i { width:4px; display:block; border-radius:1px; background:var(--info); height:10px; }
+.relay-brand-mark i:nth-child(2) { height:19px; }.relay-brand-mark i:nth-child(3) { height:14px; }
+.relay-brand-caption { margin-top:10px; font-size:11px; color:var(--muted); }
+.relay-nav { display:flex; flex-direction:column; gap:5px; margin-top:36px; flex:1; }
+.relay-nav a { white-space:nowrap; min-height:40px; text-decoration:none; }
+.relay-ledger { font-size:11px; }
+.relay-workspace { flex:1; min-width:0; }
+.relay-toolbar { padding:10px 16px; border-bottom:1px solid var(--line); position:relative; z-index:30; }
+.relay-toolbar>div { padding:0; }.relay-toolbar>div>div { width:100%; gap:7px; }
+.relay-toolbar .segmented { margin-right:auto; }
+.relay-content { max-width:1640px; padding:27px 30px 36px; margin:0 auto; min-width:0; }
+.relay-heading { margin-bottom:24px; }.relay-heading h1 { margin:7px 0 4px; line-height:1.1; letter-spacing:-.045em; font-size:34px; font-weight:750; }
+.relay-heading p { font-size:12px; color:var(--muted); }
+.relay-eyebrow { font-size:9px; font-weight:650; letter-spacing:.14em; color:var(--muted); }
+.relay-footer { margin-top:32px; padding-top:14px; border-top:1px solid var(--line); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:10px; color:var(--muted); }
+.relay-app .widget-header { flex-wrap:wrap; }.relay-app .widget-action { max-width:100%; flex-wrap:wrap; }
+.relay-app .widget-action>div { flex-wrap:wrap; }.relay-app .segmented { max-width:100%; flex-wrap:wrap; }
+.relay-app .stat-hint { white-space:normal; overflow:visible; line-height:1.5; }
+.relay-app .stat-card { min-width:0; }.relay-app .table-shell { max-width:100%; }
+.relay-app .widget-card:has(>.widget-header h2) { isolation:isolate; }
+.relay-app .widget-card .text-muted { color:var(--muted); }
+.relay-app [aria-label*="scale from"]>span[style],.relay-app .from-line.to-accent { background:var(--heatmap-gradient)!important; }
+@media(min-width:1150px) {
+  .relay-app .grid.xl\:grid-cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .relay-app .grid.xl\:grid-cols-3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .relay-app .grid.xl\:grid-cols-5 { grid-template-columns:repeat(5,minmax(0,1fr)); }
+  .relay-app .grid.xl\:grid-cols-6 { grid-template-columns:repeat(6,minmax(0,1fr)); }
+  .relay-app .grid>.xl\:col-span-2 { grid-column:span 2 / span 2; }
+}
+@media(max-width:1100px) { .relay-content { padding:24px 22px; }.relay-sidebar { width:172px; }.relay-toolbar { padding:12px 22px; } }
+@media(prefers-reduced-motion:reduce) { .relay-app * { animation:none!important; transition:none!important; } }
+
+/* Relay: a quiet paper surface, an ink hierarchy, coral for interaction.
+   Production Relay theme; all original page components share these materials. */
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f0f1ee;
+  --surface-3: #eaece8;
+  --line: #dddedb;
+  --line-strong: #bfc3bd;
+  --text: #202021;
+  --text-soft: #4e5051;
+  --muted: #686b6d;
+  --accent: #317452;
+  --accent-soft: #e3eee6;
+  --info: #3a5b89;
+  --info-soft: #e1ebf3;
+  --warn: #916226;
+  --warn-soft: #f6ecdb;
+  --bad: #bd4038;
+  --bad-soft: #f9e4e0;
+  --violet: #766394;
+  --shadow: 0 5px 20px rgb(32 32 33 / 3%);
+  --relay-coral: #d34d43;
+  --relay-coral-soft: #fce9e4;
+  --relay-lavender: #e9e7f4;
+  --relay-peach: #f6e1d5;
+  --relay-sky: #e6eef4;
+  --relay-mint: #e6eee7;
+  --relay-font: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color-scheme: light;
+  scroll-padding-top: 24px;
+}
+
+:root.dark {
+  --bg: #212324;
+  --surface: #2a2d2e;
+  --surface-2: #303435;
+  --surface-3: #363b3b;
+  --line: #404647;
+  --line-strong: #626a6a;
+  --text: #f1f2ee;
+  --text-soft: #d0d3cf;
+  --muted: #abb1ad;
+  --accent: #a7d1b4;
+  --accent-soft: #2d4336;
+  --info: #a9c6e0;
+  --info-soft: #2c3d4b;
+  --warn: #e8c18b;
+  --warn-soft: #473e2d;
+  --bad: #f5a199;
+  --bad-soft: #4b322f;
+  --violet: #c9b8e5;
+  --shadow: 0 5px 20px rgb(0 0 0 / 7%);
+  --relay-coral: #f09888;
+  --relay-coral-soft: #493632;
+  --relay-lavender: #383847;
+  --relay-peach: #443933;
+  --relay-sky: #303e48;
+  --relay-mint: #334137;
+  color-scheme: dark;
+}
+
+:root body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--relay-font);
+  font-feature-settings: "tnum";
+  -webkit-font-smoothing: antialiased;
+}
+
+:root .relay-app {
+  min-height: 100dvh;
+  background: var(--bg);
+  font: 500 13px/1.55 var(--relay-font);
+}
+
+:root :is(button, input, select, textarea) {
+  font-family: var(--relay-font);
+  accent-color: var(--relay-coral);
+}
+
+:root :is(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--relay-coral);
+  outline-offset: 3px;
+}
+
+/* The shared sidebar becomes a horizontal masthead; ledger facts remain visible. */
+:root .relay-frame {
+  display: block;
+  width: min(100%, 1512px);
+  min-width: 0;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 2.4vw, 36px);
+}
+
+:root .relay-sidebar {
+  position: relative;
+  top: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "brand nav"
+    "caption nav"
+    "ledger ledger";
+  align-items: center;
+  column-gap: 26px;
+  width: 100%;
+  height: auto;
+  min-height: 76px;
+  padding: 19px 0 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  overflow: visible;
+}
+
+:root .relay-brand {
+  grid-area: brand;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -.095em;
+  line-height: 1;
+  text-decoration: none;
+}
+
+:root .relay-brand-caption {
+  grid-area: caption;
+  margin: 6px 0 11px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+:root :is(.relay-brand-stop, .relay-title-stop) {
+  color: var(--relay-coral);
+}
+
+:root .relay-brand-mark {
+  display: inline-flex;
+  align-items: end;
+  gap: 2px;
+  color: var(--relay-coral);
+  background: transparent;
+  border-radius: 0;
+}
+
+:root .relay-brand-mark :is(i, span) {
+  background: var(--relay-coral);
+  border-radius: 1px;
+}
+
+:root .relay-brand-mark svg {
+  width: 19px;
+  height: 19px;
+  stroke: var(--relay-coral);
+}
+
+:root .relay-nav {
+  grid-area: nav;
+  display: flex;
+  flex-direction: row;
+  flex: initial;
+  align-self: stretch;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 1px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+:root .relay-nav a {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 58px;
+  margin: 0;
+  padding: 10px 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+:root .relay-nav a svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  opacity: .75;
+}
+
+:root .relay-nav a:hover,
+:root .relay-nav a[aria-current="page"] {
+  background: transparent;
+  color: var(--text);
+}
+
+:root .relay-nav a[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--relay-coral);
+}
+
+:root .relay-ledger {
+  grid-area: ledger;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 17px;
+  margin: 0;
+  padding: 8px 0 11px;
+  border: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+:root .relay-ledger > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 15px;
+  padding: 0;
+}
+
+:root .relay-ledger p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+:root .relay-workspace {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+}
+
+:root .relay-heading {
+  display: block;
+  margin-bottom: 25px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root .relay-eyebrow {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: .015em;
+}
+
+:root .relay-heading h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(30px, 2.8vw, 39px);
+  font-weight: 800;
+  letter-spacing: -.065em;
+  line-height: 1.12;
+}
+
+:root .relay-heading p {
+  max-width: 70ch;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+:root .relay-toolbar {
+  position: relative;
+  z-index: 35;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 18px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+
+:root .relay-toolbar :is(button, input, select) {
+  min-height: 31px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+:root .relay-toolbar input {
+  min-width: 0;
+  background: var(--surface);
+}
+
+/* Open numerical summaries and generous, selectively framed chart surfaces. */
+:root .relay-content {
+  min-width: 0;
+  padding: 23px 0 0;
+}
+
+:root .relay-content > .space-y-3 > :not(:last-child) {
+  margin-bottom: 24px;
+}
+
+:root .relay-content .grid:has(> .widget-card) {
+  gap: 24px;
+  align-items: stretch;
+}
+
+:root .relay-content .grid:has(> .stat-card) {
+  gap: 20px 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0 0 20px;
+}
+
+:root .stat-card {
+  position: relative;
+  min-width: 0;
+  padding: 1px 20px 6px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+:root .stat-card:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+:root .stat-accent {
+  top: auto;
+  right: 20px;
+  bottom: 0;
+  left: 20px;
+  width: auto;
+  height: 2px;
+  border-radius: 1px;
+  opacity: .65;
+}
+
+:root .stat-card:first-child .stat-accent { left: 0; }
+
+:root .stat-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+:root .stat-value {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: clamp(25px, 2.4vw, 34px);
+  font-weight: 800;
+  line-height: 1.14;
+  letter-spacing: -.065em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+:root .stat-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+:root .stat-card > svg {
+  margin-top: 13px;
+  opacity: .8;
+}
+
+:root .stat-card[data-stat="Tokens"] .stat-value,
+:root .stat-card[data-stat="Estimated cost"] .stat-value {
+  font-size: clamp(30px, 3vw, 40px);
+}
+
+:root .stat-card[data-stat="Projected exhaustion"] .stat-value {
+  font-size: clamp(23px, 2vw, 30px);
+}
+
+:root .widget-card {
+  min-width: 0;
+  padding: 22px 23px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+:root .widget-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 20px;
+}
+
+:root .widget-header > div { min-width: 0; }
+
+:root .widget-header h2 {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.035em;
+  line-height: 1.35;
+}
+
+:root .widget-header p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+:root .widget-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+:root .widget-action > a {
+  padding: 3px 0;
+  color: var(--relay-coral);
+  font-size: 11px;
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
+:root .widget-action > a:hover { text-decoration: underline; }
+
+:root .widget-action > :is(button, div) { min-width: 0; }
+
+:root .segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+:root .segmented button {
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  box-shadow: none;
+}
+
+:root .segmented button:hover { color: var(--text); }
+
+:root .segmented button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+/* Secondary comparisons sit on the paper instead of adding another card wall. */
+:root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(3) > .widget-card,
+:root .relay-content[data-page="models"] > .space-y-3 > .grid:nth-child(2) > .widget-card,
+:root .relay-content[data-page="performance"] > .space-y-3 > .grid:nth-child(4) > .widget-card {
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 23px 0 0;
+  box-shadow: none;
+}
+
+:root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child,
+:root .relay-content[data-page="cost"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child {
+  background: var(--relay-peach);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:root .relay-content[data-page="quota"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child {
+  background: var(--relay-lavender);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:root .relay-content[data-page="reliability"] > .space-y-3 > .grid:nth-child(2) > .widget-card:first-child {
+  background: var(--relay-mint);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Tables stay dense, locally scrollable and fully legible. No columns are removed. */
+:root .widget-card:has(.table-shell) {
+  border-width: 1px 0 0;
+  border-radius: 0;
+  padding: 22px 0 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root .table-shell {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+:root .relay-content table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+:root .relay-content th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .005em;
+  text-transform: none;
+}
+
+:root .relay-content td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+
+:root .relay-content tbody tr:last-child td { border-bottom: 0; }
+
+:root .relay-content tbody tr:hover { background: var(--surface-2); }
+
+:root .relay-content tbody tr:is([aria-selected="true"], .selected) {
+  background: var(--relay-coral-soft);
+}
+
+:root .relay-content tbody tr:is([aria-selected="true"], .selected) td:first-child {
+  box-shadow: inset 3px 0 var(--relay-coral);
+}
+
+:root .relay-content td.text-bad { color: var(--bad); }
+:root .relay-content td.text-muted { color: var(--muted); }
+:root .relay-content td.text-ink { color: var(--text); }
+
+:root .relay-content td a {
+  color: var(--info);
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
+:root .legend {
+  margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+:root .legend li {
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+:root .legend li:last-child { border-bottom: 0; }
+:root .legend .num { font-weight: 800; }
+
+/* A 190px donut must not consume the narrow composition panel's text column.
+   The 200px legend minimum wraps it below the chart when the panel is narrow,
+   independent of the viewport breakpoint used by the shared production JSX. */
+:root .widget-card:has(> [data-widget-title="Cost composition"]) > .flex:has(.legend) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+}
+
+:root .widget-card:has(> [data-widget-title="Cost composition"]) > .flex:has(.legend) > :first-child {
+  flex: 0 0 172px;
+  width: 172px;
+  max-width: 100%;
+}
+
+:root .widget-card:has(> [data-widget-title="Cost composition"]) > .flex:has(.legend) > :last-child {
+  flex: 1 1 200px;
+  min-width: min(100%, 200px);
+}
+
+:root .widget-card:has(> [data-widget-title="Cost composition"]) .legend li > span:first-child {
+  align-items: baseline;
+}
+
+:root .widget-card:has(> [data-widget-title="Cost composition"]) .legend .truncate {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: normal;
+}
+
+/* The existing ProgressBar geometry and data remain; only its material changes. */
+:root .widget-card .h-1\.5.w-full.overflow-hidden {
+  height: 9px;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+
+:root .widget-card .h-1\.5.w-full.overflow-hidden > div {
+  border-radius: 3px;
+}
+
+:root .relay-content[data-page="quota"] .widget-card .h-1\.5.w-full.overflow-hidden {
+  height: 12px;
+  background: var(--surface-3);
+}
+
+:root .relay-content[data-page="quota"] .widget-card .rounded-xl.border.p-2\.5 {
+  padding: 17px 10px 12px;
+  border-color: var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+:root .relay-content :is([role="meter"], [role="progressbar"]) {
+  border-radius: 4px;
+}
+
+:root .heatmap-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+:root .heatmap-slider::-webkit-slider-thumb {
+  border-color: var(--relay-coral);
+  background: var(--relay-coral);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+:root .heatmap-slider::-moz-range-thumb {
+  border-color: var(--relay-coral);
+  background: var(--relay-coral);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+:root .relay-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 20px;
+  margin-top: 33px;
+  padding: 15px 0 30px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (min-width: 1150px) {
+  :root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(2) {
+    grid-template-columns: minmax(0, 1.85fr) minmax(290px, .72fr);
+  }
+
+  :root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(2) > .widget-card {
+    grid-column: auto;
+  }
+}
+
+/* Wrapped metric rows start on the same editorial edge as the first row. */
+@media (min-width: 768px) and (max-width: 1149px) {
+  :root .grid.md\:grid-cols-3 > .stat-card:nth-child(3n + 1),
+  :root .grid.md\:grid-cols-4 > .stat-card:nth-child(4n + 1) {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  :root .grid.md\:grid-cols-3 > .stat-card:nth-child(3n + 1) .stat-accent,
+  :root .grid.md\:grid-cols-4 > .stat-card:nth-child(4n + 1) .stat-accent {
+    left: 0;
+  }
+}
+
+@media (max-width: 1100px) {
+  :root .relay-sidebar { column-gap: 15px; }
+  :root .relay-nav a { padding-inline: 10px; }
+  :root .stat-card { padding-inline: 14px; }
+  :root .stat-value { font-size: 27px; }
+  :root .widget-card { padding: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { scroll-behavior: auto; }
+  :root .relay-app :is(button, a, .stat-card, .widget-card) { transition: none; }
+}

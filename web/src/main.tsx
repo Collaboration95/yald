@@ -3,7 +3,9 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./index.css";
+import "./styles/relay.css";
 import { ThemeProvider } from "./lib/theme";
+import { RelayProvider } from "./lib/RelayProvider";
 import { FiltersProvider } from "./lib/useFilters";
 import { Layout } from "./components/Layout";
 const OverviewPage = lazy(() => import("./pages/Overview").then(m => ({ default: m.OverviewPage })));
@@ -31,6 +33,7 @@ createRoot(document.getElementById("root")!).render(
       <ThemeProvider>
         <BrowserRouter>
           <FiltersProvider>
+            <RelayProvider>
             <Suspense fallback={<div className="p-6 text-sm text-muted">Loading view…</div>}>
             <Routes>
               <Route element={<Layout />}>
@@ -47,6 +50,7 @@ createRoot(document.getElementById("root")!).render(
               </Route>
             </Routes>
             </Suspense>
+            </RelayProvider>
           </FiltersProvider>
         </BrowserRouter>
       </ThemeProvider>

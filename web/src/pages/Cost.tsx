@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Coins, Percent, PiggyBank, Zap } from "lucide-react";
 import { exportUrl, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
@@ -14,7 +14,9 @@ import type { CostResponse } from "../types";
 export function CostPage() {
   const { filters, set } = useFilters();
   const { chartTheme } = useTheme();
-  const query = useEndpoint<CostResponse>("/api/cost", filters, { groupBy: filters.groupBy });
+  const { search } = useLocation();
+  const groupBy = filters.groupBy === "provider" || filters.groupBy === "effort" ? filters.groupBy : "model";
+  const query = useEndpoint<CostResponse>("/api/cost", filters, { groupBy });
   const data = query.data;
   const summary = data?.summary;
 
@@ -102,7 +104,7 @@ export function CostPage() {
             action={
               <Segmented
                 size="sm"
-                value={filters.groupBy as "model" | "provider" | "effort"}
+                value={groupBy}
                 options={[
                   { id: "model", label: "Model" },
                   { id: "provider", label: "Provider" },
@@ -167,7 +169,7 @@ export function CostPage() {
               {data?.topConversations.map(conversation => (
                 <li key={conversation.id}>
                   <div className="flex items-center justify-between gap-2">
-                    <Link to={`/conversations/${conversation.id}`} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
+                    <Link to={{ pathname: `/conversations/${conversation.id}`, search }} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
                       {shortId(conversation.id, 12)}
                     </Link>
                     <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{formatUsd(conversation.cost)}</span>

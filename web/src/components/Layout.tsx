@@ -14,7 +14,6 @@ import {
   ShieldAlert,
   Sun,
   Timer,
-  TrendingUp,
 } from "lucide-react";
 import { fetchJson, RANGES } from "../api";
 import { useFilters } from "../lib/useFilters";
@@ -58,7 +57,8 @@ export function Layout() {
   });
 
   const activeFilters = filters.providers.length + filters.models.length + filters.efforts.length + filters.statuses.length;
-  const heading = TITLES[location.pathname] ?? { title: "yald", subtitle: "" };
+  const heading = TITLES[location.pathname] ?? { title: "Conversation", subtitle: "The complete session, request by request" };
+  const page = location.pathname.startsWith("/conversations/") ? "conversation" : location.pathname.slice(1) || "overview";
 
   const refresh = async () => {
     await fetchJson("/api/dataset/refresh");
@@ -66,18 +66,16 @@ export function Layout() {
   };
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-[224px] shrink-0 flex-col border-r border-line bg-surface px-3 py-4 lg:flex">
-        <div className="mb-5 flex items-center gap-2 px-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-white">
-            <TrendingUp size={15} strokeWidth={2.4} />
-          </span>
-          <span className="leading-tight">
-            <span className="block text-[13px] font-semibold tracking-[-0.01em] text-ink">yald</span>
-            <span className="block text-[10.5px] text-muted">opencodex analytics</span>
-          </span>
-        </div>
-        <nav className="flex-1 space-y-0.5 overflow-y-auto">
+    <div className="relay-app">
+      <a className="relay-skip" href="#main-content">Skip to content</a>
+      <div className="relay-frame">
+      <aside className="relay-sidebar">
+        <NavLink to={{ pathname: "/", search: location.search }} className="relay-brand" aria-label="yald overview">
+          <span>yald<span className="relay-brand-stop">.</span></span>
+          <span className="relay-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+        </NavLink>
+        <p className="relay-brand-caption">Your work, in view.</p>
+        <nav className="relay-nav" aria-label="Analytics sections">
           {NAV.map(item => (
             <NavLink
               key={item.to}
@@ -93,7 +91,7 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="mt-3 space-y-2 border-t border-line pt-3">
+        <div className="relay-ledger mt-3 space-y-2 border-t border-line pt-3">
           <div className="px-2">
             <p className="text-[10.5px] uppercase tracking-[0.05em] text-muted">Ledger</p>
             <p className="num mt-1 text-[11.5px] text-ink-soft">
@@ -114,13 +112,9 @@ export function Layout() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
+      <div className="relay-workspace">
+        <header className="relay-toolbar">
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink">{heading.title}</h1>
-              <p className="truncate text-[11.5px] text-muted">{heading.subtitle}</p>
-            </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <Segmented
                 value={filters.range}
@@ -160,6 +154,7 @@ export function Layout() {
                 <input
                   value={filters.search}
                   onChange={event => set({ search: event.target.value })}
+                  aria-label="Search ledger"
                   placeholder="Search model, error, id…"
                   className="w-[190px] rounded-lg border border-line bg-surface py-1.5 pl-7 pr-2 text-[11.5px] text-ink outline-none transition placeholder:text-muted focus:border-accent/50"
                 />
@@ -183,9 +178,16 @@ export function Layout() {
             </div>
           </div>
         </header>
-        <main className="min-w-0 flex-1 overflow-x-clip px-4 pb-10 pt-4">
+        <main className="relay-content" data-page={page} id="main-content">
+          <div className="relay-heading">
+            <span className="relay-eyebrow">{String(NAV.findIndex(item => item.to === location.pathname) + 1 || 8).padStart(2, "0")} / {"YOUR DAILY SIGNAL"}</span>
+            <h1>{heading.title}<span className="relay-title-stop">.</span></h1>
+            <p>{heading.subtitle}</p>
+          </div>
           <Outlet />
+          <footer className="relay-footer"><span>Every request leaves a trace.</span><span>Local ledger · Read-only analytics</span></footer>
         </main>
+      </div>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 # Deferred performance experiments
 
-Saved on 2026-10-02 while comparing the Bench and Relay interfaces. Implement
+Saved on 2026-10-02 during UI design exploration. Implement
 neither these experiments nor benchmark instrumentation during the design work.
 
 After choosing a design, freeze its complete, correct implementation as the
@@ -28,5 +28,6 @@ and finished plots, not a heading or an empty canvas. Use balanced repeated runs
 screenshots/traces. Retain regressions and inconclusive results. Publish a claim
 only after the improvement repeats outside measurement noise.
 
-Detailed background: `docs/design-lab/AUDIT-PLAN.md`. That earlier plan contains
-discovery observations, not validated before/after performance gains.
+Relay has been chosen as the production design. Capture its verified commit as
+the baseline for a separate, stacked performance PR. Earlier discovery timings
+are not validated before/after performance gains.
