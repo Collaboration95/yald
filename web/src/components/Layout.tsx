@@ -72,7 +72,6 @@ export function Layout() {
       <div className="relay-frame">
       <aside className="relay-sidebar">
         <Wordmark />
-        <p className="relay-brand-caption">Your work, in view.</p>
         <nav className="relay-nav" aria-label="Analytics sections">
           {NAV.map(item => (
             <NavLink

@@ -137,215 +137,211 @@ export function OverviewPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader
-            title="Usage over time"
-            subtitle={data ? `${data.window.bucket} buckets · ${formatInteger(data.window.requests)} requests in window` : "loading"}
-            action={
-              <div className="flex items-center gap-1.5">
-                <Segmented
-                  size="sm"
-                  value={metric}
-                  options={[
-                    { id: "tokens", label: "Tokens" },
-                    { id: "cost", label: "Cost" },
-                    { id: "requests", label: "Requests" },
-                  ]}
-                  onChange={value => {
-                    set({ metric: value });
-                  }}
-                />
-                <Segmented
-                  size="sm"
-                  value={groupBy}
-                  options={[
-                    { id: "model", label: "Model" },
-                    { id: "provider", label: "Provider" },
-                    { id: "effort", label: "Effort" },
-                  ]}
-                  onChange={groupBy => set({ groupBy })}
-                />
-              </div>
-            }
-          />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
-            {seriesOption ? <Chart option={seriesOption} height={288} /> : null}
-          </StateBlock>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title="Cost composition"
-            subtitle="Estimated from published rates per token class"
-            action={<Link to={{ pathname: "/cost", search }} className="text-[11px] font-medium text-accent">Details</Link>}
-          />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || compositionTotal === 0}>
-            <div className="flex flex-col items-center gap-3 sm:flex-row">
-              {compositionOption ? <Chart option={compositionOption} height={172} className="max-w-[190px]" /> : null}
-              {data ? (
-                <div className="w-full min-w-0 flex-1">
-                  <Legend
-                    items={[
-                      { label: "Fresh input", color: COMPOSITION_COLORS["Fresh input"]!, value: formatUsd(data.composition.freshInput) },
-                      { label: "Cache read", color: COMPOSITION_COLORS["Cache read"]!, value: formatUsd(data.composition.cacheRead) },
-                      { label: "Cache write", color: COMPOSITION_COLORS["Cache write"]!, value: formatUsd(data.composition.cacheWrite) },
-                      { label: "Output", color: COMPOSITION_COLORS.Output!, value: formatUsd(data.composition.output) },
-                    ].filter(entry => entry.value !== formatUsd(0))}
+      <div className="overview-board">
+        <div className="overview-main-stack">
+          <Card className="overview-usage">
+            <CardHeader
+              title="Usage over time"
+              subtitle={data ? `${data.window.bucket} buckets · ${formatInteger(data.window.requests)} requests in window` : "loading"}
+              action={
+                <div className="flex items-center gap-1.5">
+                  <Segmented
+                    size="sm"
+                    value={metric}
+                    options={[
+                      { id: "tokens", label: "Tokens" },
+                      { id: "cost", label: "Cost" },
+                      { id: "requests", label: "Requests" },
+                    ]}
+                    onChange={value => {
+                      set({ metric: value });
+                    }}
                   />
-                  <div className="mt-3 rounded-xl bg-accent-soft p-2.5">
-                    <p className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
-                      <Zap size={12} /> Cache saved {formatUsd(data.summary.cache.savingsUsd)}
-                    </p>
-                    <p className="mt-0.5 text-[10.5px] leading-4 text-accent/80">
-                      {formatCompact(data.summary.cache.readTokens)} cached tokens re-read at the cache rate instead of full input price.
-                    </p>
-                  </div>
+                  <Segmented
+                    size="sm"
+                    value={groupBy}
+                    options={[
+                      { id: "model", label: "Model" },
+                      { id: "provider", label: "Provider" },
+                      { id: "effort", label: "Effort" },
+                    ]}
+                    onChange={groupBy => set({ groupBy })}
+                  />
                 </div>
-              ) : null}
-            </div>
-            {data && data.composition.unpricedRequests > 0 ? (
-              <p className="mt-3 text-[10.5px] leading-4 text-muted">
-                {formatInteger(data.composition.unpricedRequests)} requests had no published price (subscription or free routes) and are excluded from cost.
-              </p>
-            ) : null}
-          </StateBlock>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card>
-          <CardHeader
-            title="Model leaderboard"
-            subtitle="Share of tokens in the selected window"
-            action={<Link to={{ pathname: "/models", search }} className="text-[11px] font-medium text-accent">All models</Link>}
-          />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topModels.length === 0}>
-            <ul className="space-y-2.5">
-              {data?.topModels.map(model => (
-                <li key={model.key}>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <ModelTag model={model.key} className="max-w-[190px] text-[12px]" />
-                    <span className="num shrink-0 text-[11px] text-muted">
-                      {formatCompact(model.tokens)} · {formatUsd(model.cost)}
-                    </span>
-                  </div>
-                  <ProgressBar value={model.share} max={data.topModels[0]?.share ?? 1} className="mt-1.5" />
-                  <div className="mt-1 flex justify-between text-[10.5px] text-muted">
-                    <span>{formatPercent(model.share)} of tokens</span>
-                    <span className="num">
-                      {model.successRate !== null ? formatPercent(model.successRate) : "—"} ok · p50 {formatDuration(model.p50DurationMs)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </StateBlock>
-        </Card>
-
-        <Card>
-          <CardHeader title="Activity heatmap" subtitle={`${heatmapMetric === "tokens" ? "Tokens" : "Requests"} by weekday and hour (local time)`} action={
-            <Segmented size="sm" value={heatmapMetric} options={[{ id: "tokens", label: "Tokens" }, { id: "requests", label: "Requests" }]} onChange={value => { setHeatmapMetric(value); setMinimumActivity(0); }} />
-          } />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || heatmapMax === 0}>
-            <label className="mb-1 block text-[10.5px] text-muted">
-              <span className="mb-0.5 flex flex-wrap items-center justify-between gap-x-2">
-                <span>Minimum activity</span>
-                <span className="num font-medium text-ink" aria-live="polite">At least {formatCompact(minimumActivity)} {heatmapUnit} · {matchingHeatmapCells} of 168 cells</span>
-              </span>
-              <input
-                aria-label={`Minimum activity in ${heatmapUnit}`}
-                type="range" min={0} max={heatmapMax} step={Math.max(1, Math.floor(heatmapMax / 100))}
-                value={Math.min(minimumActivity, heatmapMax)} disabled={heatmapMax === 0}
-                onChange={event => setMinimumActivity(Number(event.currentTarget.value))}
-                className="heatmap-slider w-full disabled:opacity-50"
+              }
+            />
+            <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
+              {seriesOption ? <Chart option={seriesOption} height={288} /> : null}
+            </StateBlock>
+          </Card>
+          <div className="overview-signals">
+            <Card className="overview-models overview-open-panel">
+              <CardHeader
+                title="Model leaderboard"
+                subtitle="Share of tokens in the selected window"
+                action={<Link to={{ pathname: "/models", search }} className="text-[11px] font-medium text-accent">All models</Link>}
               />
-            </label>
-            {heatmapOption ? <Chart option={heatmapOption} height={196} /> : null}
-          </StateBlock>
-          <div className="mt-2 flex items-center justify-between text-[10.5px] text-muted">
-            <span>quiet</span>
-            <span className="mx-2 h-1.5 flex-1 rounded-full bg-gradient-to-r from-line to-accent" />
-            <span>{formatCompact(heatmapMax)} {heatmapUnit} peak</span>
+              <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topModels.length === 0}>
+                <ul className="leaderboard-list">
+                  {data?.topModels.map(model => (
+                    <li key={model.key} className="leaderboard-row">
+                      <div className="leaderboard-topline">
+                        <ModelTag model={model.key} className="leaderboard-model" />
+                        <div className="leaderboard-totals">
+                          <span className="leaderboard-volume">{formatCompact(model.tokens)} <span>tokens</span></span>
+                          <span className="leaderboard-cost">{formatUsd(model.cost)}</span>
+                        </div>
+                      </div>
+                      <ProgressBar value={model.share} max={data.topModels[0]?.share ?? 1} className="leaderboard-bar" />
+                      <dl className="leaderboard-metrics">
+                        <div><dt>Token share</dt><dd>{formatPercent(model.share)}</dd></div>
+                        <div><dt>Success</dt><dd>{model.successRate !== null ? formatPercent(model.successRate) : "—"}</dd></div>
+                        <div><dt>Latency p50</dt><dd>{formatDuration(model.p50DurationMs)}</dd></div>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              </StateBlock>
+            </Card>
+            <div className="overview-signal-stack">
+              <Card className="overview-heatmap overview-open-panel">
+                <CardHeader title="Activity heatmap" subtitle={`${heatmapMetric === "tokens" ? "Tokens" : "Requests"} by weekday and hour (local time)`} action={
+                  <Segmented size="sm" value={heatmapMetric} options={[{ id: "tokens", label: "Tokens" }, { id: "requests", label: "Requests" }]} onChange={value => { setHeatmapMetric(value); setMinimumActivity(0); }} />
+                } />
+                <StateBlock loading={query.isLoading} error={query.error} empty={!data || heatmapMax === 0}>
+                  <label className="mb-1 block text-[10.5px] text-muted">
+                    <span className="mb-0.5 flex flex-wrap items-center justify-between gap-x-2">
+                      <span>Minimum activity</span>
+                      <span className="num font-medium text-ink" aria-live="polite">At least {formatCompact(minimumActivity)} {heatmapUnit} · {matchingHeatmapCells} of 168 cells</span>
+                    </span>
+                    <input
+                      aria-label={`Minimum activity in ${heatmapUnit}`}
+                      type="range" min={0} max={heatmapMax} step={Math.max(1, Math.floor(heatmapMax / 100))}
+                      value={Math.min(minimumActivity, heatmapMax)} disabled={heatmapMax === 0}
+                      onChange={event => setMinimumActivity(Number(event.currentTarget.value))}
+                      className="heatmap-slider w-full disabled:opacity-50"
+                    />
+                  </label>
+                  {heatmapOption ? <Chart option={heatmapOption} height={196} /> : null}
+                </StateBlock>
+                <div className="mt-2 flex items-center justify-between text-[10.5px] text-muted">
+                  <span>quiet</span>
+                  <span className="mx-2 h-1.5 flex-1 rounded-full bg-gradient-to-r from-line to-accent" />
+                  <span>{formatCompact(heatmapMax)} {heatmapUnit} peak</span>
+                </div>
+              </Card>
+              <Card className="overview-quota overview-open-panel">
+                <CardHeader title="Quota" subtitle="Plan windows reported by the provider" action={<Link to={{ pathname: "/quota", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
+                <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.quota.windows.length === 0} emptyLabel="No quota samples recorded">
+                  <ul className="space-y-3">
+                    {data?.quota.windows.map(window => {
+                      const burn = data.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
+                      const tone = window.usedPercent >= 90 ? "bad" : window.usedPercent >= 70 ? "warn" : "accent";
+                      return (
+                        <li key={`${window.account}-${window.window}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-[11.5px] font-medium text-ink">{window.window} · {window.account === "__main__" ? "main policy" : shortId(window.account, 14)}</p>
+                            <span className="num text-[12px] font-semibold text-ink">{window.usedPercent}%</span>
+                          </div>
+                          <ProgressBar value={window.usedPercent} max={100} tone={tone} className="mt-1.5" />
+                          <div className="mt-1 flex justify-between text-[10.5px] text-muted">
+                            <span>{window.resetAtMs ? `resets ${formatCountdown(window.resetAtMs)}` : "no reset reported"}</span>
+                            <span>
+                              {!burn || burn.status === "insufficient"
+                                ? "no data in range"
+                                : burn.percentPerDay > 0
+                                  ? `${burn.percentPerDay.toFixed(2)}%/day`
+                                  : "flat"}
+                            </span>
+                          </div>
+                          {burn?.willExhaustBeforeReset ? (
+                            <p className="mt-1 flex items-center gap-1 text-[10.5px] font-medium text-warn">
+                              <Flame size={11} /> projected to run out before reset
+                            </p>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </StateBlock>
+              </Card>
+            </div>
           </div>
-        </Card>
-
-        <Card>
-          <CardHeader title="Quota" subtitle="Plan windows reported by the provider" action={<Link to={{ pathname: "/quota", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.quota.windows.length === 0} emptyLabel="No quota samples recorded">
-            <ul className="space-y-3">
-              {data?.quota.windows.map(window => {
-                const burn = data.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
-                const tone = window.usedPercent >= 90 ? "bad" : window.usedPercent >= 70 ? "warn" : "accent";
-                return (
-                  <li key={`${window.account}-${window.window}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-[11.5px] font-medium text-ink">{window.window} · {window.account === "__main__" ? "main policy" : shortId(window.account, 14)}</p>
-                      <span className="num text-[12px] font-semibold text-ink">{window.usedPercent}%</span>
-                    </div>
-                    <ProgressBar value={window.usedPercent} max={100} tone={tone} className="mt-1.5" />
-                    <div className="mt-1 flex justify-between text-[10.5px] text-muted">
-                      <span>{window.resetAtMs ? `resets ${formatCountdown(window.resetAtMs)}` : "no reset reported"}</span>
-                      <span>
-                        {!burn || burn.status === "insufficient"
-                          ? "no data in range"
-                          : burn.percentPerDay > 0
-                            ? `${burn.percentPerDay.toFixed(2)}%/day`
-                            : "flat"}
-                      </span>
-                    </div>
-                    {burn?.willExhaustBeforeReset ? (
-                      <p className="mt-1 flex items-center gap-1 text-[10.5px] font-medium text-warn">
-                        <Flame size={11} /> projected to run out before reset
-                      </p>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          </StateBlock>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader title="Recent requests" subtitle="Your latest requests" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.recent.length === 0}>
-            <TableShell>
-              <thead>
-                <tr>
-                  <Th>When</Th>
-                  <Th>Model</Th>
-                  <Th align="right">Tokens</Th>
-                  <Th align="right">Cost</Th>
-                  <Th align="right">TTFT</Th>
-                  <Th align="right">Total</Th>
-                  <Th align="center">Status</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.recent.map(row => (
-                  <tr key={row.id} className="transition hover:bg-surface-2">
-                    <Td className="whitespace-nowrap text-muted">{formatRelative(row.ts)}</Td>
-                    <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[210px]" /></Td>
-                    <Td align="right">{formatCompact(row.totalTokens)}</Td>
-                    <Td align="right">{row.priced ? formatUsd(row.cost) : <span className="text-muted">unpriced</span>}</Td>
-                    <Td align="right">{formatDuration(row.ttftMs)}</Td>
-                    <Td align="right">{formatDuration(row.durationMs)}</Td>
-                    <Td align="center">
-                      <span className="inline-flex items-center gap-1.5">
-                        <OutcomeDot outcome={row.outcome} />
-                        <span className="num text-[10.5px] text-muted">{row.status}</span>
-                      </span>
-                    </Td>
+          <Card className="overview-recent">
+            <CardHeader title="Recent requests" subtitle="Your latest requests" />
+            <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.recent.length === 0}>
+              <TableShell>
+                <thead>
+                  <tr>
+                    <Th>When</Th>
+                    <Th>Model</Th>
+                    <Th align="right">Tokens</Th>
+                    <Th align="right">Cost</Th>
+                    <Th align="right">TTFT</Th>
+                    <Th align="right">Total</Th>
+                    <Th align="center">Status</Th>
                   </tr>
-                ))}
-              </tbody>
-            </TableShell>
-          </StateBlock>
-        </Card>
-
-        <div className="space-y-3">
+                </thead>
+                <tbody>
+                  {data?.recent.map(row => (
+                    <tr key={row.id} className="transition hover:bg-surface-2">
+                      <Td className="whitespace-nowrap text-muted">{formatRelative(row.ts)}</Td>
+                      <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[210px]" /></Td>
+                      <Td align="right">{formatCompact(row.totalTokens)}</Td>
+                      <Td align="right">{row.priced ? formatUsd(row.cost) : <span className="text-muted">unpriced</span>}</Td>
+                      <Td align="right">{formatDuration(row.ttftMs)}</Td>
+                      <Td align="right">{formatDuration(row.durationMs)}</Td>
+                      <Td align="center">
+                        <span className="inline-flex items-center gap-1.5">
+                          <OutcomeDot outcome={row.outcome} />
+                          <span className="num text-[10.5px] text-muted">{row.status}</span>
+                        </span>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableShell>
+            </StateBlock>
+          </Card>
+        </div>
+        <div className="overview-side-stack">
+          <Card className="overview-cost">
+            <CardHeader
+              title="Cost composition"
+              subtitle="Estimated from published rates per token class"
+              action={<Link to={{ pathname: "/cost", search }} className="text-[11px] font-medium text-accent">Details</Link>}
+            />
+            <StateBlock loading={query.isLoading} error={query.error} empty={!data || compositionTotal === 0}>
+              <div className="flex flex-col items-center gap-3 sm:flex-row">
+                {compositionOption ? <Chart option={compositionOption} height={172} className="max-w-[190px]" /> : null}
+                {data ? (
+                  <div className="w-full min-w-0 flex-1">
+                    <Legend
+                      items={[
+                        { label: "Fresh input", color: COMPOSITION_COLORS["Fresh input"]!, value: formatUsd(data.composition.freshInput) },
+                        { label: "Cache read", color: COMPOSITION_COLORS["Cache read"]!, value: formatUsd(data.composition.cacheRead) },
+                        { label: "Cache write", color: COMPOSITION_COLORS["Cache write"]!, value: formatUsd(data.composition.cacheWrite) },
+                        { label: "Output", color: COMPOSITION_COLORS.Output!, value: formatUsd(data.composition.output) },
+                      ].filter(entry => entry.value !== formatUsd(0))}
+                    />
+                    <div className="mt-3 rounded-xl bg-accent-soft p-2.5">
+                      <p className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
+                        <Zap size={12} /> Cache saved {formatUsd(data.summary.cache.savingsUsd)}
+                      </p>
+                      <p className="mt-0.5 text-[10.5px] leading-4 text-accent/80">
+                        {formatCompact(data.summary.cache.readTokens)} cached tokens re-read at the cache rate instead of full input price.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {data && data.composition.unpricedRequests > 0 ? (
+                <p className="mt-3 text-[10.5px] leading-4 text-muted">
+                  {formatInteger(data.composition.unpricedRequests)} requests had no published price (subscription or free routes) and are excluded from cost.
+                </p>
+              ) : null}
+            </StateBlock>
+          </Card>
           <Card>
             <CardHeader title="Context pressure" subtitle="Input size distribution per request" />
             <StateBlock loading={query.isLoading} error={query.error} empty={!data}>

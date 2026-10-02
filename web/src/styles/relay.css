@@ -155,7 +155,18 @@
   font-weight: 800;
   letter-spacing: -.075em;
   line-height: 1;
+  transform-origin: 28px 70%;
+  animation: relay-wordmark-nudge 14s ease-in-out 1.8s infinite;
   transition: opacity 160ms, transform 280ms, filter 280ms;
+}
+
+/* A brief invitation to hover, followed by a long quiet pause. */
+@keyframes relay-wordmark-nudge {
+  0%, 3.5%, 100% { transform: none; }
+  .7% { transform: rotate(-5deg); }
+  1.4% { transform: rotate(4deg); }
+  2.1% { transform: rotate(-3deg); }
+  2.8% { transform: rotate(1.5deg); }
 }
 
 :root .relay-wordmark-full {
@@ -174,20 +185,13 @@
 
 :root .relay-brand[data-morph="1"] .relay-wordmark-full > span { transform: translateX(9px); }
 :root .relay-brand[data-morph="2"] .relay-wordmark-full > span { transform: scale(.86); filter: blur(4px); }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-short { opacity: 0; transform: translateY(-6px); filter: blur(3px); }
+:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-short { animation: none; opacity: 0; transform: translateY(-6px); filter: blur(3px); }
 :root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full { opacity: 1; }
 :root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span { opacity: 1; transform: none; filter: none; }
 :root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(2) { transition-delay: 25ms; }
 :root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(3) { transition-delay: 50ms; }
 :root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(4) { transition-delay: 75ms; }
 :root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(5) { transition-delay: 100ms; }
-
-:root .relay-brand-caption {
-  flex: 0 0 auto;
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 10px;
-}
 
 :root :is(.relay-brand-stop, .relay-title-stop) { color: var(--relay-coral); }
 
@@ -320,8 +324,45 @@
 
 :root .relay-content .grid:has(> .widget-card) {
   gap: 24px;
-  align-items: stretch;
+  align-items: start;
 }
+
+/* Independent stacks let the next widget follow its own column's content. */
+:root .overview-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1.85fr) minmax(290px, .72fr);
+  align-items: start;
+  gap: 24px;
+}
+
+:root :is(.overview-main-stack, .overview-side-stack, .overview-signal-stack) {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+:root .overview-signals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 24px;
+}
+
+:root .leaderboard-list { display: grid; gap: 20px; }
+:root .leaderboard-row { min-width: 0; }
+:root .leaderboard-topline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+:root .leaderboard-model { max-width: 100%; font-size: 13.5px; line-height: 1.5; letter-spacing: 0; }
+:root .leaderboard-model > .truncate { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-weight: 650; }
+:root .leaderboard-totals { display: grid; gap: 2px; text-align: right; font-size: 11.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+:root .leaderboard-volume { color: var(--text-soft); font-weight: 650; }
+:root .leaderboard-volume > span { color: var(--muted); font-size: 10px; font-weight: 500; }
+:root .leaderboard-cost { color: var(--muted); }
+:root .leaderboard-bar { margin-top: 9px; }
+:root .leaderboard-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 9px; }
+:root .leaderboard-metrics > div { min-width: 0; }
+:root .leaderboard-metrics dt { color: var(--muted); font-size: 10.5px; line-height: 1.5; letter-spacing: .015em; }
+:root .leaderboard-metrics dd { margin: 3px 0 0; color: var(--text-soft); font-size: 12px; font-weight: 650; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 :root .relay-content .grid:has(> .stat-card) {
   gap: 20px 0;
@@ -491,7 +532,7 @@
 }
 
 /* Secondary comparisons sit on the paper instead of adding another card wall. */
-:root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(3) > .widget-card,
+:root .overview-open-panel,
 :root .relay-content[data-page="models"] > .space-y-3 > .grid:nth-child(2) > .widget-card,
 :root .relay-content[data-page="performance"] > .space-y-3 > .grid:nth-child(4) > .widget-card {
   border-width: 1px 0 0;
@@ -501,7 +542,7 @@
   box-shadow: none;
 }
 
-:root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child,
+:root .overview-cost,
 :root .relay-content[data-page="cost"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child {
   background: var(--relay-peach);
   border-color: transparent;
@@ -700,16 +741,6 @@
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 11px;
-}
-
-@media (min-width: 1150px) {
-  :root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(2) {
-    grid-template-columns: minmax(0, 1.85fr) minmax(290px, .72fr);
-  }
-
-  :root .relay-content[data-page="overview"] > .space-y-3 > .grid:nth-child(2) > .widget-card {
-    grid-column: auto;
-  }
 }
 
 /* Wrapped metric rows start on the same editorial edge as the first row. */
