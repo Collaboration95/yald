@@ -127,7 +127,7 @@ const PAGES: PageSpec[] = [
       { path: "/api/quota", params: filtersToParams(DEFAULT_FILTERS, {}) },
       { path: "/api/ledger", params: filtersToParams(DEFAULT_FILTERS, {}) },
     ],
-    expect: ["Utilisation history", "Current windows", "Spend ledger", "Burn table"],
+    expect: ["Utilisation history", "Current windows", "Send accounting", "Burn table"],
     expectFrom: payloads => [payloads[0]?.windows?.[0]?.window],
   },
   {
