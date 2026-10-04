@@ -109,7 +109,7 @@ function finiteOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function normalizeRow(entry: Record<string, any>): RequestRow {
+export function normalizeRow(entry: Record<string, any>): RequestRow {
   let usage = entry.usage ?? {};
   let usageFromAttempts = false;
   if (num(usage.inputTokens) === 0 && num(usage.outputTokens) === 0 && Array.isArray(entry.attempts)) {
