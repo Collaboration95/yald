@@ -1,12 +1,23 @@
 # Installation
 
-## npm (Node.js 18+)
+## GitHub preview (Node.js 18+ and npm)
+
+Download the prebuilt package from the `v0.1.0` release:
+
+```bash
+gh release download v0.1.0 --repo Collaboration95/yald --pattern 'yald-dashboard-0.1.0.tgz'
+npm install -g ./yald-dashboard-0.1.0.tgz
+yald --version
+yald --open
+```
+
+## npm registry (after publication)
 
 ```bash
 npx -p yald-dashboard yald --port 4318 --host 127.0.0.1 --ocx-home ~/.opencodex --open
 ```
 
-The package is named `yald-dashboard` because `yald` is already claimed on npm by an unrelated package. It includes Bun and the prebuilt UI and exposes the `yald` command. `--open` opens the local dashboard in the system browser.
+The package is named `yald-dashboard` because `yald` is already claimed on npm by an unrelated package. It installs Bun, includes the prebuilt UI, and exposes the `yald` command. `--open` opens the local dashboard in the system browser. npm publication and a Homebrew tap are separate steps described in [the distribution guide](releasing.md).
 
 ## Clone
 

@@ -141,7 +141,7 @@ try {
   for (const count of sizes) {
     await writeDataset(count);
     server?.kill("SIGTERM");
-    server = spawn(join(root, "scripts/bun"), ["run", "server/src/index.ts"], { cwd: root, env: { ...process.env, OCX_HOME: fixture, YALD_PORT: String(port), YALD_HOST: "127.0.0.1" }, stdio: "ignore" });
+    server = spawn(join(root, "scripts/bun"), ["run", "server/src/index.ts"], { cwd: root, env: { ...process.env, OCX_HOME: fixture, CLAUDE_PROJECTS_DIR: join(fixture, "claude-projects"), YALD_PORT: String(port), YALD_HOST: "127.0.0.1" }, stdio: "ignore" });
     for (let i = 0; i < 120; i++) {
       try { if ((await fetch(`http://127.0.0.1:${port}/api/health`)).ok) break; } catch {}
       if (i === 119) throw new Error("Server did not start");

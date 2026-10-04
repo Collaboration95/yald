@@ -23,7 +23,6 @@ export const PATHS = {
   config: join(OCX_HOME, "config.json"),
   serviceState: join(OCX_HOME, "service-state.json"),
   runtimePort: join(OCX_HOME, "runtime-port.json"),
-  claudeProjects: CLAUDE_PROJECTS,
 };
 
 function looksLikeOcxPackage(dir: string): boolean {
