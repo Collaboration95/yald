@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- Claude Code subscription usage, read from `~/.claude/projects` transcripts (`CLAUDE_PROJECTS_DIR`) and shown as provider `anthropic` in every view, priced by the opencodex cost engine ([#26](https://github.com/Collaboration95/yald/pull/26)).
+
 ## [0.1.0] - 2026-10-03
 
 ### Added

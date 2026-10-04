@@ -1,4 +1,5 @@
 import { stat, readFile } from "node:fs/promises";
+import { readClaudeEntries } from "../claude/transcripts";
 import { PATHS } from "../env";
 import { loadPricing, priceEntry, pricingGeneration } from "./pricing";
 
@@ -109,7 +110,7 @@ function finiteOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function normalizeRow(entry: Record<string, any>): RequestRow {
+export function normalizeRow(entry: Record<string, any>): RequestRow {
   let usage = entry.usage ?? {};
   let usageFromAttempts = false;
   if (num(usage.inputTokens) === 0 && num(usage.outputTokens) === 0 && Array.isArray(entry.attempts)) {
@@ -334,6 +335,7 @@ async function parseLedger(path: string): Promise<SpendEvent[]> {
 let dataset: Dataset | null = null;
 let inFlight: Promise<Dataset> | null = null;
 let signature = "";
+let mergedRows: { usage: Usage; claude: string; rows: RequestRow[] } | null = null;
 
 type Usage = Awaited<ReturnType<typeof parseUsage>>;
 interface Snapshot<T> {
@@ -364,10 +366,10 @@ async function currentFiles() {
 }
 
 async function build(force: boolean): Promise<Dataset> {
-  const initialFiles = await currentFiles();
+  const [initialFiles, claude] = await Promise.all([currentFiles(), readClaudeEntries()]);
   // Preserve the existing file-driven whole-dataset fast path. Pricing-only
   // changes still require force; generation guards component reuse on rebuild.
-  if (!force && dataset && initialFiles.signature === signature) return dataset;
+  if (!force && dataset && `${initialFiles.signature}|${claude.signature}` === signature) return dataset;
 
   await loadPricing();
   const startedAt = performance.now();
@@ -431,8 +433,19 @@ async function build(force: boolean): Promise<Dataset> {
     if (after.signature !== files.signature || pricingGeneration() !== generation) continue;
 
     const usage = nextUsage.value;
+    // Claude Code subscription traffic bypasses ocx; its transcripts normalize to the same rows.
+    // Memoized so quota/spend-only rebuilds keep reusing one rows array, like the usage snapshot.
+    let nextMerged = mergedRows;
+    if (nextMerged?.usage !== usage || nextMerged.claude !== claude.signature) {
+      const rows = claude.entries.length ? usage.rows.concat(claude.entries.map(normalizeRow)) : usage.rows;
+      // concat copies, so the reused usage snapshot array is never re-sorted.
+      if (rows !== usage.rows) rows.sort((a, b) => a.ts - b.ts);
+      nextMerged = { usage, claude: claude.signature, rows };
+    }
+    const rows = nextMerged.rows;
+    const nextSignature = `${files.signature}|${claude.signature}`;
     const nextDataset: Dataset = {
-      rows: usage.rows,
+      rows,
       quota: nextQuota.value,
       ledger: nextSpend.value,
       files: {
@@ -442,14 +455,15 @@ async function build(force: boolean): Promise<Dataset> {
       },
       parse: { malformedLines: usage.malformed, durationMs: Math.round(performance.now() - startedAt) },
       builtAt: Date.now(),
-      revision: `${usage.rows.length}:${files.signature}`,
+      revision: `${rows.length}:${nextSignature}`,
     };
     // Publication is synchronous: callers see either the prior composition or
     // all three verified components together. Reused arrays are never re-sorted.
     usageSnapshot = nextUsage;
     spendSnapshot = nextSpend;
     quotaSnapshot = nextQuota;
-    signature = files.signature;
+    mergedRows = nextMerged;
+    signature = nextSignature;
     dataset = nextDataset;
     return nextDataset;
   }

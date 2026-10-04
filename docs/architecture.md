@@ -1,13 +1,16 @@
 # Architecture
 
 ```text
-opencodex JSONL and quota cache -> server/src/ocx/store.ts -> server/src/analytics.ts
+opencodex JSONL and quota cache ----------> server/src/ocx/store.ts -> server/src/analytics.ts
+Claude Code transcripts -> claude/transcripts.ts -^
                                              -> server/src/api.ts -> React views
 ```
 
 The store parses `usage.jsonl`, `spend-ledger.jsonl`, and `codex-quota-cache.json`; pricing is delegated to opencodex's cost engine when available. `routing-history.sqlite` is currently unused because the JSONL ledger is the freshest supported source and avoids depending on an upstream SQLite schema. Analytics functions filter and aggregate normalized rows, Hono exposes those results, and the React client renders charts and tables.
 
-On each API read, the store checks device, inode, byte size, and nanosecond modification/change times for all three files.
+Claude Code subscription traffic never passes through opencodex, so `server/src/claude/transcripts.ts` reads `~/.claude/projects/**/*.jsonl` (`CLAUDE_PROJECTS_DIR`), maps each assistant response onto the `usage.jsonl` entry shape, and feeds it through the same `normalizeRow` and pricing engine; those rows carry `provider: "anthropic"` and `protocol: "claude-code"`. Anthropic's `input_tokens` excludes cache reads and writes, so the adapter adds them back to match ocx's cache-inclusive `inputTokens`. Claude Code repeats usage on every content-block line and resumed sessions copy history into new files, so entries are deduped by `requestId`. Transcripts carry no latency, TTFT, effort, quota, or retry data. Each transcript's parse is cached by size and mtime, so only new or appended sessions are re-read.
+
+On each API read, the store checks device, inode, byte size, and nanosecond modification/change times for all three files, plus the Claude transcript signature.
 An unchanged signature reuses the composed dataset. On a change, automatic rebuilds replace only changed components.
 Unchanged usage rows are reused only when the loaded pricing engine matches the inspected source fingerprint and its
 overlay/provider/account registry generation is unchanged. Unknown or newer engines still price normally and reparse

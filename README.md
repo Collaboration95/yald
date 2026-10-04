@@ -2,9 +2,41 @@
 
 [![yald CI](https://github.com/Collaboration95/yald/actions/workflows/ci.yml/badge.svg)](https://github.com/Collaboration95/yald/actions/workflows/ci.yml)
 
-A read-only analytics dashboard for [opencodex](https://github.com/lidge-jun/opencodex). opencodex already records everything
-worth charting — this puts it on one screen: token volume, estimated spend, cache economics, latency, reliability,
-quota burn, model comparison and per-conversation drill-down.
+A read-only analytics dashboard for [opencodex](https://github.com/lidge-jun/opencodex) and
+[Claude Code](https://docs.claude.com/en/docs/claude-code/overview). Both already record everything worth charting — this
+puts it on one screen: token volume, estimated spend, cache economics, latency, reliability, quota burn, model comparison
+and per-conversation drill-down.
+
+## Supported tools
+
+<table>
+  <tr>
+    <td align="center" width="140">
+      <a href="https://github.com/lidge-jun/opencodex">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lidge-jun/opencodex/main/assets/logo-dark.png">
+          <img src="https://raw.githubusercontent.com/lidge-jun/opencodex/main/assets/logo-light.png" alt="opencodex logo" width="64" height="64">
+        </picture>
+      </a>
+      <br><b>opencodex</b>
+    </td>
+    <td>Every request routed through the proxy (Codex, OpenAI-compatible providers, API-key Claude routes), read from
+    <code>~/.opencodex</code>. Full metrics: latency, TTFT, effort, retries, quota windows and the spend ledger.</td>
+  </tr>
+  <tr>
+    <td align="center" width="140">
+      <a href="https://docs.claude.com/en/docs/claude-code/overview">
+        <img src="https://cdn.simpleicons.org/claude/D97757" alt="Claude Code logo" width="64" height="64">
+      </a>
+      <br><b>Claude Code</b>
+    </td>
+    <td>Subscription sessions that never pass through opencodex, read from the session transcripts in
+    <code>~/.claude/projects</code> (subagents included). Rows appear as provider <code>anthropic</code> and are priced by
+    the same opencodex cost engine. Transcripts have no latency, TTFT, effort, quota or failure data.</td>
+  </tr>
+</table>
+
+Both sources normalize to the same request rows, so every view, filter and export covers them together.
 
 The dashboard reads the ledgers directly, so it works whether or not the proxy is running. Visible pages poll every 30
 seconds, unchanged responses use ETags, and polling pauses in background tabs. The Refresh button forces an immediate re-read.
@@ -49,6 +81,7 @@ Environment variables:
 | `YALD_PORT` (`PORT` fallback) | `4318` | API / UI port |
 | `YALD_HOST` (`HOST` fallback) | `127.0.0.1` | Bind address |
 | `OCX_HOME` | `~/.opencodex` | Where the ledgers live |
+| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Claude Code transcripts; point at an empty directory to leave Claude out |
 | `OCX_PACKAGE_DIR` | auto-detected | Location of the installed `@bitkyc08/opencodex` package |
 | `YALD_TZ` (`OCX_OBSERVATORY_TZ` fallback) | system timezone | Timezone used for calendar bucketing |
 
@@ -79,6 +112,7 @@ The npm package is named `yald-dashboard` because the unscoped `yald` name is al
 | `~/.opencodex/spend-ledger.jsonl` | Physical send accounting — `reserve` → `dispatch` → `settle`, plus `lost` sends |
 | `~/.opencodex/codex-quota-cache.json` | Current quota windows and every sample ever captured from provider response headers |
 | `~/.opencodex/routing-history.sqlite` | Indexed mirror of the usage rows (not read by default; the JSONL is fresher) |
+| `~/.claude/projects/**/*.jsonl` | Claude Code session transcripts: one row per API response with model, token classes, cache reads/writes, thinking tokens and stop reason |
 
 Pricing is not reinvented here. The server imports `@bitkyc08/opencodex/src/usage/cost.ts` at runtime, so every dollar
 figure matches `ocx usage` exactly, including your own `ocx models set-price` overlays and long-context rate bands.
@@ -126,6 +160,7 @@ These came out of the same ledgers and would be straightforward additions:
 server/src/env.ts              resolves OCX_HOME and the installed opencodex package
 server/src/ocx/pricing.ts      imports opencodex's cost engine (with a safe fallback)
 server/src/ocx/store.ts        parses usage.jsonl, spend-ledger.jsonl and the quota cache into compact rows
+server/src/claude/transcripts.ts  maps Claude Code transcripts onto the same usage rows
 server/src/analytics.ts        filtering, bucketing, percentiles, breakdowns, quota projections
 server/src/api.ts              Hono routes under /api
 server/src/index.ts            boot, static serving, SSE wiring
@@ -186,8 +221,10 @@ MIT — see [LICENSE](./LICENSE).
 
 ## Known limits
 
-- `surface` is empty in this installation's rows, so there is no Codex/Claude/Grok split; the field is rendered if it
-  ever appears.
+- `surface` is empty in this installation's rows, so there is no Codex/Claude/Grok split within opencodex rows; the field
+  is rendered if it ever appears. Claude Code subscription usage shows up separately as provider `anthropic`.
+- Claude Code transcripts record no latency, TTFT, effort, quota or failed calls, so those views stay empty for Claude
+  rows and its success rate is always 100%. If Claude Code is also routed through opencodex, those calls are counted twice.
 - Requests that failed before any tokens were metered carry no usage, so failure cost shows as zero rather than a guess.
   The Reliability page reports metering coverage instead of inventing numbers.
 - Unpriced models (subscription or free routes) are excluded from cost totals and surfaced as an explicit share.

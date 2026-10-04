@@ -138,6 +138,7 @@ test("API routes return their documented payloads and range-scoped quota and led
   await writeFile(join(home, "spend-ledger.jsonl"), [JSON.stringify({ kind: "dispatch", send: "s1", at: now }), JSON.stringify({ kind: "settle", send: "s1", tokens: 120, at: now })].join("\n") + "\n");
   await writeFile(join(home, "codex-quota-cache.json"), JSON.stringify({ version: 1, history: { accounts: { a: { samples: [{ observedAt: now - 86_400_000, windows: [{ family: "account", window: "weekly", usedPercent: 40 }] }, { observedAt: now, windows: [{ family: "account", window: "weekly", usedPercent: 50 }] }] } } }, quotas: { a: { updatedAt: now, weeklyPercent: 50, weeklyResetAt: Math.floor((now + 7 * 86_400_000) / 1000) } } }));
   process.env.OCX_HOME = home;
+  process.env.CLAUDE_PROJECTS_DIR = join(home, "claude-projects");
   const { api } = await import("./api");
   const paths: [string, string][] = [
     ["/api/health", "revision"], ["/api/meta", "totals"], ["/api/overview?range=7d", "summary"],

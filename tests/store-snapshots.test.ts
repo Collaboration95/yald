@@ -25,7 +25,7 @@ class Probe {
   waiters: { resolve: (line: string) => void; reject: (error: Error) => void }[] = [];
   stderr = "";
   constructor(checkout: string, home: string, pricing: string, syntheticGeneration = false) {
-    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC" }, stdio: "pipe" });
+    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC" }, stdio: "pipe" });
     createInterface({ input: this.child.stdout }).on("line", line => {
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(line); else this.lines.push(line);

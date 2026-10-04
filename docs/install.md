@@ -30,4 +30,4 @@ bun install
 
 ## Data location and options
 
-The default ledger directory is `~/.opencodex`. Use `--ocx-home` or `OCX_HOME` to select another directory. `--port`/`YALD_PORT` and `--host`/`YALD_HOST` configure the listener. `YALD_TZ` sets the calendar-bucketing timezone. Legacy `OCX_OBSERVATORY_TZ` and `OCX_OBSERVATORY_PORT` remain accepted.
+The default ledger directory is `~/.opencodex`. Use `--ocx-home` or `OCX_HOME` to select another directory. `--port`/`YALD_PORT` and `--host`/`YALD_HOST` configure the listener. `YALD_TZ` sets the calendar-bucketing timezone. Claude Code usage is read from `~/.claude/projects`; set `CLAUDE_PROJECTS_DIR` to another directory, or to an empty one to leave Claude out. Legacy `OCX_OBSERVATORY_TZ` and `OCX_OBSERVATORY_PORT` remain accepted.

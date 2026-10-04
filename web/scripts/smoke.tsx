@@ -31,7 +31,10 @@ type AnyComponent = () => React.ReactElement | null;
 
 const ocxHome = process.env.OCX_HOME ?? join(homedir(), ".opencodex");
 const useFixtures = process.argv.includes("--fixtures") || !existsSync(join(ocxHome, "usage.jsonl"));
-if (useFixtures) process.env.OCX_HOME = await materializeFixtureHome();
+if (useFixtures) {
+  process.env.OCX_HOME = await materializeFixtureHome();
+  process.env.CLAUDE_PROJECTS_DIR = join(process.env.OCX_HOME, "claude-projects");
+}
 console.log(useFixtures ? "source: synthetic fixtures" : `source: ${join(ocxHome, "usage.jsonl")}`);
 
 // The API module resolves OCX_HOME when it loads, so import it after that decision.

@@ -55,7 +55,7 @@ async function timedFetch(base: string, path: string, etag?: string) {
 async function server(root: string, home: string) {
   const child = spawn(process.execPath, [join(import.meta.dir, "refresh-benchmark-server.ts")], {
     cwd: root,
-    env: { ...process.env, YALD_BENCH_ROOT: root, YALD_BENCH_EPOCH: String(epoch), OCX_HOME: home, OCX_PACKAGE_DIR: pricingPackage, TZ: tz, YALD_TZ: tz, YALD_HOST: "127.0.0.1", YALD_PORT: "0" },
+    env: { ...process.env, YALD_BENCH_ROOT: root, YALD_BENCH_EPOCH: String(epoch), OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), OCX_PACKAGE_DIR: pricingPackage, TZ: tz, YALD_TZ: tz, YALD_HOST: "127.0.0.1", YALD_PORT: "0" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stderr = "";
