@@ -9,6 +9,7 @@ process.env.YALD_HOST = "127.0.0.1";
 process.env.YALD_PORT = process.env.YALD_PREVIEW_PORT ?? "5329";
 const fixtureHome = await materializeFixtureHome();
 process.env.OCX_HOME = fixtureHome;
+process.env.CLAUDE_PROJECTS_DIR = `${fixtureHome}/claude-projects`;
 
 let server: ReturnType<typeof Bun.serve> | undefined;
 let stopping = false;

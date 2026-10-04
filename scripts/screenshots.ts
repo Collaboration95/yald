@@ -28,7 +28,7 @@ const port = await new Promise<number>((resolvePort, reject) => {
 });
 const server = spawn(join(root, "scripts/bun"), ["run", "server/src/index.ts"], {
   cwd: root,
-  env: { ...process.env, OCX_HOME: home, YALD_PORT: String(port), YALD_HOST: "127.0.0.1" },
+  env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), YALD_PORT: String(port), YALD_HOST: "127.0.0.1" },
   stdio: "inherit",
 });
 

@@ -66,10 +66,14 @@ test("readClaudeEntries reuses unchanged transcripts and re-parses appended ones
   const file = join(dir, "sess-1.jsonl");
   await writeFile(file, block("text") + "\n");
   const first = await readClaudeEntries(dir);
-  expect(first).toHaveLength(1);
+  expect(first.entries).toHaveLength(1);
   // Unchanged file: the very same cached entry object comes back, nothing re-parsed.
-  expect((await readClaudeEntries(dir))[0]).toBe(first[0]!);
+  const again = await readClaudeEntries(dir);
+  expect(again.entries[0]).toBe(first.entries[0]!);
+  expect(again.signature).toBe(first.signature);
 
   await appendFile(file, block("text").replace(/req_1/g, "req_2") + "\n");
-  expect((await readClaudeEntries(dir)).map(e => e.requestId).sort()).toEqual(["req_1", "req_2"]);
+  const appended = await readClaudeEntries(dir);
+  expect(appended.entries.map(e => e.requestId).sort()).toEqual(["req_1", "req_2"]);
+  expect(appended.signature).not.toBe(first.signature);
 });

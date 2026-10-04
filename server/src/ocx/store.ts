@@ -1,4 +1,5 @@
 import { stat, readFile } from "node:fs/promises";
+import { readClaudeEntries } from "../claude/transcripts";
 import { PATHS } from "../env";
 import { loadPricing, priceEntry } from "./pricing";
 
@@ -335,7 +336,8 @@ async function currentSignature(): Promise<string> {
 }
 
 async function build(force: boolean): Promise<Dataset> {
-  const nextSignature = await currentSignature();
+  const [ocxSignature, claude] = await Promise.all([currentSignature(), readClaudeEntries()]);
+  const nextSignature = `${ocxSignature}|${claude.signature}`;
   if (!force && dataset && nextSignature === signature) return dataset;
 
   await loadPricing();
@@ -357,9 +359,11 @@ async function build(force: boolean): Promise<Dataset> {
     }
   }
 
-  usage.rows.sort((a, b) => a.ts - b.ts);
+  // Claude Code subscription traffic bypasses ocx; its transcripts normalize to the same rows.
+  const rows = usage.rows.concat(claude.entries.map(normalizeRow));
+  rows.sort((a, b) => a.ts - b.ts);
   dataset = {
-    rows: usage.rows,
+    rows,
     quota,
     ledger: normalizeLedger(ledgerEvents),
     files: {
@@ -369,7 +373,7 @@ async function build(force: boolean): Promise<Dataset> {
     },
     parse: { malformedLines: usage.malformed, durationMs: Math.round(performance.now() - startedAt) },
     builtAt: Date.now(),
-    revision: `${usage.rows.length}:${nextSignature}`,
+    revision: `${rows.length}:${nextSignature}`,
   };
   signature = nextSignature;
   return dataset;

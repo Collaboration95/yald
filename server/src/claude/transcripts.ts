@@ -1,9 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
-
-/** Claude Code writes one transcript per session under here (subagents in `<session>/subagents/`). */
-export const CLAUDE_PROJECTS = process.env.CLAUDE_PROJECTS_DIR ?? join(homedir(), ".claude", "projects");
+import { CLAUDE_PROJECTS } from "../env";
 
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -77,16 +74,24 @@ export function collectEntries(texts: string[]): Record<string, unknown>[] {
 /** Parsed entries per transcript, reused until the file's size or mtime changes. */
 const fileCache = new Map<string, { signature: string; entries: Record<string, unknown>[] }>();
 
-export async function readClaudeEntries(dir = CLAUDE_PROJECTS): Promise<Record<string, unknown>[]> {
+/**
+ * Usage entries from every transcript under `dir` (subagents live in `<session>/subagents/`).
+ * `signature` changes whenever any transcript is added, removed, or appended to.
+ */
+export async function readClaudeEntries(dir = CLAUDE_PROJECTS): Promise<{ entries: Record<string, unknown>[]; signature: string }> {
   let files: string[];
   try {
     files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl")).map(f => join(dir, f));
   } catch {
-    return [];
+    return { entries: [], signature: "-" };
   }
+  let bytes = 0;
+  let newest = 0;
   const perFile = await Promise.all(files.map(async path => {
     const info = await stat(path).catch(() => null);
     if (!info) return [];
+    bytes += info.size;
+    newest = Math.max(newest, info.mtimeMs);
     const signature = `${info.size}:${Math.round(info.mtimeMs)}`;
     const cached = fileCache.get(path);
     if (cached?.signature === signature) return cached.entries;
@@ -101,5 +106,5 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS): Promise<Record<s
   // Re-dedupe across files: resumed sessions copy requests into the new transcript.
   const byRequest = new Map<string, Record<string, unknown>>();
   for (const entry of perFile.flat()) byRequest.set(String(entry.requestId), entry);
-  return [...byRequest.values()];
+  return { entries: [...byRequest.values()], signature: `${files.length}:${bytes}:${Math.round(newest)}` };
 }

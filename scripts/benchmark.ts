@@ -13,6 +13,7 @@ const rows = Array.from({ length: 66_000 }, (_, index) => {
 });
 await writeFile(usagePath, rows.join("\n") + "\n");
 process.env.OCX_HOME = home;
+process.env.CLAUDE_PROJECTS_DIR = join(home, "claude-projects");
 
 try {
   const { api } = await import("../server/src/api");
