@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -74,13 +74,32 @@ export function collectEntries(texts: string[]): Record<string, unknown>[] {
   return [...byRequest.values()];
 }
 
+/** Parsed entries per transcript, reused until the file's size or mtime changes. */
+const fileCache = new Map<string, { signature: string; entries: Record<string, unknown>[] }>();
+
 export async function readClaudeEntries(dir = CLAUDE_PROJECTS): Promise<Record<string, unknown>[]> {
   let files: string[];
   try {
-    files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl"));
+    files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl")).map(f => join(dir, f));
   } catch {
     return [];
   }
-  // ponytail: full re-read on every call; key by file size/mtime like ocx/store.ts once it backs the dashboard.
-  return collectEntries(await Promise.all(files.map(f => readFile(join(dir, f), "utf8"))));
+  const perFile = await Promise.all(files.map(async path => {
+    const info = await stat(path).catch(() => null);
+    if (!info) return [];
+    const signature = `${info.size}:${Math.round(info.mtimeMs)}`;
+    const cached = fileCache.get(path);
+    if (cached?.signature === signature) return cached.entries;
+    // ponytail: a changed file is re-parsed whole; read from the last byte offset if a live session gets huge.
+    const entries = collectEntries([await readFile(path, "utf8")]);
+    fileCache.set(path, { signature, entries });
+    return entries;
+  }));
+  // Files that disappeared drop out of the cache.
+  for (const path of fileCache.keys()) if (!files.includes(path)) fileCache.delete(path);
+
+  // Re-dedupe across files: resumed sessions copy requests into the new transcript.
+  const byRequest = new Map<string, Record<string, unknown>>();
+  for (const entry of perFile.flat()) byRequest.set(String(entry.requestId), entry);
+  return [...byRequest.values()];
 }

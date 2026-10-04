@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { normalizeRow } from "../ocx/store";
-import { collectEntries } from "./transcripts";
+import { appendFile, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { collectEntries, readClaudeEntries } from "./transcripts";
 
 const usage = {
   input_tokens: 2,
@@ -56,4 +59,17 @@ test("Claude Code transcript lines normalize to the same RequestRow shape as ocx
   }
   expect(row.serviceTier).toBe("standard");
   expect(row.closeReason).toBe("tool_use");
+});
+
+test("readClaudeEntries reuses unchanged transcripts and re-parses appended ones", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-"));
+  const file = join(dir, "sess-1.jsonl");
+  await writeFile(file, block("text") + "\n");
+  const first = await readClaudeEntries(dir);
+  expect(first).toHaveLength(1);
+  // Unchanged file: the very same cached entry object comes back, nothing re-parsed.
+  expect((await readClaudeEntries(dir))[0]).toBe(first[0]!);
+
+  await appendFile(file, block("text").replace(/req_1/g, "req_2") + "\n");
+  expect((await readClaudeEntries(dir)).map(e => e.requestId).sort()).toEqual(["req_1", "req_2"]);
 });
