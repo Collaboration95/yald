@@ -20,6 +20,7 @@ import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { CheckList, Popover, Segmented } from "./ui";
 import { Wordmark } from "./Wordmark";
+import { Delight } from "./Delight";
 import { formatCompact, formatRelative } from "../lib/format";
 import type { MetaResponse } from "../types";
 
@@ -180,10 +181,11 @@ export function Layout() {
             <p>{heading.subtitle}</p>
           </div>
           <Outlet />
-          <footer className="relay-footer"><span>Every request leaves a trace.</span><span>On your machine · Read-only analytics</span></footer>
+          <footer className="relay-footer"><span>{new Date().getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
         </main>
       </div>
       </div>
+      <Delight />
     </div>
   );
 }

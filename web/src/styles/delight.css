@@ -1,0 +1,181 @@
+/* Delight: small hover-only moments and a few easter eggs.
+   Pure decoration. The reduced-motion rule in relay.css switches every animation here off. */
+
+.relay-app .lucide,
+.relay-app .lucide * {
+  transition: rotate 320ms, scale 320ms, translate 320ms, transform 320ms, fill 240ms, stroke 240ms, color 240ms;
+}
+
+.relay-app .lucide * { transform-box: fill-box; transform-origin: center; }
+:root .relay-nav a:is(:hover, :focus-visible) svg { opacity: 1; }
+
+/* Each icon reacts when the link, button, stat or line that holds it is hovered or focused. */
+.relay-app :is(:hover > .lucide, :focus-visible > .lucide, .stat-card:hover .lucide) {
+  /* Money flips like a coin and fills green. */
+  &.lucide-circle-dollar-sign { color: var(--accent); animation: delight-flip 700ms cubic-bezier(.3, .7, .3, 1); }
+  &.lucide-circle-dollar-sign circle { fill: var(--accent); }
+  &.lucide-circle-dollar-sign path { stroke: var(--surface); }
+  &.lucide-coins { color: var(--accent); animation: delight-jingle 500ms ease-in-out; }
+
+  /* The piggy bank is pleased about the cache savings. */
+  &.lucide-piggy-bank { color: #d9668b; animation: delight-hop 550ms cubic-bezier(.3, .7, .3, 1); }
+  &.lucide-piggy-bank path:first-child { fill: rgb(229 143 168 / 35%); }
+
+  /* Clocks tick, gauges sweep, the pulse line redraws. */
+  &.lucide-timer line:last-of-type { transform-box: view-box; transform-origin: 12px 14px; animation: delight-spin 800ms ease-in-out; }
+  &.lucide-timer line:first-of-type { translate: 0 1px; }
+  &.lucide-clock path { transform-box: view-box; transform-origin: 12px 12px; animation: delight-spin 900ms ease-in-out; }
+  &.lucide-gauge { color: var(--accent); }
+  &.lucide-gauge path:first-child { transform-box: view-box; transform-origin: 12px 14px; animation: delight-needle 800ms cubic-bezier(.3, .7, .3, 1); }
+  &.lucide-activity { color: var(--relay-coral); }
+  &.lucide-activity path { stroke-dasharray: 60; animation: delight-draw 700ms ease-out; }
+
+  /* Energy: lightning flashes, flames flicker, the battery charges. */
+  &.lucide-zap { color: #c99a1e; fill: #f2c94c; animation: delight-zap 420ms linear; }
+  &.lucide-flame { color: var(--relay-coral); fill: color-mix(in srgb, var(--relay-coral) 30%, transparent); }
+  &.lucide-flame path { transform-origin: bottom; animation: delight-flicker 600ms ease-in-out infinite alternate; }
+  &.lucide-battery-charging { color: var(--accent); }
+  &.lucide-battery-charging path:first-child { animation: delight-blink 900ms steps(2, jump-none) 2; }
+
+  /* Stacks, boxes and tiles shuffle. */
+  &.lucide-layers path:first-child { translate: 0 -2.5px; }
+  &.lucide-layers path:nth-child(2) { translate: 0 -1px; }
+  &.lucide-boxes { animation: delight-hop 500ms cubic-bezier(.3, .7, .3, 1); }
+  &.lucide-layout-dashboard rect { animation: delight-tile 450ms cubic-bezier(.3, 1.5, .5, 1) both; }
+  &.lucide-layout-dashboard rect:nth-child(2) { animation-delay: 60ms; }
+  &.lucide-layout-dashboard rect:nth-child(3) { animation-delay: 120ms; }
+  &.lucide-layout-dashboard rect:nth-child(4) { animation-delay: 180ms; }
+
+  /* Reliability: the good shield checks itself, warnings shake. */
+  &.lucide-shield-check { color: var(--accent); }
+  &.lucide-shield-check path:first-child { fill: var(--accent-soft); }
+  &.lucide-shield-check path:last-child { stroke-dasharray: 9; animation: delight-draw-short 450ms ease-out; }
+  &:is(.lucide-shield-alert, .lucide-triangle-alert) { color: var(--warn); animation: delight-shake 420ms ease-in-out; }
+  &.lucide-triangle-alert path:first-child { fill: var(--warn-soft); }
+
+  /* Conversations chatter. */
+  &.lucide-messages-square path { transform-origin: bottom; animation: delight-chat 500ms ease-in-out; }
+  &.lucide-messages-square path:last-child { animation-delay: 140ms; }
+
+  /* Small toolbar and badge touches. */
+  &.lucide-percent { rotate: 180deg; }
+  &.lucide-refresh-cw { rotate: 180deg; }
+  &.lucide-sun { color: #d99a1e; rotate: 90deg; }
+  &.lucide-sun circle { fill: #f2c94c; }
+  &.lucide-moon { color: var(--violet); fill: color-mix(in srgb, var(--violet) 25%, transparent); rotate: -20deg; }
+  &.lucide-trending-up { translate: 1px -1px; }
+  &.lucide-arrow-left { translate: -3px 0; }
+}
+
+/* The search glass leans in while you type. */
+:root .relay-toolbar .relative:focus-within .lucide-search { color: var(--relay-coral); rotate: -14deg; scale: 1.15; }
+
+/* Money stats turn green and shed a few dollar signs on hover. */
+:root .stat-value { transition: color 240ms; }
+:root .stat-card:is([data-stat="Estimated cost"], [data-stat="Cache savings"], [data-stat="Output spend"], [data-stat^="Cost /"]):hover {
+  & .stat-value { color: var(--accent); }
+  &::after {
+    content: "$";
+    position: absolute;
+    top: 0;
+    right: 46px;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 800;
+    text-shadow: -13px 9px currentColor, 10px 15px currentColor;
+    pointer-events: none;
+    animation: delight-float 1.1s ease-out both;
+  }
+}
+
+/* The heading's coral full stop bounces like a ball. */
+:root .relay-title-stop { display: inline-block; transform-origin: bottom; }
+:root .relay-heading h1:hover .relay-title-stop { animation: delight-bounce 800ms cubic-bezier(.3, .7, .3, 1); }
+
+/* Every request leaves a trace, literally. */
+:root .relay-footer > span:first-child::after {
+  content: "· · ·";
+  display: inline-block;
+  margin-left: 5px;
+  color: var(--relay-coral);
+  font-weight: 800;
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 600ms steps(3, jump-start);
+}
+:root .relay-footer > span:first-child:hover::after { clip-path: inset(0); }
+
+/* Card links point where they go. */
+:root .widget-action > a::after {
+  content: "→";
+  display: inline-block;
+  margin-left: 3px;
+  opacity: 0;
+  translate: -4px 0;
+  transition: opacity 180ms, translate 220ms;
+}
+:root .widget-action > a:is(:hover, :focus-visible)::after { opacity: 1; translate: 0 0; }
+
+/* Model dots perk up, leaderboard bars catch the light, pressed controls squish. */
+:root .model-dot { transition: scale 220ms cubic-bezier(.3, 1.6, .5, 1); }
+:root :is(tr, .leaderboard-row):hover .model-dot { scale: 1.6; }
+:root .leaderboard-row:hover .leaderboard-bar > div {
+  background-image: linear-gradient(100deg, transparent 35%, rgb(255 255 255 / 45%) 50%, transparent 65%);
+  background-size: 250% 100%;
+  animation: delight-shimmer 1.1s ease-in-out;
+}
+:root :is(.segmented, .relay-toolbar) button { transition: scale 120ms, background 160ms, color 160ms; }
+:root :is(.segmented, .relay-toolbar) button:active { scale: .94; }
+:root .relay-app .lucide-check { animation: delight-pop 260ms cubic-bezier(.3, 1.6, .5, 1); }
+
+/* Easter eggs: confetti for the Konami code, a toast for every secret. */
+.delight-confetti { position: fixed; inset: 0; z-index: 90; overflow: hidden; pointer-events: none; }
+.delight-confetti i {
+  position: absolute;
+  top: -14px;
+  left: var(--x);
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--c);
+  animation: delight-fall var(--t) cubic-bezier(.25, .6, .4, 1) var(--d) both;
+}
+.delight-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  z-index: 91;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+  translate: -50% 0;
+  pointer-events: none;
+  animation: delight-toast 3.2s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delight-confetti { display: none; }
+}
+
+@keyframes delight-flip { from { transform: perspective(40px) rotateY(0); } to { transform: perspective(40px) rotateY(360deg); } }
+@keyframes delight-jingle { 25% { rotate: -14deg; } 50% { rotate: 10deg; } 75% { rotate: -6deg; } }
+@keyframes delight-hop { 40% { translate: 0 -3px; scale: 1.05 .95; } 70% { translate: 0 0; scale: 1.08 .9; } }
+@keyframes delight-spin { from { transform: rotate(0); } to { transform: rotate(1turn); } }
+@keyframes delight-needle { from { transform: rotate(-120deg); } 70% { transform: rotate(12deg); } to { transform: rotate(0); } }
+@keyframes delight-draw { from { stroke-dashoffset: 60; } to { stroke-dashoffset: 0; } }
+@keyframes delight-draw-short { from { stroke-dashoffset: 9; } to { stroke-dashoffset: 0; } }
+@keyframes delight-zap { 20%, 60% { translate: -1px 0; opacity: .5; } 40%, 80% { translate: 1px 0; opacity: 1; } }
+@keyframes delight-flicker { from { transform: scale(1, 1) skewX(0); } to { transform: scale(.94, 1.12) skewX(-4deg); } }
+@keyframes delight-blink { 50% { opacity: .2; } }
+@keyframes delight-tile { from { transform: scale(.4); opacity: 0; } }
+@keyframes delight-shake { 20%, 60% { translate: -2px 0; } 40%, 80% { translate: 2px 0; } }
+@keyframes delight-chat { 50% { transform: rotate(-8deg) translateY(-1px); } }
+@keyframes delight-float { from { opacity: 0; translate: 0 6px; } 25% { opacity: 1; } to { opacity: 0; translate: 0 -26px; } }
+@keyframes delight-bounce { 30% { transform: translateY(-11px) scale(.9, 1.1); } 55% { transform: translateY(0) scale(1.25, .75); } 72% { transform: translateY(-4px); } 88% { transform: translateY(0) scale(1.08, .92); } }
+@keyframes delight-shimmer { from { background-position: 120% 0; } to { background-position: -20% 0; } }
+@keyframes delight-pop { from { scale: 0; } }
+@keyframes delight-fall { to { transform: translate(var(--dx), 108vh) rotate(var(--r)); } }
+@keyframes delight-toast { from { opacity: 0; transform: translateY(10px); } 10%, 85% { opacity: 1; transform: none; } to { opacity: 0; } }

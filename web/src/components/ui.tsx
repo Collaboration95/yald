@@ -213,11 +213,16 @@ export function ProgressBar({ value, max = 1, tone = "accent", className }: { va
   );
 }
 
+const LOADING_QUIPS = ["Counting tokens", "Asking the ledger nicely", "Reticulating splines", "Warming the cache", "Herding requests", "Doing token math"];
+
+export const loadingQuip = () => `${LOADING_QUIPS[Math.floor(Math.random() * LOADING_QUIPS.length)]}…`;
+
 export function StateBlock({ loading, error, empty, children, emptyLabel = "No data for this window" }: { loading?: boolean; error?: unknown; empty?: boolean; children: ReactNode; emptyLabel?: string }) {
+  const [quip] = useState(loadingQuip);
   if (loading) {
     return (
       <div className="flex h-full min-h-[120px] items-center justify-center gap-2 text-[12px] text-muted">
-        <Loader2 size={14} className="animate-spin" /> Loading
+        <Loader2 size={14} className="animate-spin" /> {quip}
       </div>
     );
   }
@@ -282,7 +287,7 @@ export function ModelTag({ model, provider, className }: { model: string; provid
   const hue = [...model].reduce((acc, char) => acc + char.charCodeAt(0), 0) % 360;
   return (
     <span title={provider ? `${model} · ${provider}` : model} className={clsx("inline-flex min-w-0 items-center gap-1.5", className)}>
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: design?.modelColor(model) ?? `hsl(${hue} 55% 52%)` }} />
+      <span className="model-dot h-2 w-2 shrink-0 rounded-full" style={{ background: design?.modelColor(model) ?? `hsl(${hue} 55% 52%)` }} />
       <span className="truncate font-medium text-ink">{model}</span>
       {provider ? <span className="shrink-0 text-[10px] text-muted">{provider}</span> : null}
     </span>
