@@ -1,4 +1,4 @@
-# yald
+# yald - YetAnotherLlmDashboard
 
 [![yald CI](https://github.com/Collaboration95/yald/actions/workflows/ci.yml/badge.svg)](https://github.com/Collaboration95/yald/actions/workflows/ci.yml)
 
