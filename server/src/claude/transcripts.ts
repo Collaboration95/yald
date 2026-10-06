@@ -1,6 +1,6 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { CLAUDE_PROJECTS } from "../env";
+import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { CLAUDE_ARCHIVE, CLAUDE_PROJECTS } from "../env";
 
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -74,19 +74,41 @@ export function collectEntries(texts: string[]): Record<string, unknown>[] {
 /** Parsed entries per transcript, reused until the file's size or mtime changes. */
 const fileCache = new Map<string, { signature: string; entries: Record<string, unknown>[] }>();
 
+/** Archived entries by requestId, loaded from disk once per archive path. */
+let archive: { path: string; byRequest: Map<string, Record<string, unknown>> } | null = null;
+
+async function loadArchive(path: string): Promise<Map<string, Record<string, unknown>>> {
+  if (archive?.path === path) return archive.byRequest;
+  const byRequest = new Map<string, Record<string, unknown>>();
+  // Appended over time, so a request can appear more than once: the last line wins.
+  for (const raw of (await readFile(path, "utf8").catch(() => "")).split("\n")) {
+    try {
+      const entry = JSON.parse(raw);
+      byRequest.set(String(entry.requestId), entry);
+    } catch {
+      // Blank or torn line.
+    }
+  }
+  archive = { path, byRequest };
+  return byRequest;
+}
+
 /**
- * Usage entries from every transcript under `dir` (subagents live in `<session>/subagents/`).
+ * Usage entries from every transcript under `dir` (subagents live in `<session>/subagents/`),
+ * plus every entry ever archived. Claude Code deletes old transcripts, so new or changed
+ * entries are appended to `archivePath` and keep counting after their transcript is gone.
  * `signature` changes whenever any transcript is added, removed, or appended to.
  */
-export async function readClaudeEntries(dir = CLAUDE_PROJECTS): Promise<{ entries: Record<string, unknown>[]; signature: string }> {
-  let files: string[];
+export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLAUDE_ARCHIVE): Promise<{ entries: Record<string, unknown>[]; signature: string }> {
+  let files: string[] = [];
   try {
     files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl")).map(f => join(dir, f));
   } catch {
-    return { entries: [], signature: "-" };
+    // No transcripts left; the archive still counts.
   }
   let bytes = 0;
   let newest = 0;
+  const fresh: Record<string, unknown>[] = [];
   const perFile = await Promise.all(files.map(async path => {
     const info = await stat(path).catch(() => null);
     if (!info) return [];
@@ -98,13 +120,31 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS): Promise<{ entrie
     // ponytail: a changed file is re-parsed whole; read from the last byte offset if a live session gets huge.
     const entries = collectEntries([await readFile(path, "utf8")]);
     fileCache.set(path, { signature, entries });
+    fresh.push(...entries);
     return entries;
   }));
   // Files that disappeared drop out of the cache.
   for (const path of fileCache.keys()) if (!files.includes(path)) fileCache.delete(path);
 
-  // Re-dedupe across files: resumed sessions copy requests into the new transcript.
-  const byRequest = new Map<string, Record<string, unknown>>();
+  // Only re-parsed transcripts can hold new or changed (still streaming) entries.
+  const archived = await loadArchive(archivePath);
+  const changed = fresh.filter(entry => {
+    const old = archived.get(String(entry.requestId));
+    return !old || JSON.stringify(old) !== JSON.stringify(entry);
+  });
+  if (changed.length) {
+    try {
+      await mkdir(dirname(archivePath), { recursive: true });
+      await appendFile(archivePath, changed.map(entry => JSON.stringify(entry) + "\n").join(""));
+      for (const entry of changed) archived.set(String(entry.requestId), entry);
+    } catch {
+      // Forget parses so the next refresh retries the write.
+      fileCache.clear();
+    }
+  }
+
+  // Live transcripts win over the archive, and re-dedupe across files: resumed sessions copy requests into the new transcript.
+  const byRequest = new Map(archived);
   for (const entry of perFile.flat()) byRequest.set(String(entry.requestId), entry);
   return { entries: [...byRequest.values()], signature: `${files.length}:${bytes}:${Math.round(newest)}` };
 }

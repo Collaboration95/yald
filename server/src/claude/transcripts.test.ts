@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { normalizeRow } from "../ocx/store";
-import { appendFile, mkdtemp, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectEntries, readClaudeEntries } from "./transcripts";
@@ -64,16 +64,32 @@ test("Claude Code transcript lines normalize to the same RequestRow shape as ocx
 test("readClaudeEntries reuses unchanged transcripts and re-parses appended ones", async () => {
   const dir = await mkdtemp(join(tmpdir(), "yald-claude-"));
   const file = join(dir, "sess-1.jsonl");
+  const archive = join(await mkdtemp(join(tmpdir(), "yald-archive-")), "claude.jsonl");
   await writeFile(file, block("text") + "\n");
-  const first = await readClaudeEntries(dir);
+  const first = await readClaudeEntries(dir, archive);
   expect(first.entries).toHaveLength(1);
   // Unchanged file: the very same cached entry object comes back, nothing re-parsed.
-  const again = await readClaudeEntries(dir);
+  const again = await readClaudeEntries(dir, archive);
   expect(again.entries[0]).toBe(first.entries[0]!);
   expect(again.signature).toBe(first.signature);
 
   await appendFile(file, block("text").replace(/req_1/g, "req_2") + "\n");
-  const appended = await readClaudeEntries(dir);
+  const appended = await readClaudeEntries(dir, archive);
   expect(appended.entries.map(e => e.requestId).sort()).toEqual(["req_1", "req_2"]);
   expect(appended.signature).not.toBe(first.signature);
+});
+
+test("archived Claude entries outlive their deleted transcript", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-"));
+  const archive = join(await mkdtemp(join(tmpdir(), "yald-archive-")), "claude.jsonl");
+  await writeFile(join(dir, "sess-1.jsonl"), block("thinking") + "\n" + block("text") + "\n");
+  expect((await readClaudeEntries(dir, archive)).entries).toHaveLength(1);
+  // Unchanged entries are not re-appended.
+  await appendFile(join(dir, "sess-1.jsonl"), "\n");
+  await readClaudeEntries(dir, archive);
+  expect((await readFile(archive, "utf8")).trim().split("\n")).toHaveLength(1);
+
+  await rm(join(dir, "sess-1.jsonl"));
+  const after = await readClaudeEntries(dir, archive);
+  expect(after.entries.map(e => e.requestId)).toEqual(["req_1"]);
 });
