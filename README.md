@@ -47,18 +47,6 @@ use your saved preference. Mobile and tablet layouts are outside the supported d
 
 ![yald Overview dashboard](docs/screenshots/overview.png)
 
-| View | Screenshot | View | Screenshot |
-| --- | --- | --- | --- |
-| Overview | [PNG](docs/screenshots/overview.png) | Usage | [PNG](docs/screenshots/usage.png) |
-| Cost | [PNG](docs/screenshots/cost.png) | Performance | [PNG](docs/screenshots/performance.png) |
-| Reliability | [PNG](docs/screenshots/reliability.png) | Models | [PNG](docs/screenshots/models.png) |
-| Quota | [PNG](docs/screenshots/quota.png) | Conversations | [PNG](docs/screenshots/conversations.png) |
-
-Regenerate captures with `./scripts/screenshots.sh` (requires Chrome or Chromium). The script uses generated fixture data, a fresh browser profile for each route, and fails on blank or oversized images. The repository social preview source and PNG are in `docs/`.
-
-Preview the production UI with isolated synthetic data using `scripts/bun run preview:fixture` (localhost port 5329;
-override with `YALD_PREVIEW_PORT`). It does not read your private ledger. See [Relay verification](docs/relay-ui/README.md).
-
 ## Quick start
 
 ```bash
