@@ -142,57 +142,9 @@ These came out of the same ledgers and would be straightforward additions:
 - **Conversation fingerprints** — cluster sessions by tool-call shape and tokens per turn to find expensive patterns.
 - **Hub aggregation** — opencodex supports a remote hub; the same views could aggregate multiple machines.
 
-## Architecture
+See [Architecture](docs/architecture.md) for how data flows through the application.
 
-```
-server/src/env.ts              resolves OCX_HOME and the installed opencodex package
-server/src/ocx/pricing.ts      imports opencodex's cost engine (with a safe fallback)
-server/src/ocx/store.ts        parses usage.jsonl, spend-ledger.jsonl and the quota cache into compact rows
-server/src/claude/transcripts.ts  maps Claude Code transcripts onto the same usage rows
-server/src/analytics.ts        filtering, bucketing, percentiles, breakdowns, quota projections
-server/src/api.ts              Hono routes under /api
-server/src/index.ts            boot, static serving, SSE wiring
-web/src/pages/*                one file per view
-web/src/components/chartOptions.ts  shared ECharts option builders
-```
-
-The server checks file identity, size, and precise modification/change times on each API read. Automatic rebuilds reuse
-unchanged usage, spend, and quota components; usage reuse also requires an audited, unchanged pricing generation.
-Other pricing engines keep the full usage parse. Changed usage and explicit Refresh still reread, price, and sort all rows.
-Pages poll every 30 seconds while visible; ETags keep unchanged polls cheap.
-
-See [the refresh experiment](docs/benchmarks/relay-refresh/README.md) for balanced before/after measurements, controls,
-raw samples, and the exact scope of the improvement. Browser reload and chart painting are not measured by this experiment.
-
-## Verification
-
-```bash
-make test
-make lint
-make typecheck
-make build
-make smoke                         # synthetic ledger fixtures
-make screenshots                   # requires Chrome or Chromium
-make check                         # typecheck, lint, test, build, and smoke
-```
-
-The smoke test fails if a page throws, if an expected section is missing, if the HTML contains `NaN`, `Invalid Date`,
-`undefined`, `Infinity` or `[object Object]`, or if the quota view stops responding to the range selector.
-
-When `~/.opencodex/usage.jsonl` is missing — a fresh clone or CI — the smoke test generates a synthetic opencodex home
-with realistic rows, quota samples and ledger events, so every page is still exercised with data. Expectations are
-derived from the API responses rather than hardcoded, so the suite passes against any ledger, including yours.
-
-## Development
-
-```bash
-bun install            # install workspace dependencies
-./scripts/dev.sh       # API with reload + Vite HMR on :5317
-./scripts/serve.sh     # production build served from one port
-```
-
-The API is a plain Hono app (`server/src/api.ts`) and can be exercised without a browser, which is what the smoke test
-does: it swaps `globalThis.fetch` for the app's own handler and renders each page with React's server renderer.
+Contributor setup and verification commands are in [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 ## License
 
@@ -202,17 +154,15 @@ MIT — see [LICENSE](./LICENSE).
 
 - [Metric definitions](docs/metrics.md)
 - [API reference](docs/api.md)
-- [Architecture and refresh behavior](docs/architecture.md)
-- [Performance measurements and recommendations](docs/performance.md)
+- [Architecture](docs/architecture.md)
 - [Changelog](CHANGELOG.md)
 - [Release procedure](docs/releasing.md)
 
 ## Known limits
 
-- `surface` is empty in this installation's rows, so there is no Codex/Claude/Grok split within opencodex rows; the field
-  is rendered if it ever appears. Claude Code subscription usage shows up separately as provider `anthropic`.
+- Claude Code subscription usage appears separately as provider `anthropic`.
 - Claude Code transcripts record no latency, TTFT, effort, quota or failed calls, so those views stay empty for Claude
-  rows and its success rate is always 100%. If Claude Code is also routed through opencodex, those calls are counted twice.
+  rows and its success rate is always 100%.
 - Requests that failed before any tokens were metered carry no usage, so failure cost shows as zero rather than a guess.
   The Reliability page reports metering coverage instead of inventing numbers.
 - Unpriced models (subscription or free routes) are excluded from cost totals and surfaced as an explicit share.

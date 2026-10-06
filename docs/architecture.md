@@ -1,34 +1,29 @@
 # Architecture
 
+Last checked: 2026-10-06.
+
+Yald reads local usage data from opencodex and Claude Code, normalizes both sources into a shared request format, and serves analytics through a local API and web dashboard.
+
 ```text
-opencodex JSONL and quota cache ----------> server/src/ocx/store.ts -> server/src/analytics.ts
-Claude Code transcripts -> claude/transcripts.ts -^
-                                             -> server/src/api.ts -> React views
+opencodex ledgers ─┐
+                   ├─> data store ─> analytics ─> API ─> dashboard
+Claude transcripts┘
 ```
 
-The store parses `usage.jsonl`, `spend-ledger.jsonl`, and `codex-quota-cache.json`; pricing is delegated to opencodex's cost engine when available. `routing-history.sqlite` is currently unused because the JSONL ledger is the freshest supported source and avoids depending on an upstream SQLite schema. Analytics functions filter and aggregate normalized rows, Hono exposes those results, and the React client renders charts and tables.
+The server reads opencodex usage, spend, and quota files from `OCX_HOME`. Claude Code subscription transcripts are read from `CLAUDE_PROJECTS_DIR` (by default, `~/.claude/projects`). Claude usage is normalized alongside opencodex usage and priced with the opencodex cost engine when it is available.
 
-Claude Code subscription traffic never passes through opencodex, so `server/src/claude/transcripts.ts` reads `~/.claude/projects/**/*.jsonl` (`CLAUDE_PROJECTS_DIR`), maps each assistant response onto the `usage.jsonl` entry shape, and feeds it through the same `normalizeRow` and pricing engine; those rows carry `provider: "anthropic"` and `protocol: "claude-code"`. Anthropic's `input_tokens` excludes cache reads and writes, so the adapter adds them back to match ocx's cache-inclusive `inputTokens`. Claude Code repeats usage on every content-block line and resumed sessions copy history into new files, so entries are deduped by `requestId`. Transcripts carry no latency, TTFT, effort, quota, or retry data. Each transcript's parse is cached by size and mtime, so only new or appended sessions are re-read.
+The analytics layer filters and groups normalized requests, computes time series and summary metrics, and returns JSON from the `/api` routes. The React dashboard displays those results. The server also serves the built web app, so the dashboard and API use one local process.
 
-On each API read, the store checks device, inode, byte size, and nanosecond modification/change times for all three files, plus the Claude transcript signature.
-An unchanged signature reuses the composed dataset. On a change, automatic rebuilds replace only changed components.
-Unchanged usage rows are reused only when the loaded pricing engine matches the inspected source fingerprint and its
-overlay/provider/account registry generation is unchanged. Unknown or newer engines still price normally and reparse
-usage on component rebuilds. Changed usage and manual Refresh always reread, normalize, price, and sort the complete file.
+```text
+server/src/env.ts                  resolves data locations and runtime settings
+server/src/ocx/store.ts             reads and normalizes opencodex ledgers
+server/src/claude/transcripts.ts    adapts Claude Code session transcripts
+server/src/ocx/pricing.ts           connects to opencodex pricing
+server/src/analytics.ts             filters and computes dashboard metrics
+server/src/api.ts                  exposes analytics routes
+server/src/index.ts                starts the API and serves the web app
+web/src/pages/                     dashboard views
+web/src/components/chartOptions.ts shared chart configuration
+```
 
-Before/after metadata and pricing-generation checks guard publication. A moving source retries the whole composition
-up to three times; failed attempts preserve the previous dataset and component snapshots. Concurrent callers coalesce
-into one build, including an explicit force request joining an active automatic build. This is process-local caching,
-not a transaction across independently written files. The inspected catalog and identity tables are loaded ESM modules;
-upgrading those files requires a process restart. Source audits must be renewed to enable reuse with a new pricing revision.
-
-API ETags combine the composed dataset's file revision with the query URL, so quota/spend changes invalidate conditional
-requests and idle polls return `304 Not Modified` without route aggregation. The existing file-driven fast path means
-pricing-only registry changes require force. An unchanged-file force rebuild retains its revision and therefore its ETag;
-that pre-existing limitation is tested and remains outside this change. Browser queries poll every 30 seconds only while
-the document is visible. A manual Refresh forces the store rebuild and then invalidates active client queries.
-
-The [refresh experiment](benchmarks/relay-refresh/README.md) compares this implementation with the frozen Relay UI commit,
-using actual production HTTP routes, an isolated synthetic ledger, and identical web assets.
-
-The web app is built to `web/dist` and served by the same Bun/Hono process as the API. The npm CLI launches that process with its packaged Bun runtime and ships the prebuilt web assets, so users do not need a source checkout or runtime build.
+Claude Code transcript usage is retained in a local Yald data file so usage remains available if the source transcript is later removed. The dashboard is read-only with respect to the original opencodex and Claude Code data.
