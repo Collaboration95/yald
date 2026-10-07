@@ -1,0 +1,35 @@
+name: Main source policy
+
+# Run the policy from the trusted base branch, without checking out PR code.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  statuses: write
+
+jobs:
+  source:
+    name: Main source branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require this repository's dev branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const allowed = pr.head.ref === 'dev'
+              && pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
+            // Publish on the PR head SHA: pull_request_target runs on the base SHA.
+            await github.rest.repos.createCommitStatus({
+              ...context.repo,
+              sha: pr.head.sha,
+              context: 'dev-to-main',
+              state: allowed ? 'success' : 'failure',
+              description: allowed
+                ? 'This pull request comes from this repository\'s dev branch.'
+                : 'Only this repository\'s dev branch may merge into main.',
+              target_url: `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+            if (!allowed) core.setFailed('Only this repository\'s dev branch may merge into main.');
