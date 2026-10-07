@@ -20,7 +20,10 @@
     "smoke": "bash scripts/smoke.sh",
     "typecheck": "bash -c 'scripts/bun run --cwd web typecheck && scripts/bun run --cwd server typecheck'",
     "test": "scripts/bun test",
+    "test:fast": "scripts/bun test --bail server/src tests/relay-style.test.ts",
     "lint": "scripts/bun x oxlint server/src web/src",
+    "check:fast": "scripts/bun run lint && scripts/bun run test:fast",
+    "hooks:install": "bash scripts/install-hooks.sh",
     "prepack": "scripts/bun run build",
     "preview:fixture": "scripts/bun run build && scripts/bun run scripts/preview-fixture.ts"
   },
