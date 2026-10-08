@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,20 @@ function row(overrides: Partial<RequestRow> = {}): RequestRow {
 }
 
 const rows = [row(), row({ id: "r2", ts: now + 60_000, model: "other", status: 502, ok: false, errorCode: "upstream", conversationId: "c1", usageStatus: "unreported", cacheProvenance: "synthesized", cacheReadTokens: 80, retried: true, totalTokens: 80, attemptTokens: 130, cost: 0.02 })];
+
+test("7d uses exactly 168 hours across DST and ignores future-dated source rows", () => {
+  const clock = spyOn(Date, "now").mockReturnValue(now);
+  try {
+    const window = analytics.resolveWindow({ range: "7d" }, { first: now - 30 * 86_400_000, last: now + 86_400_000 });
+    expect(window.to).toBe(now);
+    expect(window.to - window.from).toBe(168 * 3_600_000);
+    expect(analytics.filterRows([
+      row({ ts: window.from - 1 }), row({ ts: window.from }), row({ ts: now }), row({ ts: now + 1 }),
+    ], window)).toHaveLength(2);
+  } finally {
+    clock.mockRestore();
+  }
+});
 
 function dataset(): Dataset {
   return {
@@ -141,7 +155,7 @@ test("API routes return their documented payloads and range-scoped quota and led
   process.env.CLAUDE_PROJECTS_DIR = join(home, "claude-projects");
   const { api } = await import("./api");
   const paths: [string, string][] = [
-    ["/api/health", "revision"], ["/api/meta", "totals"], ["/api/overview?range=7d", "summary"],
+    ["/api/health", "revision"], ["/api/meta", "totals"], [`/api/overview?range=7d&to=${now + 60_000}`, "summary"],
     ["/api/timeseries?range=7d", "series"], ["/api/models?range=7d", "scatter"], ["/api/usage?range=7d", "composition"],
     ["/api/usage/heatmap-dates?range=all&weekday=6&hour=12&metric=tokens", "dates"],
     ["/api/cost?range=7d", "cumulative"], ["/api/performance?range=7d", "percentiles"], ["/api/reliability?range=7d", "metering"],
@@ -155,12 +169,31 @@ test("API routes return their documented payloads and range-scoped quota and led
     const payload = await response.json() as Record<string, unknown>;
     expect(payload).toHaveProperty("ok", true);
     expect(payload).toHaveProperty(field);
-    if (path === "/api/overview?range=7d") {
+    if (path === `/api/overview?range=7d&to=${now + 60_000}`) {
       etag = response.headers.get("etag") ?? "";
       expect(etag.length).toBeGreaterThan(0);
     }
   }
-  expect((await api.request("/api/overview?range=7d", { headers: { "if-none-match": etag } })).status).toBe(304);
+  expect((await api.request(`/api/overview?range=7d&to=${now + 60_000}`, { headers: { "if-none-match": etag } })).status).toBe(304);
+  const clock = spyOn(Date, "now").mockReturnValue(now + 7 * 86_400_000 - 30_000);
+  try {
+    const first = await api.request("/api/overview?range=7d");
+    const original = await first.json() as { summary: { requests: number }; window: { from: number; to: number } };
+    expect(original.summary.requests).toBe(2);
+    const rollingEtag = first.headers.get("etag")!;
+    expect((await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } })).status).toBe(304);
+    clock.mockReturnValue(now + 7 * 86_400_000 + 1);
+    const expired = await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } });
+    expect(expired.status).toBe(200);
+    const current = await expired.json() as typeof original;
+    expect(current.summary.requests).toBe(1);
+    expect(current.window.to - current.window.from).toBe(168 * 3_600_000);
+    expect(current.window.to).toBe(Date.now());
+    // A pinned end time still permits a 304 while the clock advances.
+    expect((await api.request(`/api/overview?range=7d&to=${now + 60_000}`, { headers: { "if-none-match": etag } })).status).toBe(304);
+  } finally {
+    clock.mockRestore();
+  }
   const quota = await (await api.request(`/api/quota?from=${now - 60_000}&to=${now}`)).json() as { observed: { samples: number } };
   expect(quota.observed.samples).toBe(1);
   const ledger = await (await api.request(`/api/ledger?from=${now - 60_000}&to=${now}`)).json() as { distinctSends: number };

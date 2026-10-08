@@ -53,8 +53,27 @@ export function toUsageEntry(line: Record<string, any>): Record<string, unknown>
 
 /**
  * Claude Code splits one response into a line per content block, each repeating the usage,
- * and resumed sessions copy history into new files. Keep one entry per requestId (the last seen).
+ * and resumed sessions copy history into new files. Streaming usage is cumulative, so
+ * retain the most complete snapshot per request, regardless of file traversal order.
  */
+function retainEntry(byRequest: Map<string, Record<string, unknown>>, entry: Record<string, unknown>): boolean {
+  const key = String(entry.requestId);
+  const old = byRequest.get(key);
+  if (old) {
+    const tokens = num(entry.totalTokens);
+    const oldTokens = num(old.totalTokens);
+    if (tokens < oldTokens) return false;
+    if (tokens === oldTokens) {
+      const timestamp = num(entry.timestamp);
+      const oldTimestamp = num(old.timestamp);
+      if (timestamp < oldTimestamp) return false;
+      if (timestamp === oldTimestamp && (old.closeReason || !entry.closeReason)) return false;
+    }
+  }
+  byRequest.set(key, entry);
+  return true;
+}
+
 export function collectEntries(texts: string[]): Record<string, unknown>[] {
   const byRequest = new Map<string, Record<string, unknown>>();
   for (const text of texts) {
@@ -62,7 +81,7 @@ export function collectEntries(texts: string[]): Record<string, unknown>[] {
       if (!raw.includes('"assistant"')) continue;
       try {
         const entry = toUsageEntry(JSON.parse(raw));
-        if (entry) byRequest.set(String(entry.requestId), entry);
+        if (entry) retainEntry(byRequest, entry);
       } catch {
         // Live sessions can leave a torn tail line.
       }
@@ -80,11 +99,11 @@ let archive: { path: string; byRequest: Map<string, Record<string, unknown>> } |
 async function loadArchive(path: string): Promise<Map<string, Record<string, unknown>>> {
   if (archive?.path === path) return archive.byRequest;
   const byRequest = new Map<string, Record<string, unknown>>();
-  // Appended over time, so a request can appear more than once: the last line wins.
+  // Old archives can contain zeroed resumed copies after the complete response.
   for (const raw of (await readFile(path, "utf8").catch(() => "")).split("\n")) {
     try {
       const entry = JSON.parse(raw);
-      byRequest.set(String(entry.requestId), entry);
+      retainEntry(byRequest, entry);
     } catch {
       // Blank or torn line.
     }
@@ -128,10 +147,9 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
 
   // Only re-parsed transcripts can hold new or changed (still streaming) entries.
   const archived = await loadArchive(archivePath);
-  const changed = fresh.filter(entry => {
-    const old = archived.get(String(entry.requestId));
-    return !old || JSON.stringify(old) !== JSON.stringify(entry);
-  });
+  const candidates = new Map(archived);
+  for (const entry of fresh) retainEntry(candidates, entry);
+  const changed = [...candidates.values()].filter(entry => entry !== archived.get(String(entry.requestId)));
   if (changed.length) {
     try {
       await mkdir(dirname(archivePath), { recursive: true });
@@ -143,8 +161,8 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
     }
   }
 
-  // Live transcripts win over the archive, and re-dedupe across files: resumed sessions copy requests into the new transcript.
+  // Resumed copies can have zeroed usage. Apply the same selection to live and archived entries.
   const byRequest = new Map(archived);
-  for (const entry of perFile.flat()) byRequest.set(String(entry.requestId), entry);
+  for (const entry of perFile.flat()) retainEntry(byRequest, entry);
   return { entries: [...byRequest.values()], signature: `${files.length}:${bytes}:${Math.round(newest)}` };
 }

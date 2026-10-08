@@ -62,9 +62,8 @@ export function pickBucket(spanMs: number): Bucket {
 }
 
 /** Auto-bucket boundaries: hour for short windows, day up to 120 days, week beyond. */
-export function resolveWindow(query: { from?: number; to?: number; range?: string }, available: { first: number; last: number }): { from: number; to: number; bucket: Bucket } {
-  const now = Date.now();
-  const to = query.to ?? Math.max(available.last, now);
+export function resolveWindow(query: { from?: number; to?: number; range?: string }, available: { first: number; last: number }, now = Date.now()): { from: number; to: number; bucket: Bucket } {
+  const to = query.to ?? now;
   let from = query.from;
   if (from === undefined) {
     switch (query.range) {

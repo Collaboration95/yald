@@ -63,12 +63,13 @@ interface ParsedQuery {
   groupBy: string;
 }
 
-function parseQuery(query: Record<string, string | undefined>, dataset: Dataset): ParsedQuery {
-  const first = dataset.rows[0]?.ts ?? Date.now();
-  const last = dataset.rows[dataset.rows.length - 1]?.ts ?? Date.now();
+function parseQuery(query: Record<string, string | undefined>, dataset: Dataset, now: number): ParsedQuery {
+  const first = dataset.rows[0]?.ts ?? now;
+  const last = dataset.rows[dataset.rows.length - 1]?.ts ?? now;
   const window = resolveWindow(
     { from: timeParam(query.from), to: timeParam(query.to), range: query.range },
     { first, last },
+    now,
   );
   const bucketParam = query.bucket;
   const bucket: Bucket = bucketParam === "hour" || bucketParam === "day" || bucketParam === "week" ? bucketParam : window.bucket;
@@ -141,7 +142,7 @@ function toCsv(rows: Record<string, unknown>[]): string {
   return [headers.join(","), ...rows.map(row => headers.map(header => escape(row[header])).join(","))].join("\n");
 }
 
-export const api = new Hono();
+export const api = new Hono<{ Variables: { dataset: Dataset; now: number } }>();
 
 api.use("/api/*", async (c, next) => {
   if (c.req.path === "/api/dataset/refresh") {
@@ -149,7 +150,14 @@ api.use("/api/*", async (c, next) => {
     return;
   }
   const dataset = await getDataset();
-  const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}`).digest("hex").slice(0, 24)}"`;
+  const now = Date.now();
+  c.set("dataset", dataset);
+  c.set("now", now);
+  const pointInTime = c.req.path === "/api/health" || c.req.path === "/api/meta"
+    || c.req.path.startsWith("/api/conversations/");
+  // An unchanged ledger does not mean an unchanged rolling time window.
+  const clockKey = pointInTime || timeParam(c.req.query("to")) !== undefined ? "" : now;
+  const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
   if (c.req.header("if-none-match") === etag) return c.body(null, 304);
@@ -157,7 +165,7 @@ api.use("/api/*", async (c, next) => {
 });
 
 api.get("/api/health", async c => {
-  const dataset = await getDataset();
+  const dataset = c.get("dataset");
   return c.json({
     ok: true,
     revision: dataset.revision,
@@ -170,7 +178,7 @@ api.get("/api/health", async c => {
 });
 
 api.get("/api/meta", async c => {
-  const dataset = await getDataset();
+  const dataset = c.get("dataset");
   const providers = new Set<string>();
   const models = new Set<string>();
   const efforts = new Set<string>();
@@ -216,8 +224,8 @@ api.get("/api/meta", async c => {
 });
 
 api.get("/api/overview", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const priorRows = filterRows(dataset.rows, previousWindow(query.filter, query.from, query.to));
   const summary = summarize(rows);
@@ -257,8 +265,8 @@ api.get("/api/overview", async c => {
 });
 
 api.get("/api/timeseries", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   return c.json({
     ok: true,
@@ -275,8 +283,8 @@ api.get("/api/timeseries", async c => {
 });
 
 api.get("/api/models", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const models = breakdown(rows, row => row.model);
   const providers = breakdown(rows, row => row.provider);
@@ -312,8 +320,8 @@ api.get("/api/models", async c => {
 });
 
 api.get("/api/usage", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const composition = compositionSeries(rows, query.bucket, query.from, query.to);
   return c.json({
@@ -333,7 +341,7 @@ api.get("/api/usage", async c => {
 });
 
 api.get("/api/usage/heatmap-dates", async c => {
-  const dataset = await getDataset();
+  const dataset = c.get("dataset");
   const params = c.req.query();
   const weekday = numberParam(params.weekday);
   const hour = numberParam(params.hour);
@@ -341,7 +349,7 @@ api.get("/api/usage/heatmap-dates", async c => {
     || hour === undefined || !Number.isInteger(hour) || hour < 0 || hour > 23) {
     return c.json({ ok: false, error: "weekday must be 0–6 and hour must be 0–23" }, 400);
   }
-  const query = parseQuery(params, dataset);
+  const query = parseQuery(params, dataset, c.get("now"));
   const metric = params.metric === "requests" ? "requests" : "tokens";
   const breakdown = heatmapDateBreakdown(filterRows(dataset.rows, query.filter), {
     weekday, hour, metric, timeZone: TIME_ZONE,
@@ -351,8 +359,8 @@ api.get("/api/usage/heatmap-dates", async c => {
 });
 
 api.get("/api/cost", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   return c.json({
     ok: true,
@@ -371,8 +379,8 @@ api.get("/api/cost", async c => {
 });
 
 api.get("/api/performance", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const timeline = latencyTimeline(rows, query.bucket, query.from, query.to);
   const durations = rows.filter(row => row.durationMs > 0).map(row => row.durationMs);
@@ -405,8 +413,8 @@ api.get("/api/performance", async c => {
 });
 
 api.get("/api/reliability", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const report = reliability(rows);
   const summary = summarize(rows);
@@ -423,11 +431,12 @@ api.get("/api/reliability", async c => {
 });
 
 api.get("/api/quota", async c => {
-  const dataset = await getDataset();
+  const dataset = c.get("dataset");
   const samples = dataset.quota.samples;
   const resolved = resolveWindow(
     { from: timeParam(c.req.query("from")), to: timeParam(c.req.query("to")), range: c.req.query("range") },
-    { first: samples[0]?.observedAt ?? Date.now(), last: samples[samples.length - 1]?.observedAt ?? Date.now() },
+    { first: samples[0]?.observedAt ?? c.get("now"), last: samples[samples.length - 1]?.observedAt ?? c.get("now") },
+    c.get("now"),
   );
   return c.json({
     ok: true,
@@ -437,11 +446,12 @@ api.get("/api/quota", async c => {
 });
 
 api.get("/api/ledger", async c => {
-  const dataset = await getDataset();
+  const dataset = c.get("dataset");
   const events = dataset.ledger.events;
   const resolved = resolveWindow(
     { from: timeParam(c.req.query("from")), to: timeParam(c.req.query("to")), range: c.req.query("range") },
-    { first: events[0]?.at ?? Date.now(), last: events[events.length - 1]?.at ?? Date.now() },
+    { first: events[0]?.at ?? c.get("now"), last: events[events.length - 1]?.at ?? c.get("now") },
+    c.get("now"),
   );
   const from = resolved.from;
   const to = resolved.to;
@@ -480,8 +490,8 @@ api.get("/api/ledger", async c => {
 });
 
 api.get("/api/conversations", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const limit = numberParam(c.req.query("limit")) ?? 100;
   const list = conversations(rows, limit);
@@ -510,7 +520,7 @@ api.get("/api/conversations", async c => {
 });
 
 api.get("/api/conversations/:id", async c => {
-  const dataset = await getDataset();
+  const dataset = c.get("dataset");
   const id = c.req.param("id");
   const timeline = conversationTimeline(dataset.rows, id);
   if (timeline.points.length === 0) return c.json({ ok: false, error: "conversation not found" }, 404);
@@ -522,8 +532,8 @@ api.get("/api/conversations/:id", async c => {
 });
 
 api.get("/api/export", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const datasetName = c.req.query("dataset") ?? "requests";
   let payload: Record<string, unknown>[];
@@ -540,8 +550,8 @@ api.get("/api/export", async c => {
 });
 
 api.get("/api/filters", async c => {
-  const dataset = await getDataset();
-  const query = parseQuery(c.req.query(), dataset);
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, { ...query.filter, providers: undefined, models: undefined, efforts: undefined, statuses: undefined, routeKinds: undefined });
   return c.json({
     ok: true,
