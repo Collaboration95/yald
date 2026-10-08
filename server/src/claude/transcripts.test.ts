@@ -61,6 +61,42 @@ test("Claude Code transcript lines normalize to the same RequestRow shape as ocx
   expect(row.closeReason).toBe("tool_use");
 });
 
+test("repeated content blocks count one response and retain complete usage across resumed copies", () => {
+  const partial = JSON.parse(block("thinking"));
+  partial.message.usage.output_tokens = 3;
+  partial.message.stop_reason = null;
+  const complete = JSON.parse(block("tool_use"));
+  complete.timestamp = "2026-10-04T16:44:50.068Z";
+  const resumed = structuredClone(complete);
+  resumed.sessionId = "resumed-session";
+  for (const key of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) {
+    resumed.message.usage[key] = 0;
+  }
+  const entries = collectEntries([
+    [partial, complete, complete].map(line => JSON.stringify(line)).join("\n"),
+    [resumed, partial].map(line => JSON.stringify(line)).join("\n"),
+  ]);
+  expect(entries).toHaveLength(1);
+  expect(normalizeRow(entries[0]!).totalTokens).toBe(65813);
+  expect(entries[0]!.timestamp).toBe(Date.parse(complete.timestamp));
+});
+
+test("a zeroed live copy cannot erase archived usage", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-"));
+  const file = join(dir, "sess-1.jsonl");
+  const archive = join(await mkdtemp(join(tmpdir(), "yald-archive-")), "usage.jsonl");
+  await writeFile(file, block("tool_use") + "\n");
+  const original = await readClaudeEntries(dir, archive);
+  const zeroed = JSON.parse(block("tool_use"));
+  for (const key of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) {
+    zeroed.message.usage[key] = 0;
+  }
+  await writeFile(file, JSON.stringify(zeroed) + "\n");
+  const copied = await readClaudeEntries(dir, archive);
+  expect(copied.entries).toEqual(original.entries);
+  expect((await readFile(archive, "utf8")).trim().split("\n")).toHaveLength(1);
+});
+
 test("readClaudeEntries reuses unchanged transcripts and re-parses appended ones", async () => {
   const dir = await mkdtemp(join(tmpdir(), "yald-claude-"));
   const file = join(dir, "sess-1.jsonl");

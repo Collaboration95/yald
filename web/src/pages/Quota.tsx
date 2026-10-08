@@ -117,6 +117,12 @@ export function QuotaPage() {
         />
       </div>
 
+      <div className="rounded-xl border border-line p-2.5 text-[11px] text-muted">
+        <span className="font-medium text-ink">Claude Code quota: unavailable.</span> These windows come from opencodex only.
+        Claude Code does not write its 5-hour and weekly subscription limits to any file yald can read, and yald does not
+        start Claude Code, call Anthropic, or read credentials to get them. Token usage from Claude transcripts is unaffected.
+      </div>
+
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader
