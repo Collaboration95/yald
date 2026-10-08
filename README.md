@@ -167,3 +167,4 @@ MIT — see [LICENSE](./LICENSE).
   The Reliability page reports metering coverage instead of inventing numbers.
 - Unpriced models (subscription or free routes) are excluded from cost totals and surfaced as an explicit share.
 - Quota samples only refresh while the proxy is running; with the proxy stopped you see the last known values.
+- Claude Code subscription quota is unavailable: Claude Code writes no readable file with its 5-hour/weekly limits. See [Claude Code quota](docs/metrics.md#claude-code-quota).
