@@ -4,6 +4,8 @@ All endpoints return JSON except `/api/export`. Responses include an ETag derive
 
 Shared analytics parameters: `range` (`24h`, `7d`, `30d`, `90d`, `all`), `from` and `to` (Unix milliseconds), comma-separated `providers`, `models`, `efforts`, and `statuses` (`ok`, `error`, `cancelled`), `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection). `from`/`to` override the corresponding range boundary.
 
+`projects` is a comma-separated list of URL-encoded folder globs, for example `projects=~%2Fwork%2Fapp-a*,%2Ftmp%2Fapp-a-*`. A request matches when its working directory, or any folder above it, matches a glob; `~` expands to the home directory and a trailing `/` is ignored. Requests without a known folder never match. Every analytics response filtered by `projects` (all routes taking shared parameters, except the CSV export) includes `coverage: { unattributedRows, unattributedTokens }`: the requests that matched every other filter but were dropped because their folder is unknown. Without `projects`, `coverage` is omitted. See [Project attribution](metrics.md#project-attribution).
+
 | Route | Additional query parameters | Response |
 | --- | --- | --- |
 | `GET /api/health` | — | `ok`, dataset `revision`, row count, parse timing, malformed-line count, pricing status |
@@ -19,6 +21,7 @@ Shared analytics parameters: `range` (`24h`, `7d`, `30d`, `90d`, `all`), `from` 
 | `GET /api/ledger` | `range`, `from`, `to` | Spend-ledger counts and selected-range buckets, send/token totals |
 | `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Ranked conversations and aggregate totals |
 | `GET /api/conversations/:id` | — | Conversation summary, timeline, models, and requests; 404 when missing |
+| `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present). With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
 | `GET /api/export` | Shared; `dataset` (`requests`, `models`, `conversations`) | CSV attachment for the filtered rows |
 | `GET /api/filters` | Shared | Available providers, models, efforts, and route kinds for the selected time/search filter |
 

@@ -70,6 +70,7 @@ Environment variables:
 | `YALD_HOST` (`HOST` fallback) | `127.0.0.1` | Bind address |
 | `OCX_HOME` | `~/.opencodex` | Where the ledgers live |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Claude Code transcripts; point at an empty directory to leave Claude out |
+| `CODEX_HOME` | `~/.codex` | Codex rollouts, read to attribute opencodex requests to project folders; missing is fine |
 | `OCX_PACKAGE_DIR` | auto-detected | Location of the installed `@bitkyc08/opencodex` package |
 | `YALD_TZ` (`OCX_OBSERVATORY_TZ` fallback) | system timezone | Timezone used for calendar bucketing |
 
