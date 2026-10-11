@@ -42,8 +42,6 @@ export interface ReportSpecInput {
   title?: string;
 }
 
-const present = (value: string | undefined) => (value === undefined || value.trim() === "" ? undefined : value);
-
 function list(value: string[] | string | undefined): string[] {
   if (value === undefined) return [];
   const parts = typeof value === "string" ? value.split(",") : value;
@@ -86,7 +84,7 @@ function readRedact(value: boolean | string | undefined): boolean {
  */
 export function buildReportSpec(input: ReportSpecInput, ctx: { now: Instant; first: Instant; defaultRange?: string }): ReportSpec {
   const phaseSpecs = input.phases ?? [];
-  const windowGiven = [input.from, input.to, input.last, input.range].some(value => present(value) !== undefined);
+  const windowGiven = [input.from, input.to, input.last, input.range].some(value => value !== undefined);
   let window: TimeWindow;
   let phases: Phase[];
   if (!windowGiven && phaseSpecs.length) {
