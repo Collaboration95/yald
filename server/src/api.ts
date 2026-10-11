@@ -212,9 +212,9 @@ api.use("/api/*", async (c, next) => {
   const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
-  // Reports contain derived project roots and coverage, which can change without
-  // a ledger revision. Their route hashes the resolved report after validation.
-  if (c.req.path !== "/api/report" && c.req.header("if-none-match") === etag) return c.body(null, 304);
+  // Project views and reports contain derived roots, which can change without
+  // a ledger revision. These routes hash the resolved payload after validation.
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.header("if-none-match") === etag) return c.body(null, 304);
   await next();
 });
 
@@ -592,12 +592,16 @@ api.get("/api/projects", async c => {
   const inProject = query.filter.projects?.length ? projectMatcher(query.filter.projects) : null;
   const rows = filterRows(dataset.rows, { ...query.filter, projects: undefined })
     .filter(row => !inProject || row.cwd === null || inProject(row.cwd));
-  return c.json({
+  const payload = {
     ok: true,
     ...coverageField(dataset.rows, query.filter),
     window: { ...query.window, range: query.range },
     projects: projectBreakdown(rows),
-  });
+  };
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
 });
 
 api.get("/api/export", async c => {

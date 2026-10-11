@@ -50,17 +50,19 @@ export function projectMatcher(globs: string[]): (cwd: string | null) => boolean
   };
 }
 
-/** Nearest enclosing git root per directory, looked up on disk once per process. */
-const gitRoots = new Map<string, string | null>();
-
-export function gitRoot(dir: string): string | null {
-  const cached = gitRoots.get(dir);
+/** Cache within one breakdown so newly created/deleted git roots appear on refresh. */
+function findGitRoot(dir: string, roots: Map<string, string | null>): string | null {
+  const cached = roots.get(dir);
   if (cached !== undefined) return cached;
   // A `.git` file (worktrees, submodules) counts as well as a directory.
   const parent = dirname(dir);
-  const root = existsSync(join(dir, ".git")) ? dir : parent === dir ? null : gitRoot(parent);
-  gitRoots.set(dir, root);
+  const root = existsSync(join(dir, ".git")) ? dir : parent === dir ? null : findGitRoot(parent, roots);
+  roots.set(dir, root);
   return root;
+}
+
+export function gitRoot(dir: string): string | null {
+  return findGitRoot(dir, new Map());
 }
 
 export interface ProjectRow {
@@ -78,10 +80,11 @@ export interface ProjectRow {
 
 /** Requests, tokens and cost per project, largest first, then an `(unattributed)` row (always present). */
 export function projectBreakdown(rows: RequestRow[]): ProjectRow[] {
+  const roots = new Map<string, string | null>();
   const byProject = new Map<string, ProjectRow & { folderSet: Set<string> }>();
   byProject.set(UNATTRIBUTED, { project: UNATTRIBUTED, gitRoot: false, folders: [], folderSet: new Set(), requests: 0, tokens: 0, cost: 0, firstSeen: null, lastSeen: null });
   for (const row of rows) {
-    const root = row.cwd === null ? null : gitRoot(row.cwd);
+    const root = row.cwd === null ? null : findGitRoot(row.cwd, roots);
     const project = row.cwd === null ? UNATTRIBUTED : root ?? row.cwd;
     let entry = byProject.get(project);
     if (!entry) {

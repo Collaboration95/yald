@@ -36,7 +36,7 @@ export function parseSessionMeta(line: string): RolloutMeta | null {
     meta = parsed?.type === "session_meta" ? parsed.payload : parsed;
   } catch {
     // A first line longer than the cap: the ids and cwd precede the long instructions.
-    const field = (name: string) => line.match(new RegExp(`"${name}":"((?:[^"\\\\]|\\\\.)*)"`))?.[1];
+    const field = (name: string) => line.match(new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`))?.[1];
     const decode = (value: string | undefined) => {
       try { return value === undefined ? undefined : JSON.parse(`"${value}"`); } catch { return undefined; }
     };
@@ -132,9 +132,9 @@ export async function readCodexSessionIndex(codexHome = CODEX_HOME): Promise<Map
   const files: HomeCache["files"] = new Map();
   const stale: { path: string; signature: string }[] = [];
   await Promise.all(paths.map(async path => {
-    const info = await stat(path).catch(() => null);
+    const info = await stat(path, { bigint: true }).catch(() => null);
     if (!info) return;
-    const signature = `${info.size}:${Math.round(info.mtimeMs)}`;
+    const signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
     const cached = cache?.files.get(path);
     if (cached?.signature === signature) files.set(path, cached);
     else stale.push({ path, signature });

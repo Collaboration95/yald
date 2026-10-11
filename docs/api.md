@@ -122,6 +122,8 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 
 `projects` is a comma-separated list of URL-encoded folder globs, for example `projects=~%2Fwork%2Fapp-a*,%2Ftmp%2Fapp-a-*`. A request matches when its working directory, or any folder above it, matches a glob; `~` expands to the home directory and a trailing `/` is ignored. Requests without a known folder never match. Every analytics response filtered by `projects` (all routes taking shared parameters, except the CSV export) includes `coverage: { unattributedRows, unattributedTokens }`: the requests that matched every other filter but were dropped because their folder is unknown. Without `projects`, `coverage` is omitted. See [Project attribution](metrics.md#project-attribution).
 
+`GET /api/projects` resolves git roots for each request and hashes its payload for conditional responses. Adding or removing a git root invalidates its ETag even when ledger files are unchanged.
+
 | Route | Additional query parameters | Response |
 | --- | --- | --- |
 | `GET /api/health` | — | `ok`, dataset `revision`, row count, parse timing, malformed-line count, pricing status |
