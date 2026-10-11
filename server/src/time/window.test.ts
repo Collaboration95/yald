@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { TIME_ZONE } from "../env";
 import {
   formatInZone, isoInZone, nextBucketStart, parseDuration, parseInstant, parsePhases, parseWindow, windowLabel, zonedBucketStart,
   WindowError, type TimeWindow, type WindowErrorCode,
@@ -244,7 +243,13 @@ describe.each(PROCESS_ZONES)("process TZ=%s", processTz => {
     expect(failure(() => parseWindow({ range: "7d", tz: "Mars/Olympus" }, { now, first }))).toMatchObject({ code: "invalid_zone", param: "tz" });
     expect(failure(() => parseInstant("now", { tz: "Nowhere", now })).code).toBe("invalid_zone");
     expect(parseWindow({ range: "7d", tz: "asia/singapore" }, { now, first }).tz).toBe("Asia/Singapore");
-    expect(parseWindow({ range: "7d" }, { now, first }).tz).toBe(TIME_ZONE);
+    const serverZone = process.env.YALD_TZ;
+    process.env.YALD_TZ = "Asia/Singapore";
+    try {
+      expect(parseWindow({ range: "7d" }, { now, first }).tz).toBe("Asia/Singapore");
+    } finally {
+      if (serverZone === undefined) delete process.env.YALD_TZ; else process.env.YALD_TZ = serverZone;
+    }
     expect(parseWindow({ range: "", from: "", tz: "" }, { now, first, defaultRange: "24h" }).from).toBe(now - D);
   });
 

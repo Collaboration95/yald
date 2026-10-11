@@ -70,17 +70,37 @@ afterAll(async () => {
 const ROUTES = ["overview", "timeseries", "models", "usage", "usage/heatmap-dates", "cost", "performance", "reliability", "quota", "ledger", "conversations", "export", "filters"];
 const route = (name: string, query: string) => `/api/${name}?${name === "usage/heatmap-dates" ? "weekday=0&hour=0&" : ""}${query}`;
 
+const sgt = (wall: string) => Date.parse(`${wall}+08:00`);
+// One makeathon day in Singapore, with rows exactly on the 09:00, 13:00 and 17:00 boundaries.
+const ENTRIES = [
+  usageEntry("old", now - 20 * 86_400_000), usageEntry("recent", now - 3_600_000),
+  usageEntry("before-a", sgt("2026-10-11T08:59:59.999"), 20_000),
+  usageEntry("on-a", sgt("2026-10-11T09:00:00"), 30_000),
+  usageEntry("morning", sgt("2026-10-11T10:15:00"), 40_000),
+  usageEntry("on-b", sgt("2026-10-11T13:00:00"), 50_000),
+  usageEntry("afternoon", sgt("2026-10-11T16:59:59.999"), 60_000),
+  usageEntry("on-c", sgt("2026-10-11T17:00:00"), 70_000),
+];
+
 let request: Awaited<ReturnType<typeof serve>>;
 beforeAll(async () => {
-  request = await serve([usageEntry("old", now - 20 * 86_400_000), usageEntry("recent", now - 3_600_000), usageEntry("sgt-morning", Date.parse("2026-10-11T01:30:00Z"))]);
+  // The server zone is Singapore; the process runs in UTC.
+  request = await serve(ENTRIES, { TZ: "UTC", YALD_TZ: "Asia/Singapore" });
 });
+
+/** A body without the echoed raw input, which is the only part allowed to differ between equivalent queries. */
+function withoutInput(body: any) {
+  if (!body || typeof body !== "object" || !body.window) return body;
+  const { input: _input, ...window } = body.window;
+  return { ...body, window };
+}
 
 test("unreadable from/to answers 400 invalid_time on every analytics route, naming the parameter", async () => {
   for (const param of ["from", "to"]) {
-    const responses = await request(...ROUTES.map(name => route(name, `${param}=yesterday-ish`)));
+    const responses = await request(...ROUTES.map(name => route(name, `${param}=soon-ish`)));
     for (const response of responses) {
       expect(response.status, response.path).toBe(400);
-      expect(response.body, response.path).toEqual({ ok: false, error: { code: "invalid_time", param, message: expect.stringContaining('"yesterday-ish"') } });
+      expect(response.body, response.path).toEqual({ ok: false, error: { code: "invalid_time", param, message: expect.stringContaining('"soon-ish"') } });
     }
   }
 });
@@ -111,6 +131,158 @@ test("absent, ISO and epoch from/to keep answering 200 with the window asked for
   for (const response of [iso!, epoch!]) {
     expect(response.status).toBe(200);
     expect(response.body.window.from).toBe(Date.parse("2026-10-11T01:00:00Z"));
-    expect(response.body.summary.requests).toBe(1);
+    expect(response.body.summary.requests).toBe(4);
+  }
+});
+
+const DATA_ROUTES = ROUTES.filter(name => name !== "export");
+
+test("naive local times in tz and exact UTC instants return identical bodies", async () => {
+  const local = await request(...ROUTES.map(name => route(name, "from=2026-10-11%2009:00&to=2026-10-11%2017:00&tz=Asia/Singapore")));
+  const utc = await request(...ROUTES.map(name => route(name, "from=2026-10-11T01:00Z&to=2026-10-11T09:00Z")));
+  local.forEach((response, index) => {
+    expect(response.status, response.path).toBe(200);
+    const { path: _a, ...expected } = utc[index]!;
+    const { path: _b, ...actual } = response;
+    expect(withoutInput(actual.body), response.path).toEqual(withoutInput(expected.body));
+    expect(actual.disposition).toBe(expected.disposition);
+  });
+  const overview = local[0]!.body;
+  expect(overview.summary.requests).toBe(4);
+  expect(overview.window).toEqual({
+    from: sgt("2026-10-11T09:00:00"), to: sgt("2026-10-11T17:00:00"), tz: "Asia/Singapore",
+    label: "Sun 11 Oct 2026, 09:00–17:00 GMT+8", fromIso: "2026-10-11T09:00:00+08:00", toIso: "2026-10-11T17:00:00+08:00", halfOpen: true,
+    input: { from: "2026-10-11 09:00", to: "2026-10-11 17:00" },
+    bucket: "hour", range: "30d", requests: 4,
+  });
+  // Every data route echoes the window it used.
+  for (const response of local.filter(response => !response.path.startsWith("/api/export"))) {
+    expect(response.body.window, response.path).toMatchObject({ tz: "Asia/Singapore", label: "Sun 11 Oct 2026, 09:00–17:00 GMT+8", fromIso: "2026-10-11T09:00:00+08:00", toIso: "2026-10-11T17:00:00+08:00", halfOpen: true });
+  }
+  expect(DATA_ROUTES.length).toBe(local.length - 1);
+  const csv = local.find(response => response.path.startsWith("/api/export"))!;
+  expect(csv.disposition).toBe('attachment; filename="yald-requests-2026-10-11T0900+0800--2026-10-11T1700+0800.csv"');
+  expect(csv.body).toContain("on-b");
+  expect(csv.body).not.toContain("on-c");
+});
+
+test("contiguous windows [a, b) and [b, c) sum exactly to [a, c), with a row on b", async () => {
+  const [first, second, whole] = await request(
+    "/api/overview?from=2026-10-11%2009:00&to=2026-10-11%2013:00&tz=Asia/Singapore",
+    "/api/overview?from=2026-10-11%2013:00&to=2026-10-11%2017:00&tz=Asia/Singapore",
+    "/api/overview?from=2026-10-11%2009:00&to=2026-10-11%2017:00&tz=Asia/Singapore",
+  );
+  const ids = (response: ApiResponse) => response.body.recent.map((row: { id: string }) => row.id).sort();
+  expect(ids(first!)).toEqual(["morning", "on-a"]);
+  expect(ids(second!)).toEqual(["afternoon", "on-b"]);
+  expect(ids(whole!)).toEqual(["afternoon", "morning", "on-a", "on-b"]);
+  const [a, b, all] = [first!.body.summary, second!.body.summary, whole!.body.summary];
+  expect(a.requests + b.requests).toBe(all.requests);
+  for (const kind of ["input", "output", "cacheRead", "cacheWrite", "reasoning", "total"]) {
+    expect(a.tokens[kind] + b.tokens[kind], kind).toBe(all.tokens[kind]);
+  }
+  expect(all.cost).toBeGreaterThan(0);
+  expect(a.cost + b.cost).toBeCloseTo(all.cost, 10);
+  expect(first!.body.composition.total + second!.body.composition.total).toBeCloseTo(whole!.body.composition.total, 10);
+  // The prior period is the equally long window just before, also half-open.
+  expect(second!.body.prior.requests).toBe(first!.body.summary.requests);
+});
+
+test("buckets follow the request tz, not the server process TZ", async () => {
+  const query = "from=2026-10-10&to=2026-10-12&tz=Asia/Singapore&metric=requests&groupBy=none";
+  const [hourly, daily, kolkata] = await request(
+    `/api/timeseries?${query}&bucket=hour`,
+    `/api/timeseries?${query}&bucket=day`,
+    "/api/timeseries?from=2026-10-11%2006:00&to=2026-10-11%2015:00&tz=Asia/Kolkata&metric=requests&groupBy=none&bucket=hour",
+  );
+  const hours = hourly!.body.series.buckets;
+  expect(hours).toHaveLength(48);
+  expect(hours[0]).toMatchObject({ ts: sgt("2026-10-10T00:00:00"), label: "10-10 00:00" });
+  expect(hours.find((bucket: { label: string }) => bucket.label === "10-11 09:00").total).toBe(1);
+  expect(hours.find((bucket: { label: string }) => bucket.label === "10-11 08:00").total).toBe(1);
+  expect(daily!.body.series.buckets.map((bucket: { ts: number; label: string; total: number }) => [bucket.ts, bucket.label, bucket.total])).toEqual([
+    [sgt("2026-10-10T00:00:00"), "2026-10-10", 0],
+    [sgt("2026-10-11T00:00:00"), "2026-10-11", 6],
+  ]);
+  // India is UTC+5:30, so local hours start at half past the UTC hour.
+  for (const bucket of kolkata!.body.series.buckets) expect(new Date(bucket.ts).getUTCMinutes()).toBe(30);
+  // The same request under another process TZ gives identical bodies (ETags differ: they hash the home path).
+  const elsewhere = await serve(ENTRIES, { TZ: "America/Los_Angeles", YALD_TZ: "Asia/Singapore" });
+  const paths = [`/api/timeseries?${query}&bucket=hour`, `/api/usage?${query}&bucket=day`, `/api/reliability?${query}`, "/api/overview?from=2026-10-11&to=2026-10-12"];
+  const bodies = (responses: ApiResponse[]) => responses.map(response => response.body);
+  expect(bodies(await elsewhere(...paths))).toEqual(bodies(await request(...paths)));
+});
+
+test("last=8h and from=-8h&to=now resolve to the same window for a frozen now", async () => {
+  const [last, relative, window] = await request("/api/overview?last=8h", "/api/overview?from=-8h&to=now", "/api/window?last=8h");
+  expect(last!.body.window.to).toBe(now);
+  expect(last!.body.window.to - last!.body.window.from).toBe(8 * 3_600_000);
+  expect(withoutInput(relative!.body)).toEqual(withoutInput(last!.body));
+  expect(last!.body.window.input).toEqual({ last: "8h" });
+  expect(relative!.body.window.input).toEqual({ from: "-8h", to: "now" });
+  expect(window!.body.window.from).toBe(last!.body.window.from);
+});
+
+test("GET /api/window resolves windows and phases without aggregating data", async () => {
+  const phase = (spec: string) => `phase=${encodeURIComponent(spec)}`;
+  const [response] = await request(`/api/window?from=2026-10-10%2023:30&to=2026-10-11%2018:00&tz=Asia/Singapore&${[
+    phase("Demo=2026-10-11 15:00..2026-10-11 18:00"), phase("Prep=2026-10-10 23:30..2026-10-11 09:00"), phase("Build=2026-10-11 09:00..+6h"),
+  ].join("&")}`);
+  expect(response!.status).toBe(200);
+  expect(response!.body).toEqual({
+    ok: true,
+    window: {
+      from: sgt("2026-10-10T23:30:00"), to: sgt("2026-10-11T18:00:00"), tz: "Asia/Singapore",
+      label: "Sat 10 Oct 2026, 23:30 – Sun 11 Oct 2026, 18:00 GMT+8",
+      fromIso: "2026-10-10T23:30:00+08:00", toIso: "2026-10-11T18:00:00+08:00", halfOpen: true,
+      input: { from: "2026-10-10 23:30", to: "2026-10-11 18:00" },
+    },
+    phases: [
+      { name: "Prep", from: sgt("2026-10-10T23:30:00"), to: sgt("2026-10-11T09:00:00"), label: "Sat 10 Oct 2026, 23:30 – Sun 11 Oct 2026, 09:00 GMT+8", fromIso: "2026-10-10T23:30:00+08:00", toIso: "2026-10-11T09:00:00+08:00" },
+      { name: "Build", from: sgt("2026-10-11T09:00:00"), to: sgt("2026-10-11T15:00:00"), label: "Sun 11 Oct 2026, 09:00–15:00 GMT+8", fromIso: "2026-10-11T09:00:00+08:00", toIso: "2026-10-11T15:00:00+08:00" },
+      { name: "Demo", from: sgt("2026-10-11T15:00:00"), to: sgt("2026-10-11T18:00:00"), label: "Sun 11 Oct 2026, 15:00–18:00 GMT+8", fromIso: "2026-10-11T15:00:00+08:00", toIso: "2026-10-11T18:00:00+08:00" },
+    ],
+  });
+  const [none] = await request("/api/window?range=7d");
+  expect(none!.body).toMatchObject({ ok: true, phases: [], window: { to: now, tz: "Asia/Singapore", input: { range: "7d" } } });
+});
+
+const WINDOW = "from=2026-10-11%2009:00&to=2026-10-11%2017:00";
+const ERRORS: [string, string, string][] = [
+  ["from=11/10%209am", "invalid_time", "from"],
+  ["from=2026-03-08%2002:30&to=2026-03-08%2004:00&tz=America/New_York", "nonexistent_time", "from"],
+  ["last=8x", "invalid_duration", "last"],
+  ["last=0h", "invalid_duration", "last"],
+  ["range=1y", "invalid_duration", "range"],
+  ["range=7d&tz=Mars/Olympus", "invalid_zone", "tz"],
+  ["from=2026-10-11%2017:00&to=2026-10-11%2009:00", "empty_window", "to"],
+  ["to=2026-10-11%2017:00", "conflicting_params", "to"],
+  ["from=-8h&to=now&last=8h", "conflicting_params", "last"],
+  [`${WINDOW}&phase=Build`, "invalid_phase", "phase[0]"],
+  [`${WINDOW}&phase=${encodeURIComponent("A=2026-10-11 10:00..+1h")}&phase=${encodeURIComponent("A=2026-10-11 12:00..+1h")}`, "invalid_phase", "phase[1]"],
+  [`${WINDOW}&phase=${encodeURIComponent("Late=2026-10-11 16:00..+2h")}`, "phase_outside_window", "phase[0]"],
+  [`${WINDOW}&phase=${encodeURIComponent("A=2026-10-11 10:00..+2h")}&phase=${encodeURIComponent("B=2026-10-11 11:00..+1h")}`, "phase_overlap", "phase[1]"],
+];
+
+test("every WindowErrorCode is a 400 from GET /api/window, and the query-param ones from analytics routes", async () => {
+  const windowResponses = await request(...ERRORS.map(([query]) => `/api/window?${query}`));
+  const codes = new Set<string>();
+  windowResponses.forEach((response, index) => {
+    const [, code, param] = ERRORS[index]!;
+    expect(response.status, response.path).toBe(400);
+    expect(response.body, response.path).toEqual({ ok: false, error: { code, param, message: expect.any(String) } });
+    codes.add(code);
+  });
+  expect([...codes].sort()).toEqual([
+    "conflicting_params", "empty_window", "invalid_duration", "invalid_phase", "invalid_time", "invalid_zone", "nonexistent_time", "phase_outside_window", "phase_overlap",
+  ]);
+  const queryErrors = ERRORS.filter(([query]) => !query.includes("phase="));
+  for (const name of ROUTES) {
+    const responses = await request(...queryErrors.map(([query]) => route(name, query)));
+    responses.forEach((response, index) => {
+      const [, code, param] = queryErrors[index]!;
+      expect(response.status, response.path).toBe(400);
+      expect(response.body.error, response.path).toMatchObject({ code, param });
+    });
   }
 });

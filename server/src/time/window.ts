@@ -1,5 +1,3 @@
-import { TIME_ZONE } from "../env";
-
 /**
  * The one place yald reads times. Turns what a person types ("2026-10-11 09:00",
  * "-8h", "yesterday+18h30m", "last 2d") into an exact half-open window in an IANA
@@ -214,6 +212,14 @@ export function parseInstant(text: string, ctx: { tz: string; now: Instant; anch
   return readInstant(text, { ...ctx, tz: zone(ctx.tz) }, ctx.anchor === undefined ? "from" : "to");
 }
 
+/**
+ * TIME_ZONE in env.ts, read at call time. Importing env.ts here would freeze OCX_HOME
+ * and friends for anything that imports analytics, before tests can point them elsewhere.
+ */
+function serverZone(): string {
+  return process.env.YALD_TZ ?? process.env.OCX_OBSERVATORY_TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 function present(value: string | undefined): string | undefined {
   return value === undefined || value.trim() === "" ? undefined : value;
 }
@@ -222,13 +228,14 @@ function present(value: string | undefined): string | undefined {
  * Resolves a half-open window. `from`+`to`, `last` (optionally ending at `to`),
  * `from`+`last` and `from` alone (to now) are exact; otherwise a `range` preset
  * (default `ctx.defaultRange`, then 30d) ends at `to` or now. `ctx.first` is the
- * earliest data point, the start of `range=all`.
+ * earliest data point, the start of `range=all`. `tz` defaults to the server zone
+ * (YALD_TZ, then OCX_OBSERVATORY_TZ, then the system zone).
  */
 export function parseWindow(
   input: { from?: string; to?: string; last?: string; range?: string; tz?: string },
   ctx: { now: Instant; first: Instant; defaultRange?: string },
 ): TimeWindow {
-  const tz = zone(present(input.tz) ?? TIME_ZONE);
+  const tz = zone(present(input.tz) ?? serverZone());
   const from = present(input.from);
   const to = present(input.to);
   const last = present(input.last);
@@ -252,6 +259,8 @@ export function parseWindow(
     end = to === undefined ? ctx.now : readInstant(to, { tz, now: ctx.now }, "to");
     start = shift(end, duration, -1, tz);
   } else {
+    // Read `to` first so an unreadable value is reported as such, not as a missing start.
+    end = to === undefined ? ctx.now : readInstant(to, { tz, now: ctx.now }, "to");
     if (to !== undefined && range === undefined) {
       throw new WindowError("conflicting_params", "to", `"to" on its own does not say where the window starts. Add from, last or range.`);
     }
@@ -260,7 +269,6 @@ export function parseWindow(
       throw new WindowError("invalid_duration", "range", `Unknown range "${preset}". Use 24h, 7d, 30d, 90d or all, or from/to/last for any other window.`);
     }
     if (range !== undefined) echo.range = range;
-    end = to === undefined ? ctx.now : readInstant(to, { tz, now: ctx.now }, "to");
     // Presets are exact spans (7d is always 168h) and may be empty, e.g. `all` before any data.
     start = preset === "all" ? Math.min(ctx.first, end) : end - PRESETS[preset]!;
     return { from: start, to: end, tz, label: windowLabel(start, end, tz), input: echo };
