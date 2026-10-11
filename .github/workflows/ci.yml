@@ -34,6 +34,13 @@ jobs:
       - name: Unit and API tests
         run: bun test
 
+      # Time windows must not depend on the zone the server process runs in.
+      - name: Time-window tests under several process time zones
+        run: |
+          for zone in UTC Asia/Singapore America/Los_Angeles; do
+            TZ="$zone" bun test server/src/time
+          done
+
       - name: Build web app
         run: bun run build
 
