@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import sampleJson from "./__fixtures__/report.sample.json";
-import { QUOTA_DOCS_URL, REPO_URL, renderReportHtml } from "./render";
+import { expectNoNetworkReferences } from "../../../tests/helpers/zero-network";
+import { renderReportHtml } from "./render";
 import type { ReportData, Source } from "./types";
 
 // JSON imports widen literals ("measured" → string, 1 → number), so the
@@ -63,16 +64,7 @@ describe("renderReportHtml", () => {
   });
 
   test("makes no network references", () => {
-    const html = renderReportHtml(sample);
-    for (const needle of ["<link", 'src="http', "@import", "url(http"]) expect(html.toLowerCase()).not.toContain(needle);
-    expect(html).not.toMatch(/\ssrc=/i);
-    expect(html.match(/<script/g)).toHaveLength(1);
-    // The only absolute URLs point into the repository: the credit and the quota docs link.
-    const urls = markup(html).match(/https?:\/\/[^\s"'<>)]+/g) ?? [];
-    expect(urls.length).toBeGreaterThan(0);
-    for (const url of urls) expect(url === REPO_URL || url.startsWith(`${REPO_URL}/`)).toBe(true);
-    expect(html).toContain(`<a href="${REPO_URL}">Numbers from yald v${sample.meta.yaldVersion}</a>`);
-    expect(html).toContain(`href="${QUOTA_DOCS_URL}"`);
+    expectNoNetworkReferences(renderReportHtml(sample), sample.meta.yaldVersion);
   });
 
   test("shows the required labels", () => {
