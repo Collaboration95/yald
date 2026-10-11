@@ -17,7 +17,9 @@ import type { Dataset } from "../../server/src/ocx/store";
 
 const root = process.argv[2]!;
 if (!process.env.OCX_HOME || !process.env.OCX_PACKAGE_DIR) throw new Error("isolated environment required");
-Date.now = () => 1_791_000_000_000;
+// YALD_TEST_NOW overrides the frozen clock, e.g. to date a fixture home's report day.
+const frozenNow = Number(process.env.YALD_TEST_NOW) || 1_791_000_000_000;
+Date.now = () => frozenNow;
 const actualReadFile = fs.readFile;
 const reads: Record<string, number> = {};
 let barrier: { file: string; entered: () => void; arrived: Promise<void>; wait: Promise<void>; release: () => void; fail: boolean } | null = null;
@@ -162,9 +164,18 @@ async function command(input: Record<string, any>) {
       for (const path of input.paths) {
         const response = await api.request(path, input.etag ? { headers: { "if-none-match": input.etag } } : undefined);
         const text = await response.text();
-        responses.push({ path, status: response.status, etag: response.headers.get("etag"), type: response.headers.get("content-type"), disposition: response.headers.get("content-disposition"), body: text && response.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text });
+        responses.push({ path, status: response.status, etag: response.headers.get("etag"), type: response.headers.get("content-type"), disposition: response.headers.get("content-disposition"), csp: response.headers.get("content-security-policy"), body: text && response.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text });
       }
       return responses;
+    }
+    case "report": {
+      // What `yald report --json -` computes: the same spec, builder and live context, outside any route.
+      const [{ buildReportSpec }, { buildReport }, { liveReportContext }] = await Promise.all(
+        ["spec", "build", "context"].map(name => import(pathToFileURL(join(root, `server/src/report/${name}.ts`)).href)),
+      );
+      const dataset = await getDataset();
+      const now = Date.now();
+      return buildReport(dataset, buildReportSpec(input.input, { now, first: dataset.rows[0]?.ts ?? now }), liveReportContext(now));
     }
     default: throw new Error(`unknown command: ${input.op}`);
   }
