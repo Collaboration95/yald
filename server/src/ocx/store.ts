@@ -1,5 +1,6 @@
 import { stat, readFile } from "node:fs/promises";
 import { readClaudeEntries } from "../claude/transcripts";
+import { readCodexSessionIndex, type CodexSession } from "../codex/sessions";
 import { PATHS } from "../env";
 import { loadPricing, priceEntry, pricingGeneration } from "./pricing";
 
@@ -48,6 +49,8 @@ export interface RequestRow {
   usageStatus: string;
   /** Tokens across every physical attempt; > totalTokens means retries re-sent work. */
   attemptTokens: number;
+  /** Working directory the request came from; null when it cannot be attributed. */
+  cwd: string | null;
 }
 
 export interface QuotaSample {
@@ -214,6 +217,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     usageFromAttempts,
     usageStatus: String(entry.usageStatus ?? "unknown"),
     attemptTokens: attemptTokens || totalTokens,
+    cwd: str(entry.cwd),
   };
 }
 
@@ -335,7 +339,39 @@ async function parseLedger(path: string): Promise<SpendEvent[]> {
 let dataset: Dataset | null = null;
 let inFlight: Promise<Dataset> | null = null;
 let signature = "";
-let mergedRows: { usage: Usage; claude: string; rows: RequestRow[] } | null = null;
+let mergedRows: { usage: Usage; claude: string; codex: CodexIndex; rows: RequestRow[] } | null = null;
+
+type CodexIndex = Map<string, CodexSession>;
+/** The index Map is replaced only when a session changes; a counter turns that into a signature. */
+let codexIndex: CodexIndex | null = null;
+let codexGeneration = 0;
+
+function codexSignature(index: CodexIndex): string {
+  if (index !== codexIndex) {
+    codexIndex = index;
+    codexGeneration++;
+  }
+  return `codex:${codexGeneration}`;
+}
+
+/**
+ * opencodex rows carry no cwd; their conversationId is the hashed Codex session id, so the
+ * rollout index supplies one. Matched rows are copied (published rows may be frozen) and
+ * the array is reused untouched when nothing matches, including when ~/.codex is absent.
+ */
+function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[] {
+  if (!index.size) return rows;
+  let attributed: RequestRow[] | null = null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    if (row.cwd !== null || row.protocol === "claude-code" || !row.conversationId) continue;
+    const session = index.get(row.conversationId);
+    if (!session) continue;
+    attributed ??= rows.slice();
+    attributed[i] = { ...row, cwd: session.cwd };
+  }
+  return attributed ?? rows;
+}
 
 type Usage = Awaited<ReturnType<typeof parseUsage>>;
 interface Snapshot<T> {
@@ -366,10 +402,11 @@ async function currentFiles() {
 }
 
 async function build(force: boolean): Promise<Dataset> {
-  const [initialFiles, claude] = await Promise.all([currentFiles(), readClaudeEntries()]);
+  const [initialFiles, claude, codex] = await Promise.all([currentFiles(), readClaudeEntries(), readCodexSessionIndex()]);
+  const codexKey = codexSignature(codex);
   // Preserve the existing file-driven whole-dataset fast path. Pricing-only
   // changes still require force; generation guards component reuse on rebuild.
-  if (!force && dataset && `${initialFiles.signature}|${claude.signature}` === signature) return dataset;
+  if (!force && dataset && `${initialFiles.signature}|${claude.signature}|${codexKey}` === signature) return dataset;
 
   await loadPricing();
   const startedAt = performance.now();
@@ -436,14 +473,15 @@ async function build(force: boolean): Promise<Dataset> {
     // Claude Code subscription traffic bypasses ocx; its transcripts normalize to the same rows.
     // Memoized so quota/spend-only rebuilds keep reusing one rows array, like the usage snapshot.
     let nextMerged = mergedRows;
-    if (nextMerged?.usage !== usage || nextMerged.claude !== claude.signature) {
-      const rows = claude.entries.length ? usage.rows.concat(claude.entries.map(normalizeRow)) : usage.rows;
-      // concat copies, so the reused usage snapshot array is never re-sorted.
+    if (nextMerged?.usage !== usage || nextMerged.claude !== claude.signature || nextMerged.codex !== codex) {
+      const ocxRows = attributeCodexRows(usage.rows, codex);
+      const rows = claude.entries.length ? ocxRows.concat(claude.entries.map(normalizeRow)) : ocxRows;
+      // concat and attribution copy, so the reused usage snapshot array is never re-sorted.
       if (rows !== usage.rows) rows.sort((a, b) => a.ts - b.ts);
-      nextMerged = { usage, claude: claude.signature, rows };
+      nextMerged = { usage, claude: claude.signature, codex, rows };
     }
     const rows = nextMerged.rows;
-    const nextSignature = `${files.signature}|${claude.signature}`;
+    const nextSignature = `${files.signature}|${claude.signature}|${codexKey}`;
     const nextDataset: Dataset = {
       rows,
       quota: nextQuota.value,

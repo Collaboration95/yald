@@ -6,8 +6,24 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ### Added
 
+- Exact and relative time windows on every analytics route: `from`/`to` accept naive local times, dates, `now`, `today`, `yesterday` and offsets such as `-8h` or `+6h`; `last=8h` sets a length; `tz` reads and buckets the window in any IANA zone. Every response echoes the window it used (`tz`, `label`, `fromIso`, `toIso`, `halfOpen`). `GET /api/window` validates a window and its phases without reading data. CSV exports are named for their local window ([#33](https://github.com/Collaboration95/yald/issues/33), [#34](https://github.com/Collaboration95/yald/issues/34)).
 - Claude Code subscription usage, read from `~/.claude/projects` transcripts (`CLAUDE_PROJECTS_DIR`) and shown as provider `anthropic` in every view, priced by the opencodex cost engine ([#26](https://github.com/Collaboration95/yald/pull/26)).
+- Project attribution ([#35](https://github.com/Collaboration95/yald/issues/35)): every request carries the folder it came from, from Claude Code transcripts and, for opencodex rows, from the first line of the matching Codex rollout (`CODEX_HOME`, `--codex-home`). Analytics routes take a `projects` glob filter and report `coverage` for unattributed requests, and `GET /api/projects` lists usage per git root.
+- Report data for any window ([#36](https://github.com/Collaboration95/yald/issues/36)): `buildReport()` turns a window, phases, sources (`claude-code`, `ocx`) and project globs into one versioned payload (`schemaVersion: 1`) with KPIs, a phase table that adds up exactly to the total, an hourly or daily timeline by source, models, top conversations, quota burn and coverage notes. Conversation ids, home paths and account labels are redacted by default, and the same input always gives byte-identical JSON. `buildReportSpec()` reads report requests the same way for the CLI and HTTP endpoint that follow.
+- Self-contained HTML reports ([#37](https://github.com/Collaboration95/yald/issues/37)): `renderReportHtml()` turns a report payload into one HTML file with no network references, light and dark themes, accessible SVG charts and the payload embedded as `<script type="application/json" id="yald-report">`, ready to email, attach or embed.
+- `GET /api/report` serves the same report from the running dashboard ([#39](https://github.com/Collaboration95/yald/issues/39)): window, repeated `phase`, `sources` (aliases `claude`, `codex`), `projects`, `top`, `redact` (on by default) and `title` as query parameters; `format=json` (default) returns `{ ok: true, report }`, `format=html` the self-contained HTML report under a CSP that blocks every fetch and script, and `download=1` names the attachment for the window's local start (`yald-report-2026-10-11T0900+0800.html`). Invalid inputs are a 400 naming the parameter, such as `phase[2]`, and pinned windows answer 304 until the data changes.
+- `yald report` ([#38](https://github.com/Collaboration95/yald/issues/38)): writes a standalone HTML report, and optionally its JSON payload, for any window, phases, sources and project globs without starting the server or opening a port. `--out -` / `--json -` stream to stdout with progress on stderr, files are written atomically, `--dry-run` prints the resolved window, phases and row counts, and `--open` opens the result in the default browser. Invalid input exits 2 with the parser's message. See README "Reports".
 - Hover and focus personality across the dashboard: each navigation and stat icon gets its own animation, money stats turn green and float dollar signs, and card links, model dots, leaderboard bars, filters, and the footer react to the pointer. A few easter eggs are hidden for curious users. Reduced-motion preferences switch all of it off.
+
+### Changed
+
+- **Time windows are half-open, `[from, to)`.** `to` used to be inclusive; a request recorded exactly at `to` now belongs to the next window, so contiguous windows add up exactly. Queries with an explicit `to` no longer count requests recorded exactly at that instant, and the prior period is now `[from − span, from)` ([#34](https://github.com/Collaboration95/yald/issues/34)).
+- Hour, day and week buckets, the heatmap and labels follow the request `tz` (default `YALD_TZ`, then the system zone) instead of the server process's timezone.
+- Window parameters are strict: an unknown `range`, a `to` without `from`, `last` or `range`, or an empty window returns HTTP 400 instead of falling back to the last 30 days.
+
+### Fixed
+
+- A `from` or `to` that cannot be read, such as an ISO time whose unencoded `+08:00` decoded to a space, now returns HTTP 400 with `{ ok: false, error: { code, param, message } }` instead of silently answering for the last 30 days ([#32](https://github.com/Collaboration95/yald/issues/32)).
 
 ## [0.1.0] - 2026-10-03
 

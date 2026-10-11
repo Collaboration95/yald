@@ -34,6 +34,13 @@ jobs:
       - name: Unit and API tests
         run: bun test
 
+      # Time windows must not depend on the zone the server process runs in.
+      - name: Time-window tests under several process time zones
+        run: |
+          for zone in UTC Asia/Singapore America/Los_Angeles; do
+            TZ="$zone" bun test server/src/time
+          done
+
       - name: Build web app
         run: bun run build
 
@@ -51,3 +58,8 @@ jobs:
           installed_version="$(node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" --version)"
           test "$installed_version" = "$release_version"
           node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" --help
+          node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" report --help
+          # A dry run reads (empty) data folders and writes nothing; no ledger exists on a runner.
+          empty="$RUNNER_TEMP/yald-empty-home"
+          node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" report --dry-run --last 1h \
+            --ocx-home "$empty" --claude-projects "$empty" --codex-home "$empty"

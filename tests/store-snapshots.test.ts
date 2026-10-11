@@ -25,7 +25,7 @@ class Probe {
   waiters: { resolve: (line: string) => void; reject: (error: Error) => void }[] = [];
   stderr = "";
   constructor(checkout: string, home: string, pricing: string, syntheticGeneration = false) {
-    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC" }, stdio: "pipe" });
+    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), CODEX_HOME: join(home, "codex"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC" }, stdio: "pipe" });
     createInterface({ input: this.child.stdout }).on("line", line => {
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(line); else this.lines.push(line);
@@ -78,6 +78,8 @@ async function fixture(mode: "versioned" | "unknown" | "unavailable" | "untruste
   const dir = await mkdtemp(join(tmpdir(), "yald-snapshot-test-")); owned.push(dir);
   const home = join(dir, "home"), pricing = join(dir, "pricing"), usageDir = join(pricing, "src/usage");
   await mkdir(home); await mkdir(usageDir, { recursive: true });
+  // An empty Codex home: isolated from ~/.codex, and opencodex refuses a CODEX_HOME that does not exist.
+  await mkdir(join(home, "codex"));
   // The synthetic version signal is only a store-unit dependency, NOT an
   // audited opencodex engine. Untrusted-versioned deliberately has the same API
   // without the helper mock, and must be rejected for reuse by the real adapter.

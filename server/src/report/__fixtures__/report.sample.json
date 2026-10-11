@@ -1,0 +1,748 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "title": "Fixture makeathon",
+    "generatedAt": 1791712800000,
+    "yaldVersion": "0.1.0",
+    "tz": "Asia/Singapore",
+    "window": {
+      "from": 1791626400000,
+      "to": 1791712800000,
+      "label": "Sat 10 Oct 2026, 18:00 – Sun 11 Oct 2026, 18:00 GMT+8"
+    },
+    "filters": {
+      "sources": [
+        "claude-code",
+        "ocx"
+      ],
+      "projects": []
+    }
+  },
+  "kpis": {
+    "requests": 72,
+    "tokens": 2199900,
+    "freshInput": 393300,
+    "cacheRead": 1705200,
+    "cacheWrite": 18000,
+    "output": 83400,
+    "reasoning": 10820,
+    "costUsd": 3.6929,
+    "conversations": 10,
+    "activeHours": 24,
+    "cacheHitRate": 0.8057,
+    "cacheSavingsUsd": 5.3406,
+    "successRate": 0.9524
+  },
+  "phases": [
+    {
+      "name": "Prep",
+      "from": 1791646200000,
+      "to": 1791680400000,
+      "requests": 18,
+      "tokens": 650100,
+      "freshInput": 114000,
+      "cacheRead": 507000,
+      "cacheWrite": 3600,
+      "output": 25500,
+      "reasoning": 3960,
+      "costUsd": 1.1445,
+      "conversations": 3,
+      "topModel": "gpt-6-astra",
+      "tokensBySource": {
+        "claude-code": 96300,
+        "ocx": 553800
+      }
+    },
+    {
+      "name": "Build",
+      "from": 1791680400000,
+      "to": 1791702000000,
+      "requests": 31,
+      "tokens": 864950,
+      "freshInput": 156700,
+      "cacheRead": 668800,
+      "cacheWrite": 10200,
+      "output": 29250,
+      "reasoning": 2760,
+      "costUsd": 1.3504,
+      "conversations": 6,
+      "topModel": "claude-fixture-opus",
+      "tokensBySource": {
+        "claude-code": 291350,
+        "ocx": 573600
+      }
+    },
+    {
+      "name": "Demo",
+      "from": 1791702000000,
+      "to": 1791712800000,
+      "requests": 13,
+      "tokens": 325400,
+      "freshInput": 59400,
+      "cacheRead": 250600,
+      "cacheWrite": 2400,
+      "output": 13000,
+      "reasoning": 1580,
+      "costUsd": 0.5076,
+      "conversations": 5,
+      "topModel": "gpt-6-astra",
+      "tokensBySource": {
+        "claude-code": 56200,
+        "ocx": 269200
+      }
+    },
+    {
+      "name": "(outside phases)",
+      "from": 1791626400000,
+      "to": 1791712800000,
+      "requests": 10,
+      "tokens": 359450,
+      "freshInput": 63200,
+      "cacheRead": 278800,
+      "cacheWrite": 1800,
+      "output": 15650,
+      "reasoning": 2520,
+      "costUsd": 0.6904,
+      "conversations": 3,
+      "topModel": "gpt-6-astra",
+      "tokensBySource": {
+        "claude-code": 39150,
+        "ocx": 320300
+      }
+    },
+    {
+      "name": "Total",
+      "from": 1791626400000,
+      "to": 1791712800000,
+      "requests": 72,
+      "tokens": 2199900,
+      "freshInput": 393300,
+      "cacheRead": 1705200,
+      "cacheWrite": 18000,
+      "output": 83400,
+      "reasoning": 10820,
+      "costUsd": 3.6929,
+      "conversations": 10,
+      "topModel": "gpt-6-astra",
+      "tokensBySource": {
+        "claude-code": 483000,
+        "ocx": 1716900
+      }
+    }
+  ],
+  "timeline": {
+    "bucket": "hour",
+    "points": [
+      {
+        "ts": 1791626400000,
+        "label": "18:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 22400,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791630000000,
+        "label": "19:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 14100,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791633600000,
+        "label": "20:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 39150,
+            "requests": 3
+          },
+          "ocx": {
+            "tokens": 148100,
+            "requests": 2
+          }
+        }
+      },
+      {
+        "ts": 1791637200000,
+        "label": "21:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 22400,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791640800000,
+        "label": "22:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 14100,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791644400000,
+        "label": "23:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 148100,
+            "requests": 2
+          }
+        }
+      },
+      {
+        "ts": 1791648000000,
+        "label": "00:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 22400,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791651600000,
+        "label": "01:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 39150,
+            "requests": 3
+          },
+          "ocx": {
+            "tokens": 14100,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791655200000,
+        "label": "02:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 57150,
+            "requests": 3
+          },
+          "ocx": {
+            "tokens": 148100,
+            "requests": 2
+          }
+        }
+      },
+      {
+        "ts": 1791658800000,
+        "label": "03:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 22400,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791662400000,
+        "label": "04:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 14100,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791666000000,
+        "label": "05:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 148100,
+            "requests": 2
+          }
+        }
+      },
+      {
+        "ts": 1791669600000,
+        "label": "06:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 22400,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791673200000,
+        "label": "07:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 14100,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791676800000,
+        "label": "08:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 99200,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791680400000,
+        "label": "09:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 71300,
+            "requests": 2
+          }
+        }
+      },
+      {
+        "ts": 1791684000000,
+        "label": "10:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 56200,
+            "requests": 4
+          },
+          "ocx": {
+            "tokens": 14100,
+            "requests": 1
+          }
+        }
+      },
+      {
+        "ts": 1791687600000,
+        "label": "11:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 88200,
+            "requests": 4
+          },
+          "ocx": {
+            "tokens": 210300,
+            "requests": 4
+          }
+        }
+      },
+      {
+        "ts": 1791691200000,
+        "label": "12:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 80200,
+            "requests": 4
+          },
+          "ocx": {
+            "tokens": 53500,
+            "requests": 2
+          }
+        }
+      },
+      {
+        "ts": 1791694800000,
+        "label": "13:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 47700,
+            "requests": 4
+          },
+          "ocx": {
+            "tokens": 45200,
+            "requests": 2
+          }
+        }
+      },
+      {
+        "ts": 1791698400000,
+        "label": "14:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 19050,
+            "requests": 1
+          },
+          "ocx": {
+            "tokens": 179200,
+            "requests": 3
+          }
+        }
+      },
+      {
+        "ts": 1791702000000,
+        "label": "15:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 39150,
+            "requests": 3
+          },
+          "ocx": {
+            "tokens": 75900,
+            "requests": 3
+          }
+        }
+      },
+      {
+        "ts": 1791705600000,
+        "label": "16:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 17050,
+            "requests": 1
+          },
+          "ocx": {
+            "tokens": 45200,
+            "requests": 3
+          }
+        }
+      },
+      {
+        "ts": 1791709200000,
+        "label": "17:00",
+        "bySource": {
+          "claude-code": {
+            "tokens": 0,
+            "requests": 0
+          },
+          "ocx": {
+            "tokens": 148100,
+            "requests": 3
+          }
+        }
+      }
+    ]
+  },
+  "composition": {
+    "freshInput": 393300,
+    "cacheRead": 1705200,
+    "cacheWrite": 18000,
+    "output": 72580,
+    "reasoning": 10820
+  },
+  "models": [
+    {
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "source": "ocx",
+      "requests": 8,
+      "tokens": 793600,
+      "share": 0.3607,
+      "output": 25600,
+      "costUsd": 1.984,
+      "usdPerMTok": 2.5,
+      "cacheHitRate": 0.8333,
+      "ttftP50Ms": 2400
+    },
+    {
+      "model": "claude-fixture-opus",
+      "provider": "anthropic",
+      "source": "claude-code",
+      "requests": 30,
+      "tokens": 483000,
+      "share": 0.2196,
+      "output": 13500,
+      "costUsd": 1.0821,
+      "usdPerMTok": 2.24,
+      "cacheHitRate": 0.7693,
+      "ttftP50Ms": null
+    },
+    {
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "source": "ocx",
+      "requests": 9,
+      "tokens": 391200,
+      "share": 0.1778,
+      "output": 7200,
+      "costUsd": 0.192,
+      "usdPerMTok": 0.49,
+      "cacheHitRate": 0.8333,
+      "ttftP50Ms": 900
+    },
+    {
+      "model": "claude-fixture-haiku",
+      "provider": "anthropic",
+      "source": "ocx",
+      "requests": 7,
+      "tokens": 217700,
+      "share": 0.099,
+      "output": 7700,
+      "costUsd": 0.0973,
+      "usdPerMTok": 0.45,
+      "cacheHitRate": 0.8,
+      "ttftP50Ms": 620
+    },
+    {
+      "model": "gpt-6-sol",
+      "provider": "openai",
+      "source": "ocx",
+      "requests": 9,
+      "tokens": 201600,
+      "share": 0.0916,
+      "output": 12600,
+      "costUsd": 0.3375,
+      "usdPerMTok": 1.67,
+      "cacheHitRate": 0.7619,
+      "ttftP50Ms": 1500
+    },
+    {
+      "model": "deepseek-flash",
+      "provider": "deepseek",
+      "source": "ocx",
+      "requests": 9,
+      "tokens": 112800,
+      "share": 0.0513,
+      "output": 16800,
+      "costUsd": null,
+      "usdPerMTok": null,
+      "cacheHitRate": 0.75,
+      "ttftP50Ms": 380
+    }
+  ],
+  "cache": {
+    "hitRate": 0.8057,
+    "savingsUsd": 5.3406,
+    "costByClass": {
+      "freshInput": 1.326,
+      "cacheRead": 0.5934,
+      "cacheWrite": 0.1125,
+      "output": 1.661
+    }
+  },
+  "conversations": [
+    {
+      "id": "d376f4fc",
+      "source": "ocx",
+      "models": [
+        "gpt-6-sol",
+        "gpt-6-astra",
+        "deepseek-flash"
+      ],
+      "requests": 17,
+      "tokens": 972800,
+      "costUsd": 2.284,
+      "from": 1791628980000,
+      "to": 1791710400000,
+      "project": "/private/var/folders/yd/fixture/T/app-a-sdk-run"
+    },
+    {
+      "id": "8e52c80b",
+      "source": "ocx",
+      "models": [
+        "deepseek-flash",
+        "gpt-6-luna"
+      ],
+      "requests": 17,
+      "tokens": 504000,
+      "costUsd": 0.192,
+      "from": 1791631620000,
+      "to": 1791712500000,
+      "project": "~/work/app-a"
+    },
+    {
+      "id": "8d41b7c3",
+      "source": "claude-code",
+      "models": [
+        "claude-fixture-opus"
+      ],
+      "requests": 10,
+      "tokens": 200500,
+      "costUsd": 0.416,
+      "from": 1791684000000,
+      "to": 1791692100000,
+      "project": "~/work/app-a"
+    },
+    {
+      "id": "c18c8523",
+      "source": "ocx",
+      "models": [
+        "claude-fixture-haiku"
+      ],
+      "requests": 6,
+      "tokens": 186600,
+      "costUsd": 0.0834,
+      "from": 1791687600000,
+      "to": 1791702600000,
+      "project": null
+    },
+    {
+      "id": "5f0c1a2e",
+      "source": "claude-code",
+      "models": [
+        "claude-fixture-opus"
+      ],
+      "requests": 6,
+      "tokens": 96300,
+      "costUsd": 0.216,
+      "from": 1791651600000,
+      "to": 1791657600000,
+      "project": "~/work/app-a"
+    },
+    {
+      "id": "a92e60f4",
+      "source": "claude-code",
+      "models": [
+        "claude-fixture-opus"
+      ],
+      "requests": 5,
+      "tokens": 75250,
+      "costUsd": 0.173,
+      "from": 1791691200000,
+      "to": 1791698400000,
+      "project": "~/work/app-b"
+    },
+    {
+      "id": "c3b85d17",
+      "source": "claude-code",
+      "models": [
+        "claude-fixture-opus"
+      ],
+      "requests": 4,
+      "tokens": 56200,
+      "costUsd": 0.1328,
+      "from": 1791703800000,
+      "to": 1791705600000,
+      "project": "~/work/app-a"
+    },
+    {
+      "id": "e7f2a940",
+      "source": "claude-code",
+      "models": [
+        "claude-fixture-opus"
+      ],
+      "requests": 3,
+      "tokens": 39150,
+      "costUsd": 0.0954,
+      "from": 1791633600000,
+      "to": 1791636600000,
+      "project": "~/work/app-b"
+    },
+    {
+      "id": "db69aaac",
+      "source": "ocx",
+      "models": [
+        "gpt-6-sol"
+      ],
+      "requests": 1,
+      "tokens": 22400,
+      "costUsd": 0.0375,
+      "from": 1791702000000,
+      "to": 1791702000000,
+      "project": null
+    },
+    {
+      "id": "claude-f",
+      "source": "claude-code",
+      "models": [
+        "claude-fixture-opus"
+      ],
+      "requests": 2,
+      "tokens": 15600,
+      "costUsd": 0.0489,
+      "from": 1791694800000,
+      "to": 1791695040000,
+      "project": "~/work/app-a"
+    }
+  ],
+  "quota": {
+    "windows": [
+      {
+        "account": "account 1",
+        "window": "weekly",
+        "status": "insufficient",
+        "samples": 0,
+        "usedPctStart": null,
+        "usedPctEnd": null,
+        "burnPctPerDay": null
+      },
+      {
+        "account": "account 2",
+        "window": "monthly",
+        "status": "measured",
+        "samples": 16,
+        "usedPctStart": 74,
+        "usedPctEnd": 84,
+        "burnPctPerDay": 10
+      }
+    ],
+    "claudeCode": "unavailable"
+  },
+  "coverage": {
+    "sourcesRead": [
+      "Claude Code transcripts (~/claude-projects)",
+      "opencodex request ledger (~/usage.jsonl)",
+      "opencodex spend ledger (~/spend-ledger.jsonl)",
+      "opencodex quota cache (~/codex-quota-cache.json)"
+    ],
+    "unpriced": [
+      {
+        "model": "deepseek-flash",
+        "requests": 9
+      }
+    ],
+    "estimatedCostShare": 0.5372,
+    "rowsWithoutConversation": 1,
+    "ledgerStartsAt": null,
+    "pricing": "ok",
+    "unattributedRows": null
+  }
+}

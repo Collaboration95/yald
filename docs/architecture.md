@@ -18,6 +18,8 @@ The analytics layer filters and groups normalized requests, computes time series
 server/src/env.ts                  resolves data locations and runtime settings
 server/src/ocx/store.ts             reads and normalizes opencodex ledgers
 server/src/claude/transcripts.ts    adapts Claude Code session transcripts
+server/src/codex/sessions.ts        indexes Codex rollouts for project attribution
+server/src/projects.ts              matches project globs and rolls folders up to git roots
 server/src/ocx/pricing.ts           connects to opencodex pricing
 server/src/analytics.ts             filters and computes dashboard metrics
 server/src/api.ts                  exposes analytics routes

@@ -12,6 +12,7 @@ function num(value: unknown): number {
  * lines that are not a metered model call.
  *
  * Not in transcripts, left empty: durationMs, firstOutputMs, effort, account, attempts.
+ * `cwd` is kept so requests can be attributed to a project folder.
  */
 export function toUsageEntry(line: Record<string, any>): Record<string, unknown> | null {
   const message = line?.message;
@@ -31,6 +32,7 @@ export function toUsageEntry(line: Record<string, any>): Record<string, unknown>
     provider: "anthropic",
     model: message.model,
     conversationId: line.sessionId,
+    ...(typeof line.cwd === "string" && line.cwd ? { cwd: line.cwd } : {}),
     inboundProtocol: "claude-code",
     status: 200,
     usageStatus: "reported",
@@ -67,7 +69,10 @@ function retainEntry(byRequest: Map<string, Record<string, unknown>>, entry: Rec
       const timestamp = num(entry.timestamp);
       const oldTimestamp = num(old.timestamp);
       if (timestamp < oldTimestamp) return false;
-      if (timestamp === oldTimestamp && (old.closeReason || !entry.closeReason)) return false;
+      // An equal copy wins only if it adds a stop reason, or a cwd the archived entry predates.
+      const addsCloseReason = !old.closeReason && entry.closeReason;
+      const addsCwd = !old.cwd && entry.cwd && (entry.closeReason || !old.closeReason);
+      if (timestamp === oldTimestamp && !addsCloseReason && !addsCwd) return false;
     }
   }
   byRequest.set(key, entry);
@@ -145,7 +150,8 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
   // Files that disappeared drop out of the cache.
   for (const path of fileCache.keys()) if (!files.includes(path)) fileCache.delete(path);
 
-  // Only re-parsed transcripts can hold new or changed (still streaming) entries.
+  // Only re-parsed transcripts can hold new or changed (still streaming) entries. Entries
+  // archived before cwd was kept are re-appended once with the cwd from their live transcript.
   const archived = await loadArchive(archivePath);
   const candidates = new Map(archived);
   for (const entry of fresh) retainEntry(candidates, entry);

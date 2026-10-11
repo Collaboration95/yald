@@ -34,6 +34,7 @@ const useFixtures = process.argv.includes("--fixtures") || !existsSync(join(ocxH
 if (useFixtures) {
   process.env.OCX_HOME = await materializeFixtureHome();
   process.env.CLAUDE_PROJECTS_DIR = join(process.env.OCX_HOME, "claude-projects");
+  process.env.CODEX_HOME = join(process.env.OCX_HOME, "codex");
 }
 console.log(useFixtures ? "source: synthetic fixtures" : `source: ${join(ocxHome, "usage.jsonl")}`);
 
