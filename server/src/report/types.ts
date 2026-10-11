@@ -2,18 +2,7 @@
 // through that issue so buildReport (#36), the renderer (#37), the CLI (#38)
 // and the endpoint (#39) stay compatible.
 
-// TODO(#33): import TimeWindow/Phase from ../time/window
-// Minimal structural stand-ins for the time contract so ReportSpec type-checks
-// before server/src/time/window.ts lands. They mirror the epic exactly.
-type Instant = number;
-interface TimeWindow {
-  from: Instant;
-  to: Instant;
-  tz: string;
-  label: string;
-  input: { from?: string; to?: string; last?: string; range?: string };
-}
-interface Phase { name: string; from: Instant; to: Instant }
+import type { Instant, Phase, TimeWindow } from "../time/window";
 
 export type Source = "claude-code" | "ocx";
 
