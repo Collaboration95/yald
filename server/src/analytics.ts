@@ -1,5 +1,7 @@
 import type { Dataset, RequestRow } from "./ocx/store";
 import { projectMatcher } from "./projects";
+import { sourceOf } from "./report/source";
+import type { Source } from "./report/types";
 import { isoInZone, nextBucketStart, zonedBucketStart } from "./time/window";
 
 export type Bucket = "hour" | "day" | "week";
@@ -9,6 +11,7 @@ export interface RowFilter {
   from?: number;
   to?: number;
   providers?: string[];
+  sources?: Source[];
   models?: string[];
   efforts?: string[];
   statuses?: ("ok" | "error" | "cancelled")[];
@@ -49,6 +52,7 @@ export function pickBucket(spanMs: number): Bucket {
 export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
   const search = filter.search?.toLowerCase().trim();
   const providerSet = filter.providers?.length ? new Set(filter.providers) : null;
+  const sourceSet = filter.sources?.length ? new Set(filter.sources) : null;
   const modelSet = filter.models?.length ? new Set(filter.models) : null;
   const effortSet = filter.efforts?.length ? new Set(filter.efforts) : null;
   const statusSet = filter.statuses?.length ? new Set(filter.statuses) : null;
@@ -58,6 +62,7 @@ export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] 
     if (filter.from !== undefined && row.ts < filter.from) return false;
     if (filter.to !== undefined && row.ts >= filter.to) return false; // half-open: a row at `to` belongs to the next window
     if (providerSet && !providerSet.has(row.provider)) return false;
+    if (sourceSet && !sourceSet.has(sourceOf(row))) return false;
     if (modelSet && !modelSet.has(row.model)) return false;
     if (effortSet && !effortSet.has(row.effort ?? "unknown")) return false;
     if (routeSet && !routeSet.has(row.routeKind ?? "unrouted")) return false;

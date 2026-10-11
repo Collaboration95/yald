@@ -16,6 +16,7 @@ Every analytics route takes the same window parameters. Windows are half-open, `
 | `tz` | `Asia/Singapore` | IANA zone for naive times, `today`, calendar days, buckets and labels. Default: `YALD_TZ`, then `OCX_OBSERVATORY_TZ`, then the system zone |
 | `range` | `24h`, `7d`, `30d`, `90d`, `all` | Rolling preset ending at `to` or now; default `30d`. Ignored when `from` or `last` is given |
 | `bucket` | `hour`, `day`, `week`, `auto` | Chart buckets start on local hours, local midnights and Mondays in `tz` |
+| `sources` | `claude-code,ocx` | Request analytics accept the same source filter as reports, including aliases `claude,codex`. Default both; unknown sources return 400 `invalid_source`. Sources are determined by ingestion protocol, so Anthropic API traffic through opencodex remains `ocx` |
 
 **Instants** (`from`, `to`, phase bounds):
 
