@@ -122,6 +122,16 @@ describe("renderReportHtml", () => {
     expect(embedded(html)).toEqual(sample);
   });
 
+  test("cache economics adds up to the cost KPI when request fees fall outside token classes", () => {
+    expect(renderReportHtml(sample)).not.toContain("Other (request fees, tiers)");
+    const data = clone();
+    const classes = Object.values(data.cache.costByClass).reduce((a, b) => a + b, 0);
+    data.kpis.costUsd = classes + 1.15;
+    const html = renderReportHtml(data);
+    expect(html).toContain("Other (request fees, tiers)");
+    expect(html).toContain("$1.15");
+  });
+
   test("renders without phases", () => {
     const data = clone();
     data.phases = [];

@@ -276,7 +276,11 @@ function cacheSection(data: ReportData): string {
     const bar = inlineBar([{ value, color: CLASS_COLORS[key] }], { label: `${name}: ${percent(share(value, total))} of dollars`, total });
     return `<tr>${td(esc(name), "ink")}${num(priced ? usd(value) : "—")}${td(`<div class="share">${bar}<span class="muted">${esc(percent(share(value, total)))}</span></div>`)}</tr>`;
   });
-  rows.push(`<tr class="total">${td("Total")}${num(priced ? usd(total) : "—")}${td("")}</tr>`);
+  // Per-token rates miss per-request fees and tier adjustments; show the gap so the
+  // table adds up to the cost KPI.
+  const other = finite(data.kpis.costUsd) ? Math.round((data.kpis.costUsd - total) * 100) / 100 : 0;
+  if (priced && Math.abs(other) >= 0.01) rows.push(`<tr>${td("Other (request fees, tiers)", "ink")}${num(usd(other))}${td("")}</tr>`);
+  rows.push(`<tr class="total">${td("Total")}${num(priced ? usd(Math.abs(other) >= 0.01 ? data.kpis.costUsd! : total) : "—")}${td("")}</tr>`);
   const sub = "Dollars by token class (API list-price equivalent). Savings compare cache reads with paying the fresh-input price for the same tokens.";
   return card("Cache economics", sub, facts + table("Dollars by token class", ["Token class", "Cost", "Share of dollars"], 1, rows), "peach");
 }
