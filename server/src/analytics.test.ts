@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as analytics from "./analytics";
@@ -16,7 +16,7 @@ function row(overrides: Partial<RequestRow> = {}): RequestRow {
     rateIn: 1, rateOut: 2, rateCacheRead: 0.1, rateCacheWrite: 0.2, conversationId: "c1", errorCode: null,
     closeReason: null, routeKind: "native", account: null, protocol: "responses", attempts: 1, sends: 1, settled: 1,
     unresolved: 0, cacheProvenance: "observed", contextTier: null, serviceTier: "default", retried: false,
-    usageFromAttempts: false, usageStatus: "reported", attemptTokens: 120, ...overrides,
+    usageFromAttempts: false, usageStatus: "reported", attemptTokens: 120, cwd: null, ...overrides,
   };
 }
 
@@ -153,6 +153,9 @@ test("API routes return their documented payloads and range-scoped quota and led
   await writeFile(join(home, "codex-quota-cache.json"), JSON.stringify({ version: 1, history: { accounts: { a: { samples: [{ observedAt: now - 86_400_000, windows: [{ family: "account", window: "weekly", usedPercent: 40 }] }, { observedAt: now, windows: [{ family: "account", window: "weekly", usedPercent: 50 }] }] } } }, quotas: { a: { updatedAt: now, weeklyPercent: 50, weeklyResetAt: Math.floor((now + 7 * 86_400_000) / 1000) } } }));
   process.env.OCX_HOME = home;
   process.env.CLAUDE_PROJECTS_DIR = join(home, "claude-projects");
+  // opencodex refuses a CODEX_HOME that does not exist, so give it an empty one.
+  process.env.CODEX_HOME = join(home, "codex");
+  await mkdir(process.env.CODEX_HOME);
   const { api } = await import("./api");
   const paths: [string, string][] = [
     ["/api/health", "revision"], ["/api/meta", "totals"], [`/api/overview?range=7d&to=${now + 60_000}`, "summary"],
