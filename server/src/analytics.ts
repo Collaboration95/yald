@@ -788,8 +788,8 @@ export interface QuotaView {
   observed: { samples: number; first: number | null; last: number | null };
 }
 
-/** Groups quota samples into series, optionally trimmed to a time window. */
-export function quotaView(dataset: Dataset, selected?: { from?: number; to?: number }): QuotaView {
+/** Groups quota samples into series, optionally trimmed to a time window. `now` dates the exhaustion projection. */
+export function quotaView(dataset: Pick<Dataset, "quota">, selected?: { from?: number; to?: number }, now = Date.now()): QuotaView {
   const from = selected?.from;
   const to = selected?.to;
   const all = new Map<string, { account: string; window: string; points: { ts: number; usedPercent: number }[] }>();
@@ -832,7 +832,7 @@ export function quotaView(dataset: Dataset, selected?: { from?: number; to?: num
       percentPerDay = round((last.usedPercent - first.usedPercent) / days, 4);
     }
     const remaining = Math.max(0, 100 - entry.usedPercent);
-    const projectedExhaustionAt = percentPerDay > 0 ? Date.now() + (remaining / percentPerDay) * DAY_MS : null;
+    const projectedExhaustionAt = percentPerDay > 0 ? now + (remaining / percentPerDay) * DAY_MS : null;
     const resetAtMs = entry.resetAtMs;
     burn.push({
       account: entry.account,

@@ -65,7 +65,7 @@ function claudeLine(requestId: string, sessionId: string, cwd: string, ts: numbe
   });
 }
 
-function usageRow(index: number, ts: number, spec: FixtureModel, conversationId: string): string {
+function usageRow(index: number, ts: number, spec: FixtureModel, conversationId: string | undefined, extra: Record<string, unknown> = {}): string {
   const failed = spec.status >= 400;
   const totalTokens = spec.input + spec.output;
   return JSON.stringify({
@@ -105,10 +105,22 @@ function usageRow(index: number, ts: number, spec: FixtureModel, conversationId:
     ...(spec.errorCode ? { errorCode: spec.errorCode } : {}),
     ...(spec.closeReason ? { closeReason: spec.closeReason } : {}),
     ...(spec.errorCode === "upstream_server_error" ? { upstreamError: "Provider error 502: fixture upstream failure" } : {}),
+    ...extra,
   });
 }
 
-export async function materializeFixtureHome(): Promise<string> {
+export interface FixtureOptions {
+  /**
+   * Adds one busy day ending at now for report tests and the report sample (#36):
+   * five more Claude Code sessions across app-a and app-b, and Anthropic traffic
+   * routed through opencodex (source `ocx`, no Codex session, so no folder), one
+   * request of it without a conversation id. Off by default so the dashboard
+   * fixtures and their expected counts stay unchanged.
+   */
+  reportDay?: boolean;
+}
+
+export async function materializeFixtureHome(options: FixtureOptions = {}): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "yald-fixture-"));
   const now = Date.now();
   const rows: string[] = [];
@@ -134,6 +146,7 @@ export async function materializeFixtureHome(): Promise<string> {
   rows.push(usageRow(index, now - 40 * MINUTE, { ...MODELS[2]!, status: 499, errorCode: "client_closed_request", closeReason: "client_closed" }, CONVERSATIONS[1]!));
   index++;
   rows.push(usageRow(index, now - 3 * HOUR, MODELS[1]!, ORPHAN_CONVERSATION));
+  index++;
 
   // Codex rollouts: app-a's root session, a review subagent naming that root, and an SDK run in a temp folder.
   const appA = join(root, "work", "app-a");
@@ -157,6 +170,28 @@ export async function materializeFixtureHome(): Promise<string> {
     await mkdir(join(root, "claude-projects", folder), { recursive: true });
     const lines = [0, 1].map(turn => claudeLine(`${sessionId}-req-${turn}`, sessionId, cwd, now - ago + turn * 4 * MINUTE, 1_200 + turn * 300));
     await writeFile(join(root, "claude-projects", folder, `${sessionId}.jsonl`), lines.join("\n") + "\n", "utf8");
+  }
+
+  if (options.reportDay) {
+    // [folder, session id, cwd, first turn (ago), turns, minutes between turns]
+    const sessions = [
+      ["-work-app-a", "5f0c1a2e-0000-4000-8000-000000000001", appA, 17 * HOUR, 6, 20],
+      ["-work-app-a-server", "8d41b7c3-0000-4000-8000-000000000002", join(appA, "server"), 8 * HOUR, 10, 15],
+      ["-work-app-b", "a92e60f4-0000-4000-8000-000000000003", appB, 6 * HOUR, 5, 30],
+      ["-work-app-a", "c3b85d17-0000-4000-8000-000000000004", appA, 2.5 * HOUR, 4, 10],
+      ["-work-app-b", "e7f2a940-0000-4000-8000-000000000005", appB, 22 * HOUR, 3, 25],
+    ] as const;
+    for (const [folder, sessionId, cwd, ago, turns, gap] of sessions) {
+      await mkdir(join(root, "claude-projects", folder), { recursive: true });
+      const lines = Array.from({ length: turns }, (_, turn) => claudeLine(`${sessionId.slice(0, 8)}-req-${turn}`, sessionId, cwd, now - ago + turn * gap * MINUTE, 2_000 + turn * 400));
+      await writeFile(join(root, "claude-projects", folder, `${sessionId}.jsonl`), lines.join("\n") + "\n", "utf8");
+    }
+    const haiku: FixtureModel = { provider: "anthropic", model: "claude-fixture-haiku", effort: "medium", input: 30_000, output: 1_100, cacheRead: 24_000, reasoning: 0, durationMs: 3_100, ttftMs: 620, status: 200 };
+    const viaOcx = conversationKey("anthropic-via-opencodex-fixture");
+    for (let turn = 0; turn < 6; turn++) {
+      rows.push(usageRow(index++, now - 7 * HOUR + turn * 50 * MINUTE, haiku, viaOcx, { inboundProtocol: "anthropic-messages", routeDecision: undefined }));
+    }
+    rows.push(usageRow(index++, now - 90 * MINUTE, haiku, undefined, { inboundProtocol: "anthropic-messages", routeDecision: undefined }));
   }
 
   const quotaSamples = Array.from({ length: 40 }, (_, position) => ({
@@ -183,4 +218,40 @@ export async function materializeFixtureHome(): Promise<string> {
   await writeFile(join(root, "spend-ledger.jsonl"), ledger.join("\n") + "\n", "utf8");
   await writeFile(join(root, "codex-quota-cache.json"), JSON.stringify(quota, null, 2), "utf8");
   return root;
+}
+
+/**
+ * A stand-in opencodex package whose cost engine prices the fixture models at fixed
+ * list prices (USD per million tokens) and leaves deepseek unpriced. Point
+ * OCX_PACKAGE_DIR at the returned directory. Fixture use only: the real engine
+ * is never replaced outside tests and the report sample script.
+ */
+export async function materializeFixturePricing(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "yald-fixture-pricing-"));
+  await mkdir(join(dir, "src", "usage"), { recursive: true });
+  await writeFile(join(dir, "src", "usage", "cost.ts"), `const RATES = {
+  "gpt-6-luna": [1.25, 10, 0.125, 0], "gpt-6-sol": [2.5, 15, 0.25, 0], "gpt-6-astra": [5, 40, 0.5, 0],
+  "claude-fixture-opus": [5, 25, 0.5, 6.25], "claude-fixture-haiku": [1, 5, 0.1, 1.25],
+};
+export function estimateRequestCost(input) {
+  const rate = RATES[input.model];
+  if (!rate) return null;
+  const u = input.usage ?? {};
+  const cacheRead = u.cacheReadInputTokens ?? u.cachedInputTokens ?? 0;
+  const cacheWrite = u.cacheCreationInputTokens ?? u.cacheWriteInputTokens ?? 0;
+  const [inRate, outRate, readRate, writeRate] = rate;
+  const cost = {
+    input: Math.max(0, (u.inputTokens ?? 0) - cacheRead - cacheWrite) * inRate / 1e6,
+    output: (u.outputTokens ?? 0) * outRate / 1e6,
+    cacheRead: cacheRead * readRate / 1e6,
+    cacheWrite: cacheWrite * writeRate / 1e6,
+  };
+  return {
+    cost: { ...cost, total: cost.input + cost.output + cost.cacheRead + cost.cacheWrite },
+    estimated: input.model === "gpt-6-astra",
+    price: { cost4: { input: inRate, output: outRate, cacheRead: readRate, cacheWrite: writeRate } },
+  };
+}
+`, "utf8");
+  return dir;
 }
