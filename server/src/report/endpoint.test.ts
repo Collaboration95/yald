@@ -124,12 +124,14 @@ test("repeated phase params are read in the order given; an invalid one is a 400
     `/api/report?${qs({ ...window, phase: [prep!, build!, "Demo=2026-10-11 15:00"] })}`,
     `/api/report?${qs({ ...window, phase: [prep!, "Late=2026-10-11 17:00..2026-10-11 19:00", build!] })}&format=html`,
     `/api/report?${qs({ ...window, phase: ["Overlap=2026-10-11 14:00..2026-10-11 16:00", prep!, build!] })}`,
+    `/api/report?${qs({ ...window, phase: [prep!, ""] })}`,
   ]);
   expect(invalid.map(response => [response.status, response.body.error?.code, response.body.error?.param])).toEqual([
     [400, "invalid_phase", "phase[2]"],
     [400, "phase_outside_window", "phase[1]"],
     // Build (phase[2]) starts first, so the overlap is reported on the phase given first.
     [400, "phase_overlap", "phase[0]"],
+    [400, "invalid_phase", "phase[1]"],
   ]);
   for (const response of invalid) {
     expect(response.type).toStartWith("application/json");
@@ -178,6 +180,15 @@ test("an unchanged dataset and pinned window answer 304 to the ETag", async () =
   expect((await get([paths[1]!], html!.etag!))[0]!.status).toBe(304);
 });
 
+test("invalid reports remain 400 when repeated with their error response ETag", async () => {
+  const path = `/api/report?${SAMPLE_QUERY}&format=pdf`;
+  const [first] = await get([path]);
+  expect(first!.status).toBe(400);
+  const [again] = await get([path], first!.etag!);
+  expect(again!.status).toBe(400);
+  expect(again!.body).toEqual(first!.body);
+});
+
 test("redact=0 keeps full conversation ids and paths", async () => {
   const projects = "~/work/app-*";
   const [redacted, plain] = await get([`/api/report?${SAMPLE_QUERY}&${qs({ projects })}`, `/api/report?${SAMPLE_QUERY}&${qs({ projects })}&redact=0`]);
@@ -199,6 +210,24 @@ test("sources accepts aliases", async () => {
   expect(codex!.body.report.models.every((model: { source: string }) => model.source === "ocx")).toBe(true);
   expect(both!.body.report.meta.filters.sources).toEqual(["claude-code", "ocx"]);
   expect(both!.body).toEqual((await one(`/api/report?${SAMPLE_QUERY}`)).body);
+});
+
+test("overview and reports agree for the same sources and projects", async () => {
+  for (const sources of ["claude", "codex", "claude-code,ocx"]) {
+    for (const projects of [undefined, "~/work/app-a*"]) {
+      const query = `${SAMPLE_QUERY}&${qs({ sources, projects })}`;
+      const [overview, report] = await get([`/api/overview?${query}`, `/api/report?${query}`]);
+      expect(overview!.status).toBe(200);
+      expect(report!.status).toBe(200);
+      expect(overview!.body.summary.requests).toBe(report!.body.report.kpis.requests);
+      expect(overview!.body.summary.tokens.total).toBe(report!.body.report.kpis.tokens);
+      expect(overview!.body.summary.cost).toBe(report!.body.report.kpis.costUsd);
+      if (projects) expect(overview!.body.coverage.unattributedRows).toBe(report!.body.report.coverage.unattributedRows);
+    }
+  }
+  const [invalid] = await get([`/api/overview?${SAMPLE_QUERY}&sources=gemini`]);
+  expect(invalid!.status).toBe(400);
+  expect(invalid!.body.error).toMatchObject({ code: "invalid_source", param: "sources" });
 });
 
 test("projects filters by folder and reports unattributed rows in coverage", async () => {

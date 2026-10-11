@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conversationKey, readCodexSessionIndex } from "./sessions";
@@ -84,4 +84,26 @@ test("refreshes reuse unchanged files and return the same index until a session 
 
 test("a missing Codex home is an empty index, not an error", async () => {
   expect((await readCodexSessionIndex(join(tmpdir(), "yald-no-codex-here"))).size).toBe(0);
+});
+
+test("same-size cwd rewrites within one millisecond refresh the session index", async () => {
+  const { home, day } = await codexHome();
+  const rollout = join(day, "rollout-rewrite.jsonl");
+  await writeFile(rollout, meta({ id: ROOT, cwd: "/work/app-a" }));
+  await utimes(rollout, 1_790_000_000.0001, 1_790_000_000.0001);
+  const first = await readCodexSessionIndex(home);
+  await writeFile(rollout, meta({ id: ROOT, cwd: "/work/app-b" }));
+  await utimes(rollout, 1_790_000_000.0002, 1_790_000_000.0002);
+  const changed = await readCodexSessionIndex(home);
+  expect(changed.get(conversationKey(ROOT))?.cwd).toBe("/work/app-b");
+  expect(changed).not.toBe(first);
+  expect(first.get(conversationKey(ROOT))?.cwd).toBe("/work/app-a");
+  await rm(home, { recursive: true });
+});
+
+test("capped metadata accepts JSON whitespace around fields", async () => {
+  const { home, day } = await codexHome();
+  await writeFile(join(day, "rollout-spaced.jsonl"), meta({ id: ROOT, cwd: "/work/app-a" }, 100_000).replace(/":/g, '": '));
+  expect((await readCodexSessionIndex(home)).get(conversationKey(ROOT))?.cwd).toBe("/work/app-a");
+  await rm(home, { recursive: true });
 });

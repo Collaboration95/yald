@@ -719,9 +719,9 @@
         "window": "monthly",
         "status": "measured",
         "samples": 16,
-        "usedPctStart": 74,
+        "usedPctStart": 75,
         "usedPctEnd": 84,
-        "burnPctPerDay": 10
+        "burnPctPerDay": 9.6
       }
     ],
     "claudeCode": "unavailable"

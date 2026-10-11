@@ -250,7 +250,78 @@ describe.each(PROCESS_ZONES)("process TZ=%s", processTz => {
     } finally {
       if (serverZone === undefined) delete process.env.YALD_TZ; else process.env.YALD_TZ = serverZone;
     }
-    expect(parseWindow({ range: "", from: "", tz: "" }, { now, first, defaultRange: "24h" }).from).toBe(now - D);
+    expect(parseWindow({}, { now, first, defaultRange: "24h" }).from).toBe(now - D);
+  });
+
+  test("explicit blank window parameters never select a default", () => {
+    for (const value of ["", " \t "]) {
+      for (const [param, code] of [["from", "invalid_time"], ["to", "invalid_time"], ["last", "invalid_duration"], ["tz", "invalid_zone"], ["range", "invalid_duration"]] as const) {
+        const error = failure(() => parseWindow({ [param]: value }, { now, first }));
+        expect(error).toMatchObject({ code, param });
+        expect(error.message).toContain(`"${value}"`);
+      }
+    }
+    expect(failure(() => parseWindow({ from: "", last: "8h" }, { now, first }))).toMatchObject({ code: "invalid_time", param: "from" });
+  });
+
+  test("overflowing durations and shifted instants return structured errors", () => {
+    for (const text of ["9".repeat(310) + "d", "1000000000000h", "1000000000000d", "1000000000000w", "2400000000h1s"]) {
+      expect(failure(() => parseDuration(text))).toMatchObject({ code: "invalid_duration", param: "last" });
+      expect(failure(() => parseWindow({ last: text, tz: "UTC" }, { now, first }))).toMatchObject({ code: "invalid_duration", param: "last" });
+      expect(failure(() => parseInstant(`now+${text}`, { now, tz: "UTC" }))).toMatchObject({ code: "invalid_duration", param: "from" });
+    }
+    // A representable duration can still put its target outside the Date range.
+    expect(parseDuration("100000000d")).toBe(8_640_000_000_000_000);
+    for (const last of ["100000000d", "2400000000h"]) {
+      expect(failure(() => parseWindow({ from: "now", last, tz: "UTC" }, { now, first }))).toMatchObject({ code: "invalid_duration", param: "last" });
+      expect(failure(() => parseInstant(`+${last}`, { now, anchor: now, tz: "UTC" }))).toMatchObject({ code: "invalid_duration", param: "to" });
+    }
+    const window = parseWindow({ from: "today", to: "now", tz: "UTC" }, { now, first });
+    expect(failure(() => parsePhases(["Overflow=today..+100000000d"], window))).toMatchObject({ code: "invalid_duration", param: "phase[0]" });
+  });
+
+  test("four-digit calendar years retain their year and Gregorian leap rules", () => {
+    for (const text of ["0000-02-29T00:00Z", "0001-01-01T00:00Z", "0099-12-31T23:59Z", "0100-01-01T00:00Z", "2000-02-29T00:00Z"]) {
+      expect(parseInstant(text, { now, tz: "UTC" })).toBe(Date.parse(text));
+      expect(parseInstant(text.replace("Z", ""), { now, tz: "UTC" })).toBe(Date.parse(text));
+    }
+    for (const text of ["0001-02-29", "0100-02-29", "1900-02-29", "2026-04-31"]) {
+      expect(failure(() => parseInstant(text, { now, tz: "UTC" })).code).toBe("invalid_time");
+    }
+    expect(parseInstant("+1d", { now, anchor: Date.parse("0099-12-31T12:00Z"), tz: "UTC" })).toBe(Date.parse("0100-01-01T12:00Z"));
+  });
+
+  test("hour buckets include the partial hours of Lord Howe's half-hour DST changes", () => {
+    const tz = "Australia/Lord_Howe";
+    for (const [text, start, next] of [
+      ["2026-10-04T01:45:00+10:30", "2026-10-04T01:00:00+10:30", "2026-10-04T02:30:00+11:00"],
+      ["2026-10-04T02:45:00+11:00", "2026-10-04T02:30:00+11:00", "2026-10-04T03:00:00+11:00"],
+      ["2026-04-05T01:45:00+11:00", "2026-04-05T01:00:00+11:00", "2026-04-05T01:30:00+10:30"],
+      ["2026-04-05T01:45:00+10:30", "2026-04-05T01:30:00+10:30", "2026-04-05T02:00:00+10:30"],
+    ]) {
+      expect(zonedBucketStart(Date.parse(text!), "hour", tz)).toBe(Date.parse(start!));
+      expect(nextBucketStart(Date.parse(start!), "hour", tz)).toBe(Date.parse(next!));
+      expect(zonedBucketStart(Date.parse(next!) - 1, "hour", tz)).toBe(Date.parse(start!));
+    }
+  });
+
+  test("calendar buckets progress across skipped and repeated date-line days", () => {
+    const skipped = Date.parse("2011-12-29T00:00:00-10:00");
+    expect(nextBucketStart(skipped, "day", "Pacific/Apia")).toBe(Date.parse("2011-12-31T00:00:00+14:00"));
+    const repeated = Date.parse("1969-09-30T00:00:00+11:00");
+    expect(nextBucketStart(repeated, "day", "Pacific/Kwajalein")).toBe(Date.parse("1969-10-01T00:00:00-12:00"));
+    const monday = Date.parse("1969-09-29T00:00:00+11:00");
+    expect(nextBucketStart(monday, "week", "Pacific/Kwajalein")).toBe(Date.parse("1969-10-06T00:00:00-12:00"));
+  });
+
+  test("bucket and phase helpers reject invalid zones with WindowError", () => {
+    for (const run of [
+      () => zonedBucketStart(now, "hour", "Nowhere"),
+      () => nextBucketStart(now, "day", "Nowhere"),
+      () => parsePhases(["A=-1h..now"], { from: now - D, to: now, tz: "Nowhere", label: "", input: {} }),
+    ]) {
+      expect(failure(run)).toMatchObject({ code: "invalid_zone", param: "tz" });
+    }
   });
 
   test("range=all with no data before now is an empty window, not an error", () => {

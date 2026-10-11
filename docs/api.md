@@ -16,6 +16,7 @@ Every analytics route takes the same window parameters. Windows are half-open, `
 | `tz` | `Asia/Singapore` | IANA zone for naive times, `today`, calendar days, buckets and labels. Default: `YALD_TZ`, then `OCX_OBSERVATORY_TZ`, then the system zone |
 | `range` | `24h`, `7d`, `30d`, `90d`, `all` | Rolling preset ending at `to` or now; default `30d`. Ignored when `from` or `last` is given |
 | `bucket` | `hour`, `day`, `week`, `auto` | Chart buckets start on local hours, local midnights and Mondays in `tz` |
+| `sources` | `claude-code,ocx` | Request analytics accept the same source filter as reports, including aliases `claude,codex`. Default both; unknown sources return 400 `invalid_source`. Sources are determined by ingestion protocol, so Anthropic API traffic through opencodex remains `ocx` |
 
 **Instants** (`from`, `to`, phase bounds):
 
@@ -108,7 +109,7 @@ The report `yald report` produces, from the running server: KPIs, a phase table,
 
 `format=json` answers `{ ok: true, report }` with `Content-Type: application/json`. `format=html` answers exactly what `renderReportHtml()` renders: one self-contained file with inline CSS and SVG and the payload embedded as JSON data, served as `text/html; charset=utf-8` with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'none'`. A bad window, phase, source, `top` or `format` is the 400 error above, as JSON for either format.
 
-The ETag works as on every other route: it hashes the dataset revision and the full URL (so `format` and `download` get their own), plus the request time when the window moves with the clock. It never depends on `generatedAt`, so a report for a pinned window answers `304 Not Modified` until the data changes.
+The report ETag hashes the resolved payload and the full URL (so `format` and `download` get their own), excluding `generatedAt`. A report for a pinned window answers `304 Not Modified` until its data or derived project roots change. Inputs are validated before a conditional response, so invalid report requests always return 400.
 
 ```bash
 # The 09:00–17:00 build phase in Singapore, as a downloadable HTML file
@@ -120,6 +121,8 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 ## Routes
 
 `projects` is a comma-separated list of URL-encoded folder globs, for example `projects=~%2Fwork%2Fapp-a*,%2Ftmp%2Fapp-a-*`. A request matches when its working directory, or any folder above it, matches a glob; `~` expands to the home directory and a trailing `/` is ignored. Requests without a known folder never match. Every analytics response filtered by `projects` (all routes taking shared parameters, except the CSV export) includes `coverage: { unattributedRows, unattributedTokens }`: the requests that matched every other filter but were dropped because their folder is unknown. Without `projects`, `coverage` is omitted. See [Project attribution](metrics.md#project-attribution).
+
+`GET /api/projects` resolves git roots for each request and hashes its payload for conditional responses. Adding or removing a git root invalidates its ETag even when ledger files are unchanged.
 
 | Route | Additional query parameters | Response |
 | --- | --- | --- |

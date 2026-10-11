@@ -37,7 +37,7 @@ import { projectBreakdown, projectMatcher } from "./projects";
 import { buildReport } from "./report/build";
 import { liveReportContext } from "./report/context";
 import { renderReportHtml } from "./report/render";
-import { buildReportSpec, ReportSpecError } from "./report/spec";
+import { buildReportSpec, readSources, ReportSpecError } from "./report/spec";
 import { isoInZone, parsePhases, parseWindow, windowLabel, WindowError, type TimeWindow } from "./time/window";
 
 const METRICS: Metric[] = ["tokens", "cost", "requests", "outputTokens", "inputTokens", "cacheReadTokens", "reasoningTokens"];
@@ -56,7 +56,7 @@ function numberParam(value: string | undefined): number | undefined {
 
 /** The window a query asks for: `from`/`to`/`last`/`range` read in `tz` (default: the server zone). Throws WindowError. */
 function timeWindow(query: Record<string, string | undefined>, first: number, now: number): TimeWindow {
-  return parseWindow({ from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz || TIME_ZONE }, { now, first, defaultRange: "30d" });
+  return parseWindow({ from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz ?? TIME_ZONE }, { now, first, defaultRange: "30d" });
 }
 
 /** What every route reports as `window`, so a client can always show the window it got. */
@@ -111,6 +111,7 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
     from: window.from,
     to: window.to,
     providers: listParam(query.providers),
+    sources: readSources(query.sources),
     models: listParam(query.models),
     efforts: listParam(query.efforts),
     routeKinds: listParam(query.routeKinds),
@@ -211,7 +212,9 @@ api.use("/api/*", async (c, next) => {
   const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
-  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  // Project views and reports contain derived roots, which can change without
+  // a ledger revision. These routes hash the resolved payload after validation.
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.header("if-none-match") === etag) return c.body(null, 304);
   await next();
 });
 
@@ -589,12 +592,16 @@ api.get("/api/projects", async c => {
   const inProject = query.filter.projects?.length ? projectMatcher(query.filter.projects) : null;
   const rows = filterRows(dataset.rows, { ...query.filter, projects: undefined })
     .filter(row => !inProject || row.cwd === null || inProject(row.cwd));
-  return c.json({
+  const payload = {
     ok: true,
     ...coverageField(dataset.rows, query.filter),
     window: { ...query.window, range: query.range },
     projects: projectBreakdown(rows),
-  });
+  };
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
 });
 
 api.get("/api/export", async c => {
@@ -669,9 +676,14 @@ api.get("/api/report", async c => {
     top: query.top, redact: query.redact, title: query.title,
   }, { now, first: dataset.rows[0]?.ts ?? now });
   const report = buildReport(dataset, spec, liveReportContext(now));
+  const stable = { ...report, meta: { ...report.meta, generatedAt: 0 } };
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(stable)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
   if (["1", "true"].includes(query.download?.trim().toLowerCase() ?? "")) {
     c.header("Content-Disposition", `attachment; filename="yald-report-${fileStamp(spec.window.from, spec.window.tz)}.${format}"`);
   }
+  if (format === "html") c.header("Content-Security-Policy", REPORT_CSP);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
   if (format === "json") return c.json({ ok: true, report });
   c.header("Content-Type", "text/html; charset=utf-8");
   c.header("Content-Security-Policy", REPORT_CSP);

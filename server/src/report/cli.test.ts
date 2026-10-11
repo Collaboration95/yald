@@ -208,11 +208,16 @@ describe("invalid input exits 2 with the message and writes nothing", () => {
   const specCases: Array<[string[], ReportSpecInput]> = [
     [["--from", "nonsense"], { from: "nonsense" }],
     [["--last", "2x"], { last: "2x" }],
+    [["--from", ""], { from: "" }],
+    [["--to", " "], { to: " " }],
+    [["--tz", ""], { tz: "" }],
+    [["--last", "999999999999999999999999h"], { last: "999999999999999999999999h" }],
     [["--tz", "Mars/Base", "--last", "8h"], { tz: "Mars/Base", last: "8h" }],
     [["--tz", "America/New_York", "--from", "2026-03-08 02:30", "--to", "2026-03-08 05:00"], { tz: "America/New_York", from: "2026-03-08 02:30", to: "2026-03-08 05:00" }],
     [["--tz", window.tz, "--from", window.to, "--to", window.from], { tz: window.tz, from: window.to, to: window.from }],
     [[...windowFlags, "--last", "1h"], { ...window, last: "1h" }],
     [[...windowFlags, "--phase", "no separator"], { ...window, phases: ["no separator"] }],
+    [[...windowFlags, "--phase", ""], { ...window, phases: [""] }],
     [[...windowFlags, "--phase", "Late=2026-10-11 16:00..2026-10-11 18:00"], { ...window, phases: ["Late=2026-10-11 16:00..2026-10-11 18:00"] }],
     [[...windowFlags, "--phase", "A=2026-10-11 09:00..+3h", "--phase", "B=2026-10-11 11:00..+1h"], { ...window, phases: ["A=2026-10-11 09:00..+3h", "B=2026-10-11 11:00..+1h"] }],
     [[...windowFlags, "--source", "claude,gemini"], { ...window, sources: "claude,gemini" }],
@@ -238,6 +243,8 @@ describe("invalid input exits 2 with the message and writes nothing", () => {
     [["--out", "-", "--json", "-"], "--out and --json cannot both be -"],
     [["--last"], "--last"],
     [["--source", "gemini"], `Unknown source "gemini"`],
+    [["--out", "report.html", "--json", "report.html"], "must use different file paths"],
+    [["--out", "report.html", "--json", "./report.html"], "must use different file paths"],
   ];
   for (const [flags, message] of usageCases) {
     test(flags.join(" "), async () => {

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -86,4 +86,32 @@ test("GET /api/projects rolls subfolders up to the git root and lists (unattribu
   const scoped = await get(`/api/projects?${q("~/work/app-a*")}`);
   expect(scoped.projects.map((row: { project: string }) => row.project)).toEqual([join(home, "work", "app-a"), "(unattributed)"]);
   expect(scoped.coverage).toEqual({ unattributedRows: 1, unattributedTokens: 22_400 });
+});
+
+test("project and report ETags reflect git-root changes without ledger edits", async () => {
+  const query = `from=${epoch - 30 * 86_400_000}&to=${epoch}`;
+  const paths = [`/api/projects?${query}`, `/api/report?${query}`];
+  const responses = async (etag?: string) => {
+    child.stdin.write(JSON.stringify({ op: "api", paths, etag }) + "\n");
+    const reply = JSON.parse((await lines.next()).value);
+    if (reply.error) throw new Error(reply.error);
+    return reply.result;
+  };
+  const before = await responses();
+  const parentGit = join(home, "work", ".git");
+  try {
+    await mkdir(parentGit);
+    const changed = await responses(before[0].etag);
+    expect(changed[0].status).toBe(200);
+    expect(changed[0].etag).not.toBe(before[0].etag);
+    expect(changed[0].body.projects.some((row: { project: string }) => row.project === join(home, "work"))).toBe(true);
+    const report = await responses(before[1].etag);
+    expect(report[1].status).toBe(200);
+    expect(report[1].etag).not.toBe(before[1].etag);
+    expect(report[1].body.report.conversations.some((row: { project: string }) => row.project === "~/work")).toBe(true);
+    expect((await responses(changed[0].etag))[0].status).toBe(304);
+    expect((await responses(report[1].etag))[1].status).toBe(304);
+  } finally {
+    await rm(parentGit, { recursive: true, force: true });
+  }
 });

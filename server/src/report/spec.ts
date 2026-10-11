@@ -42,15 +42,13 @@ export interface ReportSpecInput {
   title?: string;
 }
 
-const present = (value: string | undefined) => (value === undefined || value.trim() === "" ? undefined : value);
-
 function list(value: string[] | string | undefined): string[] {
   if (value === undefined) return [];
   const parts = typeof value === "string" ? value.split(",") : value;
   return parts.map(part => part.trim()).filter(Boolean);
 }
 
-function readSources(value: string[] | string | undefined): Source[] {
+export function readSources(value: string[] | string | undefined): Source[] {
   const picked = new Set<Source>();
   for (const name of list(value)) {
     const source = parseSource(name);
@@ -85,8 +83,8 @@ function readRedact(value: boolean | string | undefined): boolean {
  * for the rest.
  */
 export function buildReportSpec(input: ReportSpecInput, ctx: { now: Instant; first: Instant; defaultRange?: string }): ReportSpec {
-  const phaseSpecs = (input.phases ?? []).filter(spec => spec.trim() !== "");
-  const windowGiven = [input.from, input.to, input.last, input.range].some(value => present(value) !== undefined);
+  const phaseSpecs = input.phases ?? [];
+  const windowGiven = [input.from, input.to, input.last, input.range].some(value => value !== undefined);
   let window: TimeWindow;
   let phases: Phase[];
   if (!windowGiven && phaseSpecs.length) {
