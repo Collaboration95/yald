@@ -23,6 +23,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ### Fixed
 
+- Blank phases and colliding HTML/JSON output paths are rejected before report files are written. Analytics source filters now agree with report totals ([#41](https://github.com/Collaboration95/yald/pull/41), [#42](https://github.com/Collaboration95/yald/pull/42)).
+- Blank window inputs and oversized durations return structured errors; early calendar years, partial-hour DST changes and date-line transitions resolve correctly ([#43](https://github.com/Collaboration95/yald/pull/43)).
+- Report quota samples stay inside the requested window, conversation IDs remain separate across sources, and model/conversation costs retain micro-dollar precision. HTML preserves phases named `Total` and explains reasoning and coverage accurately. Report ETags reflect the validated payload ([#44](https://github.com/Collaboration95/yald/pull/44)).
+- Project attribution refreshes after same-size transcript or rollout edits and external archive updates, retains Claude working directories through resumed copies, and accepts whitespace in capped Codex metadata. Git-root changes update project rollups and invalidate project/report conditional responses.
 - A `from` or `to` that cannot be read, such as an ISO time whose unencoded `+08:00` decoded to a space, now returns HTTP 400 with `{ ok: false, error: { code, param, message } }` instead of silently answering for the last 30 days ([#32](https://github.com/Collaboration95/yald/issues/32)).
 
 ## [0.1.0] - 2026-10-03
