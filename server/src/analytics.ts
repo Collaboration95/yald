@@ -1,5 +1,6 @@
 import type { Dataset, RequestRow } from "./ocx/store";
 import { projectMatcher } from "./projects";
+import { isoInZone, nextBucketStart, zonedBucketStart } from "./time/window";
 
 export type Bucket = "hour" | "day" | "week";
 export type Metric = "tokens" | "cost" | "requests" | "outputTokens" | "inputTokens" | "cacheReadTokens" | "reasoningTokens";
@@ -20,66 +21,29 @@ export interface RowFilter {
 
 const DAY_MS = 86_400_000;
 
-function pad(value: number): string {
-  return value < 10 ? `0${value}` : String(value);
+/** Local hour, day or Monday-based week in `tz`; never the process timezone. */
+export function bucketStart(ts: number, bucket: Bucket, tz: string): number {
+  return zonedBucketStart(ts, bucket, tz);
 }
 
-export function startOfDay(ts: number): Date {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d;
+/** Chart tick label in `tz`; the response's `window.label` states the offset. */
+export function bucketLabel(ts: number, bucket: Bucket, tz: string): string {
+  const iso = isoInZone(ts, tz);
+  return bucket === "hour" ? `${iso.slice(5, 10)} ${iso.slice(11, 13)}:00` : iso.slice(0, 10);
 }
 
-export function startOfWeek(ts: number): Date {
-  const d = startOfDay(ts);
-  const weekday = (d.getDay() + 6) % 7; // Monday = 0
-  d.setDate(d.getDate() - weekday);
-  return d;
+/** Every bucket start in the half-open window [from, to). Local days and weeks may be 23h or 25h long. */
+export function bucketStarts(bucket: Bucket, from: number, to: number, tz: string): number[] {
+  const starts: number[] = [];
+  for (let ts = bucketStart(from, bucket, tz); ts < to; ts = nextBucketStart(ts, bucket, tz)) starts.push(ts);
+  return starts;
 }
 
-export function startOfHour(ts: number): Date {
-  const d = new Date(ts);
-  d.setMinutes(0, 0, 0);
-  return d;
-}
-
-export function bucketStart(ts: number, bucket: Bucket): number {
-  if (bucket === "hour") return startOfHour(ts).getTime();
-  if (bucket === "day") return startOfDay(ts).getTime();
-  return startOfWeek(ts).getTime();
-}
-
-export function bucketLabel(ts: number, bucket: Bucket): string {
-  const d = new Date(ts);
-  if (bucket === "hour") {
-    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00`;
-  }
-  const base = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return base;
-}
-
+/** Auto-bucket boundaries: hour for short windows, day up to 120 days, week beyond. */
 export function pickBucket(spanMs: number): Bucket {
   if (spanMs <= 48 * 3_600_000) return "hour";
   if (spanMs <= 120 * DAY_MS) return "day";
   return "week";
-}
-
-/** Auto-bucket boundaries: hour for short windows, day up to 120 days, week beyond. */
-export function resolveWindow(query: { from?: number; to?: number; range?: string }, available: { first: number; last: number }, now = Date.now()): { from: number; to: number; bucket: Bucket } {
-  const to = query.to ?? now;
-  let from = query.from;
-  if (from === undefined) {
-    switch (query.range) {
-      case "24h": from = to - DAY_MS; break;
-      case "7d": from = to - 7 * DAY_MS; break;
-      case "30d": from = to - 30 * DAY_MS; break;
-      case "90d": from = to - 90 * DAY_MS; break;
-      case "all": from = available.first; break;
-      default: from = to - 30 * DAY_MS;
-    }
-  }
-  const span = Math.max(0, to - from);
-  return { from, to, bucket: query.range === "all" ? "day" : pickBucket(span) };
 }
 
 export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
@@ -92,7 +56,7 @@ export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] 
   const inProject = filter.projects?.length ? projectMatcher(filter.projects) : null;
   return rows.filter(row => {
     if (filter.from !== undefined && row.ts < filter.from) return false;
-    if (filter.to !== undefined && row.ts > filter.to) return false;
+    if (filter.to !== undefined && row.ts >= filter.to) return false; // half-open: a row at `to` belongs to the next window
     if (providerSet && !providerSet.has(row.provider)) return false;
     if (modelSet && !modelSet.has(row.model)) return false;
     if (effortSet && !effortSet.has(row.effort ?? "unknown")) return false;
@@ -368,23 +332,22 @@ export function groupKey(row: RequestRow, groupBy: string): string {
   }
 }
 
-export function buildSeries(rows: RequestRow[], options: { bucket: Bucket; metric: Metric; groupBy: string; from: number; to: number; limit?: number; fill?: boolean }): Series {
-  const { bucket, metric, groupBy, from, to } = options;
+export function buildSeries(rows: RequestRow[], options: { bucket: Bucket; metric: Metric; groupBy: string; from: number; to: number; tz: string; limit?: number; fill?: boolean }): Series {
+  const { bucket, metric, groupBy, from, to, tz } = options;
   const buckets = new Map<number, SeriesBucket>();
   const groupTotals = new Map<string, number>();
 
-  const step = bucket === "hour" ? 3_600_000 : bucket === "day" ? DAY_MS : 7 * DAY_MS;
   if (options.fill !== false) {
-    for (let ts = bucketStart(from, bucket); ts <= to; ts += step) {
-      buckets.set(ts, { ts, label: bucketLabel(ts, bucket), total: 0, groups: {}, requests: 0 });
+    for (const ts of bucketStarts(bucket, from, to, tz)) {
+      buckets.set(ts, { ts, label: bucketLabel(ts, bucket, tz), total: 0, groups: {}, requests: 0 });
     }
   }
 
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket);
+    const key = bucketStart(row.ts, bucket, tz);
     let entry = buckets.get(key);
     if (!entry) {
-      entry = { ts: key, label: bucketLabel(key, bucket), total: 0, groups: {}, requests: 0 };
+      entry = { ts: key, label: bucketLabel(key, bucket, tz), total: 0, groups: {}, requests: 0 };
       buckets.set(key, entry);
     }
     const value = metricValue(row, metric);
@@ -604,15 +567,14 @@ export function heatmapDateBreakdown(
   return { weekday: options.weekday, hour: options.hour, metric: options.metric, total: round(total, 4), dates, totalDates: ranked.length, hasMore: offset + dates.length < ranked.length, limit, offset };
 }
 
-export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number): {
+export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number, tz: string): {
   bucket: Bucket;
   points: { ts: number; label: string; requests: number; p50: number | null; p90: number | null; p95: number | null; ttftP50: number | null; ttftP95: number | null; throughputP50: number | null }[];
 } {
   const groups = new Map<number, RequestRow[]>();
-  const step = bucket === "hour" ? 3_600_000 : bucket === "day" ? DAY_MS : 7 * DAY_MS;
-  for (let ts = bucketStart(from, bucket); ts <= to; ts += step) groups.set(ts, []);
+  for (const ts of bucketStarts(bucket, from, to, tz)) groups.set(ts, []);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket);
+    const key = bucketStart(row.ts, bucket, tz);
     const list = groups.get(key);
     if (list) list.push(row);
     else groups.set(key, [row]);
@@ -625,7 +587,7 @@ export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number
       const throughputs = list.filter(row => row.outputTokens > 0 && row.durationMs > 0).map(row => row.outputTokens / (row.durationMs / 1000));
       return {
         ts,
-        label: bucketLabel(ts, bucket),
+        label: bucketLabel(ts, bucket, tz),
         requests: list.length,
         p50: percentile(durations, 0.5),
         p90: percentile(durations, 0.9),
@@ -638,7 +600,7 @@ export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number
   return { bucket, points };
 }
 
-export function reliability(rows: RequestRow[]): {
+export function reliability(rows: RequestRow[], tz: string): {
   outcomes: { name: Outcome; value: number }[];
   statuses: { name: string; value: number }[];
   errors: { name: string; value: number; models: number; lastSeen: number; tokens: number; cost: number }[];
@@ -657,7 +619,7 @@ export function reliability(rows: RequestRow[]): {
     const kind = outcome(row);
     outcomes.set(kind, (outcomes.get(kind) ?? 0) + 1);
     statuses.set(String(row.status), (statuses.get(String(row.status)) ?? 0) + 1);
-    const day = startOfDay(row.ts).getTime();
+    const day = bucketStart(row.ts, "day", tz);
     const slot = timeline.get(day) ?? { ok: 0, error: 0, cancelled: 0 };
     slot[kind] += 1;
     timeline.set(day, slot);
@@ -688,7 +650,7 @@ export function reliability(rows: RequestRow[]): {
       .sort((a, b) => b.value - a.value),
     errorTimeline: [...timeline.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([ts, slot]) => ({ ts, label: bucketLabel(ts, "day"), ...slot })),
+      .map(([ts, slot]) => ({ ts, label: bucketLabel(ts, "day", tz), ...slot })),
     attempts: [...attempts.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => Number(a.name) - Number(b.name)),
     failureByModel: [...byModel.entries()]
       .map(([name, entry]) => ({ name, failures: entry.failures, requests: entry.requests, rate: entry.requests > 0 ? round(entry.failures / entry.requests, 4) : 0 }))
@@ -841,7 +803,7 @@ export function quotaView(dataset: Dataset, selected?: { from?: number; to?: num
   // Keeping the sample immediately before the window means a short range still shows
   // the change across its boundary instead of rendering an empty chart, and the burn
   // rate is then measured over exactly the points the chart shows.
-  const inWindow = (ts: number) => (from === undefined || ts >= from) && (to === undefined || ts <= to);
+  const inWindow = (ts: number) => (from === undefined || ts >= from) && (to === undefined || ts < to);
   const series: QuotaView["series"] = [];
   for (const entry of all.values()) {
     const points = entry.points.filter(point => inWindow(point.ts));
@@ -923,17 +885,16 @@ export interface CompositionPoint {
 }
 
 /** Token classes per bucket. `inputTokens` already includes cache, so fresh = input - cache. */
-export function compositionSeries(rows: RequestRow[], bucket: Bucket, from: number, to: number): CompositionPoint[] {
-  const step = bucket === "hour" ? 3_600_000 : bucket === "day" ? DAY_MS : 7 * DAY_MS;
+export function compositionSeries(rows: RequestRow[], bucket: Bucket, from: number, to: number, tz: string): CompositionPoint[] {
   const buckets = new Map<number, CompositionPoint>();
-  for (let ts = bucketStart(from, bucket); ts <= to; ts += step) {
-    buckets.set(ts, { ts, label: bucketLabel(ts, bucket), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 });
+  for (const ts of bucketStarts(bucket, from, to, tz)) {
+    buckets.set(ts, { ts, label: bucketLabel(ts, bucket, tz), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 });
   }
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket);
+    const key = bucketStart(row.ts, bucket, tz);
     let point = buckets.get(key);
     if (!point) {
-      point = { ts: key, label: bucketLabel(key, bucket), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 };
+      point = { ts: key, label: bucketLabel(key, bucket, tz), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 };
       buckets.set(key, point);
     }
     point.freshInput += Math.max(0, row.inputTokens - row.cacheReadTokens - row.cacheWriteTokens);
@@ -955,12 +916,11 @@ export interface CumulativePoint {
   requests: number;
 }
 
-export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: number, to: number, metric: Metric): CumulativePoint[] {
-  const step = bucket === "hour" ? 3_600_000 : bucket === "day" ? DAY_MS : 7 * DAY_MS;
+export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: number, to: number, metric: Metric, tz: string): CumulativePoint[] {
   const buckets = new Map<number, { value: number; requests: number }>();
-  for (let ts = bucketStart(from, bucket); ts <= to; ts += step) buckets.set(ts, { value: 0, requests: 0 });
+  for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { value: 0, requests: 0 });
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket);
+    const key = bucketStart(row.ts, bucket, tz);
     const entry = buckets.get(key);
     if (!entry) continue;
     entry.value += metricValue(row, metric);
@@ -973,7 +933,7 @@ export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: numbe
       running += entry.value;
       return {
         ts,
-        label: bucketLabel(ts, bucket),
+        label: bucketLabel(ts, bucket, tz),
         value: round(entry.value, 4),
         cumulative: round(running, 4),
         requests: entry.requests,
@@ -981,12 +941,11 @@ export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: numbe
     });
 }
 
-export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number): { ts: number; label: string; hitRate: number | null; savingsUsd: number; cacheRead: number; input: number }[] {
-  const step = bucket === "hour" ? 3_600_000 : bucket === "day" ? DAY_MS : 7 * DAY_MS;
+export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number, tz: string): { ts: number; label: string; hitRate: number | null; savingsUsd: number; cacheRead: number; input: number }[] {
   const buckets = new Map<number, { read: number; input: number; savings: number }>();
-  for (let ts = bucketStart(from, bucket); ts <= to; ts += step) buckets.set(ts, { read: 0, input: 0, savings: 0 });
+  for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { read: 0, input: 0, savings: 0 });
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket);
+    const key = bucketStart(row.ts, bucket, tz);
     const entry = buckets.get(key);
     if (!entry) continue;
     if (row.cacheProvenance === "observed") {
@@ -1001,7 +960,7 @@ export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, 
     .sort((a, b) => a[0] - b[0])
     .map(([ts, entry]) => ({
       ts,
-      label: bucketLabel(ts, bucket),
+      label: bucketLabel(ts, bucket, tz),
       hitRate: entry.input > 0 ? round(entry.read / entry.input, 4) : null,
       savingsUsd: round(entry.savings, 4),
       cacheRead: entry.read,

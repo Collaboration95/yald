@@ -6,9 +6,20 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ### Added
 
+- Exact and relative time windows on every analytics route: `from`/`to` accept naive local times, dates, `now`, `today`, `yesterday` and offsets such as `-8h` or `+6h`; `last=8h` sets a length; `tz` reads and buckets the window in any IANA zone. Every response echoes the window it used (`tz`, `label`, `fromIso`, `toIso`, `halfOpen`). `GET /api/window` validates a window and its phases without reading data. CSV exports are named for their local window ([#33](https://github.com/Collaboration95/yald/issues/33), [#34](https://github.com/Collaboration95/yald/issues/34)).
 - Claude Code subscription usage, read from `~/.claude/projects` transcripts (`CLAUDE_PROJECTS_DIR`) and shown as provider `anthropic` in every view, priced by the opencodex cost engine ([#26](https://github.com/Collaboration95/yald/pull/26)).
 - Project attribution ([#35](https://github.com/Collaboration95/yald/issues/35)): every request carries the folder it came from, from Claude Code transcripts and, for opencodex rows, from the first line of the matching Codex rollout (`CODEX_HOME`, `--codex-home`). Analytics routes take a `projects` glob filter and report `coverage` for unattributed requests, and `GET /api/projects` lists usage per git root.
 - Hover and focus personality across the dashboard: each navigation and stat icon gets its own animation, money stats turn green and float dollar signs, and card links, model dots, leaderboard bars, filters, and the footer react to the pointer. A few easter eggs are hidden for curious users. Reduced-motion preferences switch all of it off.
+
+### Changed
+
+- **Time windows are half-open, `[from, to)`.** `to` used to be inclusive; a request recorded exactly at `to` now belongs to the next window, so contiguous windows add up exactly. Queries with an explicit `to` no longer count requests recorded exactly at that instant, and the prior period is now `[from − span, from)` ([#34](https://github.com/Collaboration95/yald/issues/34)).
+- Hour, day and week buckets, the heatmap and labels follow the request `tz` (default `YALD_TZ`, then the system zone) instead of the server process's timezone.
+- Window parameters are strict: an unknown `range`, a `to` without `from`, `last` or `range`, or an empty window returns HTTP 400 instead of falling back to the last 30 days.
+
+### Fixed
+
+- A `from` or `to` that cannot be read, such as an ISO time whose unencoded `+08:00` decoded to a space, now returns HTTP 400 with `{ ok: false, error: { code, param, message } }` instead of silently answering for the last 30 days ([#32](https://github.com/Collaboration95/yald/issues/32)).
 
 ## [0.1.0] - 2026-10-03
 

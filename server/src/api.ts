@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import {
   breakdown,
   bucketLabel,
+  bucketStart,
+  bucketStarts,
   buildSeries,
   cacheTimeline,
   compositionSeries,
@@ -18,9 +20,9 @@ import {
   outcome,
   percentile,
   projectCoverage,
+  pickBucket,
   quotaView,
   reliability,
-  resolveWindow,
   round,
   sparkline,
   summarize,
@@ -32,6 +34,7 @@ import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
+import { isoInZone, parsePhases, parseWindow, windowLabel, WindowError, type TimeWindow } from "./time/window";
 
 const METRICS: Metric[] = ["tokens", "cost", "requests", "outputTokens", "inputTokens", "cacheReadTokens", "reasoningTokens"];
 
@@ -47,12 +50,37 @@ function numberParam(value: string | undefined): number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
-function timeParam(value: string | undefined): number | undefined {
-  if (!value) return undefined;
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && value.trim() !== "") return numeric;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+/** The window a query asks for: `from`/`to`/`last`/`range` read in `tz` (default: the server zone). Throws WindowError. */
+function timeWindow(query: Record<string, string | undefined>, first: number, now: number): TimeWindow {
+  return parseWindow({ from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz || TIME_ZONE }, { now, first, defaultRange: "30d" });
+}
+
+/** What every route reports as `window`, so a client can always show the window it got. */
+function windowEcho(window: TimeWindow) {
+  return {
+    from: window.from,
+    to: window.to,
+    tz: window.tz,
+    label: window.label,
+    fromIso: isoInZone(window.from, window.tz),
+    toIso: isoInZone(window.to, window.tz),
+    halfOpen: true as const,
+    input: window.input,
+  };
+}
+
+/**
+ * True when the window cannot move with the clock, so an unchanged dataset may answer
+ * 304 while time passes. Only exact instants (epoch or calendar times, which start
+ * with a digit) pin a window; now, today and -8h move with it.
+ */
+function clockFree(query: Record<string, string | undefined>): boolean {
+  const value = (key: string) => query[key]?.trim() || undefined;
+  const exact = (text: string | undefined) => text !== undefined && /^\d/.test(text);
+  const [from, to] = [value("from"), value("to")];
+  if (from !== undefined && !exact(from)) return false;
+  if (exact(to)) return true;
+  return exact(from) && (to === undefined ? value("last") !== undefined : to.startsWith("+"));
 }
 
 interface ParsedQuery {
@@ -61,20 +89,18 @@ interface ParsedQuery {
   bucket: Bucket;
   from: number;
   to: number;
+  tz: string;
+  window: ReturnType<typeof windowEcho>;
   metric: Metric;
   groupBy: string;
 }
 
 function parseQuery(query: Record<string, string | undefined>, dataset: Dataset, now: number): ParsedQuery {
   const first = dataset.rows[0]?.ts ?? now;
-  const last = dataset.rows[dataset.rows.length - 1]?.ts ?? now;
-  const window = resolveWindow(
-    { from: timeParam(query.from), to: timeParam(query.to), range: query.range },
-    { first, last },
-    now,
-  );
+  const window = timeWindow(query, first, now);
   const bucketParam = query.bucket;
-  const bucket: Bucket = bucketParam === "hour" || bucketParam === "day" || bucketParam === "week" ? bucketParam : window.bucket;
+  const autoBucket: Bucket = window.input.range === "all" ? "day" : pickBucket(window.to - window.from);
+  const bucket: Bucket = bucketParam === "hour" || bucketParam === "day" || bucketParam === "week" ? bucketParam : autoBucket;
   const metricParam = query.metric as Metric | undefined;
   const metric: Metric = metricParam && METRICS.includes(metricParam) ? metricParam : "tokens";
   const filter: RowFilter = {
@@ -89,12 +115,16 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
     search: query.search,
     projects: listParam(query.projects),
   };
-  return { filter, range: query.range ?? "30d", bucket, from: window.from, to: window.to, metric, groupBy: query.groupBy ?? "model" };
+  return {
+    filter, range: query.range ?? "30d", bucket, from: window.from, to: window.to, tz: window.tz, window: windowEcho(window),
+    metric, groupBy: query.groupBy ?? "model",
+  };
 }
 
+/** The equally long window just before: [from - span, from). */
 function previousWindow(filter: RowFilter, from: number, to: number): RowFilter {
   const span = Math.max(1, to - from);
-  return { ...filter, from: from - span, to: from - 1 };
+  return { ...filter, from: from - span, to: from };
 }
 
 /** Any response filtered by project says how many otherwise-matching rows had no known folder. */
@@ -153,6 +183,14 @@ function toCsv(rows: Record<string, unknown>[]): string {
 
 export const api = new Hono<{ Variables: { dataset: Dataset; now: number } }>();
 
+api.onError((error, c) => {
+  if (error instanceof WindowError) {
+    return c.json({ ok: false, error: { code: error.code, param: error.param, message: error.message } }, 400);
+  }
+  console.error(error);
+  return c.text("Internal Server Error", 500);
+});
+
 api.use("/api/*", async (c, next) => {
   if (c.req.path === "/api/dataset/refresh") {
     await next();
@@ -165,7 +203,7 @@ api.use("/api/*", async (c, next) => {
   const pointInTime = c.req.path === "/api/health" || c.req.path === "/api/meta"
     || c.req.path.startsWith("/api/conversations/");
   // An unchanged ledger does not mean an unchanged rolling time window.
-  const clockKey = pointInTime || timeParam(c.req.query("to")) !== undefined ? "" : now;
+  const clockKey = pointInTime || clockFree(c.req.query()) ? "" : now;
   const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
@@ -244,7 +282,7 @@ api.get("/api/overview", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to, bucket: query.bucket, range: query.range, requests: rows.length },
+    window: { ...query.window, bucket: query.bucket, range: query.range, requests: rows.length },
     summary,
     prior,
     deltas: {
@@ -261,13 +299,13 @@ api.get("/api/overview", async c => {
       cost: sparkline(rows, query.from, query.to, "cost", 32),
       requests: sparkline(rows, query.from, query.to, "requests", 32),
     },
-    series: buildSeries(rows, { bucket: query.bucket, metric: query.metric, groupBy: query.groupBy, from: query.from, to: query.to, limit: 6 }),
+    series: buildSeries(rows, { bucket: query.bucket, metric: query.metric, groupBy: query.groupBy, from: query.from, to: query.to, tz: query.tz, limit: 6 }),
     composition,
     topModels: breakdown(rows, row => row.model).slice(0, 6),
     topProviders: breakdown(rows, row => row.provider),
     topEfforts: breakdown(rows, row => row.effort ?? "unknown"),
     topConversations: conversations(rows, 8),
-    heatmap: heatmap(rows, "tokens"),
+    heatmap: heatmap(rows, "tokens", query.tz),
     context: contextPressure(rows),
     quota: quotaView(dataset, { from: query.from, to: query.to }),
     recent: [...rows].sort((a, b) => b.ts - a.ts).slice(0, 25).map(publicRow),
@@ -281,13 +319,14 @@ api.get("/api/timeseries", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to, bucket: query.bucket },
+    window: { ...query.window, bucket: query.bucket },
     series: buildSeries(rows, {
       bucket: query.bucket,
       metric: query.metric,
       groupBy: query.groupBy,
       from: query.from,
       to: query.to,
+      tz: query.tz,
       limit: numberParam(c.req.query("limit")) ?? 8,
     }),
   });
@@ -322,7 +361,7 @@ api.get("/api/models", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to },
+    window: query.window,
     models,
     providers,
     efforts,
@@ -335,16 +374,16 @@ api.get("/api/usage", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
-  const composition = compositionSeries(rows, query.bucket, query.from, query.to);
+  const composition = compositionSeries(rows, query.bucket, query.from, query.to, query.tz);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to, bucket: query.bucket },
+    window: { ...query.window, bucket: query.bucket },
     summary: summarize(rows),
     composition,
-    cache: cacheTimeline(rows, query.bucket, query.from, query.to),
-    series: buildSeries(rows, { bucket: query.bucket, metric: query.metric, groupBy: query.groupBy, from: query.from, to: query.to, limit: 8 }),
-    heatmap: heatmap(rows, query.metric, TIME_ZONE),
+    cache: cacheTimeline(rows, query.bucket, query.from, query.to, query.tz),
+    series: buildSeries(rows, { bucket: query.bucket, metric: query.metric, groupBy: query.groupBy, from: query.from, to: query.to, tz: query.tz, limit: 8 }),
+    heatmap: heatmap(rows, query.metric, query.tz),
     context: contextPressure(rows),
     byModel: breakdown(rows, row => row.model),
     byProvider: breakdown(rows, row => row.provider),
@@ -365,10 +404,10 @@ api.get("/api/usage/heatmap-dates", async c => {
   const query = parseQuery(params, dataset, c.get("now"));
   const metric = params.metric === "requests" ? "requests" : "tokens";
   const breakdown = heatmapDateBreakdown(filterRows(dataset.rows, query.filter), {
-    weekday, hour, metric, timeZone: TIME_ZONE,
+    weekday, hour, metric, timeZone: query.tz,
     limit: numberParam(params.limit), offset: numberParam(params.offset),
   });
-  return c.json({ ok: true, ...coverageField(dataset.rows, query.filter), window: { from: query.from, to: query.to, range: query.range, timeZone: TIME_ZONE }, ...breakdown });
+  return c.json({ ok: true, ...coverageField(dataset.rows, query.filter), window: { ...query.window, range: query.range, timeZone: query.tz }, ...breakdown });
 });
 
 api.get("/api/cost", async c => {
@@ -378,17 +417,17 @@ api.get("/api/cost", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to, bucket: query.bucket },
+    window: { ...query.window, bucket: query.bucket },
     summary: summarize(rows),
     composition: costComposition(rows),
-    series: buildSeries(rows, { bucket: query.bucket, metric: "cost", groupBy: query.groupBy, from: query.from, to: query.to, limit: 8 }),
-    cumulative: cumulativeSeries(rows, query.bucket, query.from, query.to, "cost"),
-    cache: cacheTimeline(rows, query.bucket, query.from, query.to),
+    series: buildSeries(rows, { bucket: query.bucket, metric: "cost", groupBy: query.groupBy, from: query.from, to: query.to, tz: query.tz, limit: 8 }),
+    cumulative: cumulativeSeries(rows, query.bucket, query.from, query.to, "cost", query.tz),
+    cache: cacheTimeline(rows, query.bucket, query.from, query.to, query.tz),
     byModel: breakdown(rows, row => row.model),
     byProvider: breakdown(rows, row => row.provider),
     byEffort: breakdown(rows, row => row.effort ?? "unknown"),
     topConversations: conversations(rows, 50).sort((a, b) => b.cost - a.cost).slice(0, 10),
-    daily: cumulativeSeries(rows, "day", query.from, query.to, "cost"),
+    daily: cumulativeSeries(rows, "day", query.from, query.to, "cost", query.tz),
   });
 });
 
@@ -396,7 +435,7 @@ api.get("/api/performance", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
-  const timeline = latencyTimeline(rows, query.bucket, query.from, query.to);
+  const timeline = latencyTimeline(rows, query.bucket, query.from, query.to, query.tz);
   const durations = rows.filter(row => row.durationMs > 0).map(row => row.durationMs);
   const ttfts = rows.filter(row => row.ttftMs !== null).map(row => row.ttftMs as number);
   const throughputs = rows.filter(row => row.outputTokens > 0 && row.durationMs > 0).map(row => row.outputTokens / (row.durationMs / 1000));
@@ -405,7 +444,7 @@ api.get("/api/performance", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to, bucket: query.bucket },
+    window: { ...query.window, bucket: query.bucket },
     timeline,
     histogram: {
       duration: histogram(durations, [0, 1000, 2500, 5000, 10000, 20000, 40000, 80000, Number.POSITIVE_INFINITY], ["<1s", "1-2.5s", "2.5-5s", "5-10s", "10-20s", "20-40s", "40-80s", "80s+"]),
@@ -431,13 +470,13 @@ api.get("/api/reliability", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
-  const report = reliability(rows);
+  const report = reliability(rows, query.tz);
   const summary = summarize(rows);
   const failureRows = rows.filter(row => outcome(row) !== "ok").slice(-500);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to },
+    window: query.window,
     ...report,
     recentFailures: [...failureRows].sort((a, b) => b.ts - a.ts).slice(0, 40).map(publicRow),
     waste: summary.waste,
@@ -449,39 +488,30 @@ api.get("/api/reliability", async c => {
 api.get("/api/quota", async c => {
   const dataset = c.get("dataset");
   const samples = dataset.quota.samples;
-  const resolved = resolveWindow(
-    { from: timeParam(c.req.query("from")), to: timeParam(c.req.query("to")), range: c.req.query("range") },
-    { first: samples[0]?.observedAt ?? c.get("now"), last: samples[samples.length - 1]?.observedAt ?? c.get("now") },
-    c.get("now"),
-  );
+  const window = timeWindow(c.req.query(), samples[0]?.observedAt ?? c.get("now"), c.get("now"));
   return c.json({
     ok: true,
     range: c.req.query("range") ?? "30d",
-    ...quotaView(dataset, { from: resolved.from, to: resolved.to }),
+    ...quotaView(dataset, { from: window.from, to: window.to }),
+    window: windowEcho(window),
   });
 });
 
 api.get("/api/ledger", async c => {
   const dataset = c.get("dataset");
   const events = dataset.ledger.events;
-  const resolved = resolveWindow(
-    { from: timeParam(c.req.query("from")), to: timeParam(c.req.query("to")), range: c.req.query("range") },
-    { first: events[0]?.at ?? c.get("now"), last: events[events.length - 1]?.at ?? c.get("now") },
-    c.get("now"),
-  );
-  const from = resolved.from;
-  const to = resolved.to;
+  const window = timeWindow(c.req.query(), events[0]?.at ?? c.get("now"), c.get("now"));
+  const { from, to, tz } = window;
   const bucket: Bucket = to - from <= 48 * 3_600_000 ? "hour" : "day";
-  const step = bucket === "hour" ? 3_600_000 : 86_400_000;
 
   const buckets = new Map<number, { ts: number; label: string; settled: number; sends: number; tokens: number }>();
-  for (let ts = Math.floor(from / step) * step; ts <= to; ts += step) {
-    buckets.set(ts, { ts, label: bucketLabel(ts, bucket), settled: 0, sends: 0, tokens: 0 });
+  for (const ts of bucketStarts(bucket, from, to, tz)) {
+    buckets.set(ts, { ts, label: bucketLabel(ts, bucket, tz), settled: 0, sends: 0, tokens: 0 });
   }
   const sendTokens = new Map<string, number>();
   for (const event of events) {
-    if (event.at < from || event.at > to) continue;
-    const key = Math.floor(event.at / step) * step;
+    if (event.at < from || event.at >= to) continue;
+    const key = bucketStart(event.at, bucket, tz);
     const entry = buckets.get(key);
     if (!entry) continue;
     if (event.kind === "settle") {
@@ -494,7 +524,7 @@ api.get("/api/ledger", async c => {
   const sorted = [...sendTokens.values()].sort((a, b) => b - a);
   return c.json({
     ok: true,
-    window: { from, to, bucket },
+    window: { ...windowEcho(window), bucket },
     byKind: dataset.ledger.byKind,
     settledTokens: dataset.ledger.settledTokens,
     updatedAt: dataset.ledger.updatedAt,
@@ -524,7 +554,7 @@ api.get("/api/conversations", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to },
+    window: query.window,
     conversations: sorted,
     totals: {
       conversations: sorted.length,
@@ -558,7 +588,7 @@ api.get("/api/projects", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
-    window: { from: query.from, to: query.to, range: query.range },
+    window: { ...query.window, range: query.range },
     projects: projectBreakdown(rows),
   });
 });
@@ -567,7 +597,8 @@ api.get("/api/export", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
-  const datasetName = c.req.query("dataset") ?? "requests";
+  const requested = c.req.query("dataset");
+  const datasetName = requested === "models" || requested === "conversations" ? requested : "requests";
   let payload: Record<string, unknown>[];
   if (datasetName === "models") {
     payload = breakdown(rows, row => row.model) as unknown as Record<string, unknown>[];
@@ -577,7 +608,7 @@ api.get("/api/export", async c => {
     payload = rows.map(publicRow);
   }
   c.header("content-type", "text/csv; charset=utf-8");
-  c.header("content-disposition", `attachment; filename="ocx-${datasetName}.csv"`);
+  c.header("content-disposition", `attachment; filename="yald-${datasetName}-${fileStamp(query.from, query.tz)}--${fileStamp(query.to, query.tz)}.csv"`);
   return c.body(toCsv(payload));
 });
 
@@ -588,12 +619,31 @@ api.get("/api/filters", async c => {
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
+    window: query.window,
     providers: [...new Set(rows.map(row => row.provider))].sort(),
     models: [...new Set(rows.map(row => row.model))].sort(),
     efforts: [...new Set(rows.map(row => row.effort ?? "unknown"))].sort(),
     routeKinds: [...new Set(rows.map(row => row.routeKind ?? "unrouted"))].sort(),
   });
 });
+
+/** Resolves `from`/`to`/`last`/`range`/`tz` and repeated `phase=name=start..end` without aggregating any data. */
+api.get("/api/window", async c => {
+  const window = timeWindow(c.req.query(), c.get("dataset").rows[0]?.ts ?? c.get("now"), c.get("now"));
+  const phases = parsePhases(c.req.queries("phase") ?? [], window);
+  return c.json({
+    ok: true,
+    window: windowEcho(window),
+    phases: phases.map(phase => ({
+      ...phase, label: windowLabel(phase.from, phase.to, window.tz), fromIso: isoInZone(phase.from, window.tz), toIso: isoInZone(phase.to, window.tz),
+    })),
+  });
+});
+
+/** "2026-10-11T0900+0800": the local time and offset, safe in a file name. */
+function fileStamp(ts: number, tz: string): string {
+  return isoInZone(ts, tz).replace(/^(.{10}T)(\d{2}):(\d{2}).*([+-]\d{2}):(\d{2})$/, "$1$2$3$4$5");
+}
 
 function histogram(values: number[], edges: number[], labels: string[]): { name: string; value: number }[] {
   const counts = Array.from({ length: labels.length }, () => 0);

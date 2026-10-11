@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as analytics from "./analytics";
 import type { Dataset, RequestRow } from "./ocx/store";
+import { parseWindow } from "./time/window";
 
 process.env.TZ = "America/New_York";
+const tz = "America/New_York";
 
 const now = new Date("2026-03-08T16:00:00-04:00").getTime();
 function row(overrides: Partial<RequestRow> = {}): RequestRow {
@@ -23,17 +25,13 @@ function row(overrides: Partial<RequestRow> = {}): RequestRow {
 const rows = [row(), row({ id: "r2", ts: now + 60_000, model: "other", status: 502, ok: false, errorCode: "upstream", conversationId: "c1", usageStatus: "unreported", cacheProvenance: "synthesized", cacheReadTokens: 80, retried: true, totalTokens: 80, attemptTokens: 130, cost: 0.02 })];
 
 test("7d uses exactly 168 hours across DST and ignores future-dated source rows", () => {
-  const clock = spyOn(Date, "now").mockReturnValue(now);
-  try {
-    const window = analytics.resolveWindow({ range: "7d" }, { first: now - 30 * 86_400_000, last: now + 86_400_000 });
-    expect(window.to).toBe(now);
-    expect(window.to - window.from).toBe(168 * 3_600_000);
-    expect(analytics.filterRows([
-      row({ ts: window.from - 1 }), row({ ts: window.from }), row({ ts: now }), row({ ts: now + 1 }),
-    ], window)).toHaveLength(2);
-  } finally {
-    clock.mockRestore();
-  }
+  const window = parseWindow({ range: "7d", tz }, { now, first: now - 30 * 86_400_000 });
+  expect(window.to).toBe(now);
+  expect(window.to - window.from).toBe(168 * 3_600_000);
+  // Half-open: a row exactly at `to` belongs to the next window.
+  expect(analytics.filterRows([
+    row({ ts: window.from - 1 }), row({ ts: window.from }), row({ ts: now - 1 }), row({ ts: now }), row({ ts: now + 1 }),
+  ], window)).toHaveLength(2);
 });
 
 function dataset(): Dataset {
@@ -52,18 +50,16 @@ function dataset(): Dataset {
 }
 
 test("analytics exports cover bucketing, filters, summaries, and view aggregates", () => {
-  expect(analytics.startOfDay(now).getHours()).toBe(0);
-  expect(analytics.startOfWeek(now).getDay()).toBe(1);
-  expect(analytics.startOfHour(now).getMinutes()).toBe(0);
-  expect(analytics.bucketStart(now, "hour")).toBe(analytics.startOfHour(now).getTime());
-  expect(analytics.bucketStart(now, "day")).toBe(analytics.startOfDay(now).getTime());
-  expect(analytics.bucketStart(now, "week")).toBe(analytics.startOfWeek(now).getTime());
-  expect(analytics.bucketLabel(now, "hour")).toBe("03-08 16:00");
-  expect(analytics.bucketLabel(now, "day")).toBe("2026-03-08");
-  expect(analytics.bucketLabel(analytics.bucketStart(now, "week"), "week")).toBe("2026-03-02");
+  expect(analytics.bucketStart(now + 59 * 60_000, "hour", tz)).toBe(now);
+  expect(analytics.bucketStart(now, "day", tz)).toBe(new Date("2026-03-08T00:00:00-05:00").getTime());
+  expect(analytics.bucketStart(now, "week", tz)).toBe(new Date("2026-03-02T00:00:00-05:00").getTime());
+  expect(analytics.bucketLabel(now, "hour", tz)).toBe("03-08 16:00");
+  expect(analytics.bucketLabel(now, "day", tz)).toBe("2026-03-08");
+  expect(analytics.bucketLabel(analytics.bucketStart(now, "week", tz), "week", tz)).toBe("2026-03-02");
+  expect(analytics.bucketLabel(now, "hour", "Asia/Singapore")).toBe("03-09 04:00");
   expect(analytics.pickBucket(60_000)).toBe("hour");
-  expect(analytics.resolveWindow({ range: "7d", to: now }, { first: now - 1, last: now }).bucket).toBe("day");
-  expect(analytics.filterRows(rows, { providers: ["openai"], models: ["other"], efforts: ["high"], statuses: ["error"], routeKinds: ["native"], conversationId: "c1", search: "UPSTREAM", from: now, to: now + 60_000 })).toHaveLength(1);
+  expect(analytics.pickBucket(7 * 86_400_000)).toBe("day");
+  expect(analytics.filterRows(rows, { providers: ["openai"], models: ["other"], efforts: ["high"], statuses: ["error"], routeKinds: ["native"], conversationId: "c1", search: "UPSTREAM", from: now, to: now + 60_001 })).toHaveLength(1);
   expect(analytics.filterRows(rows, { providers: ["openai"] })).toHaveLength(2);
   expect(analytics.filterRows(rows, { models: ["other"] })).toHaveLength(1);
   expect(analytics.filterRows(rows, { efforts: ["high"] })).toHaveLength(2);
@@ -72,7 +68,7 @@ test("analytics exports cover bucketing, filters, summaries, and view aggregates
   expect(analytics.filterRows(rows, { conversationId: "missing" })).toHaveLength(0);
   expect(analytics.filterRows(rows, { search: "UPSTREAM" })).toHaveLength(1);
   expect(analytics.filterRows(rows, { from: now + 1 })).toHaveLength(1);
-  expect(analytics.filterRows(rows, { to: now })).toHaveLength(1);
+  expect(analytics.filterRows(rows, { to: now + 60_000 })).toHaveLength(1);
   expect(analytics.outcome(rows[0]!)).toBe("ok");
   expect(analytics.outcome(rows[1]!)).toBe("error");
   expect(analytics.percentile([], 0.5)).toBeNull();
@@ -83,32 +79,33 @@ test("analytics exports cover bucketing, filters, summaries, and view aggregates
   expect(summary.metering.coverage).toBe(0.5);
   expect(summary.retryOverhead.tokens).toBe(50);
   expect(analytics.groupKey(rows[0]!, "provider")).toBe("openai");
-  expect(analytics.buildSeries(rows, { bucket: "day", metric: "tokens", groupBy: "model", from: now, to: now + 60_000 }).buckets.length).toBeGreaterThan(0);
+  expect(analytics.buildSeries(rows, { bucket: "day", metric: "tokens", groupBy: "model", from: now, to: now + 60_000, tz }).buckets.length).toBeGreaterThan(0);
   expect(analytics.breakdown(rows, r => r.model)).toHaveLength(2);
   expect(analytics.costComposition(rows).unpricedRequests).toBe(0);
   expect(analytics.heatmap(rows).cells).toHaveLength(168);
-  expect(analytics.latencyTimeline(rows, "day", now, now + 60_000).points.length).toBeGreaterThan(0);
-  expect(analytics.reliability(rows).errors[0]?.name).toBe("upstream");
+  expect(analytics.latencyTimeline(rows, "day", now, now + 60_000, tz).points.length).toBeGreaterThan(0);
+  expect(analytics.reliability(rows, tz).errors[0]?.name).toBe("upstream");
   expect(analytics.conversations(rows)).toHaveLength(1);
   expect(analytics.conversationTimeline(rows, "c1").summary.requests).toBe(2);
-  const quota = analytics.quotaView(dataset(), { from: now - 86_400_000, to: now });
+  const quota = analytics.quotaView(dataset(), { from: now - 86_400_000, to: now + 1 });
   expect(quota.burn[0]?.status).toBe("measured");
   expect(quota.burn[0]?.willExhaustBeforeReset).toBe(true);
   const laterReset = dataset();
   laterReset.quota.windows[0]!.resetAtMs = Date.now() + 86_400_000;
-  expect(analytics.quotaView(laterReset, { from: now - 86_400_000, to: now }).burn[0]?.willExhaustBeforeReset).toBe(false);
+  expect(analytics.quotaView(laterReset, { from: now - 86_400_000, to: now + 1 }).burn[0]?.willExhaustBeforeReset).toBe(false);
   const baseline = analytics.quotaView(dataset(), { from: now - 60_000, to: now });
   expect(baseline.series[0]?.baselineIncluded).toBe(true);
   expect(baseline.burn[0]?.status).toBe("insufficient");
   expect(analytics.sparkline(rows, now, now + 60_000, "tokens", 4)).toHaveLength(4);
-  const composition = analytics.compositionSeries(rows, "day", now, now + 60_000);
+  const composition = analytics.compositionSeries(rows, "day", now, now + 60_000, tz);
   expect(composition.every(point => point.freshInput >= 0)).toBe(true);
-  expect(analytics.cumulativeSeries(rows, "day", now, now + 60_000, "tokens")[0]?.cumulative).toBe(200);
-  expect(analytics.cacheTimeline(rows, "day", now, now + 60_000)[0]?.hitRate).toBe(0.4);
+  expect(analytics.cumulativeSeries(rows, "day", now, now + 60_000, "tokens", tz)[0]?.cumulative).toBe(200);
+  expect(analytics.cacheTimeline(rows, "day", now, now + 60_000, tz)[0]?.hitRate).toBe(0.4);
   expect(analytics.contextPressure(rows).maxInput).toBe(100);
   expect(analytics.round(1.234, 2)).toBe(1.23);
   const nextDay = new Date("2026-03-09T12:00:00-04:00").getTime();
-  expect(analytics.bucketStart(nextDay, "day") - analytics.bucketStart(now, "day")).toBe(23 * 60 * 60 * 1000);
+  expect(analytics.bucketStart(nextDay, "day", tz) - analytics.bucketStart(now, "day", tz)).toBe(23 * 60 * 60 * 1000);
+  expect(analytics.bucketStarts("day", now - 86_400_000, nextDay, tz).map(ts => analytics.bucketLabel(ts, "day", tz))).toEqual(["2026-03-07", "2026-03-08", "2026-03-09"]);
 });
 
 test("heatmap date detail ranks actual local dates across range boundaries and DST", () => {
@@ -197,9 +194,10 @@ test("API routes return their documented payloads and range-scoped quota and led
   } finally {
     clock.mockRestore();
   }
-  const quota = await (await api.request(`/api/quota?from=${now - 60_000}&to=${now}`)).json() as { observed: { samples: number } };
+  // Half-open windows: `to` must pass the sample and ledger events recorded at `now`.
+  const quota = await (await api.request(`/api/quota?from=${now - 60_000}&to=${now + 1}`)).json() as { observed: { samples: number } };
   expect(quota.observed.samples).toBe(1);
-  const ledger = await (await api.request(`/api/ledger?from=${now - 60_000}&to=${now}`)).json() as { distinctSends: number };
+  const ledger = await (await api.request(`/api/ledger?from=${now - 60_000}&to=${now + 1}`)).json() as { distinctSends: number };
   expect(ledger.distinctSends).toBe(1);
   expect((await api.request("/api/export?range=7d")).headers.get("content-type")).toContain("text/csv");
   expect((await api.request("/api/conversations/missing")).status).toBe(404);
