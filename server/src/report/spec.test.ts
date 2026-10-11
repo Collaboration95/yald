@@ -47,6 +47,7 @@ describe("buildReportSpec", () => {
       [{ phases: ["no separator"] }, "invalid_phase", "phase[0]"],
       [{ phases: [""] }, "invalid_phase", "phase[0]"],
       [{ phases: ["Build=2026-10-11 09:00..+2h", "   "] }, "invalid_phase", "phase[1]"],
+      [{ from: "", phases: ["Build=2026-10-11 09:00..+2h"] }, "invalid_time", "from"],
     ];
     for (const [input, code, param] of cases) {
       const error = thrown(() => spec(input));

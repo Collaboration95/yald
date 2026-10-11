@@ -117,6 +117,21 @@ test("a decoded + offset gets the %2B hint", async () => {
   expect(plain!.body.error.message).not.toContain("%2B");
 });
 
+test("blank window inputs and overflowing durations return 400 instead of defaults or runtime failures", async () => {
+  for (const [param, code] of [["from", "invalid_time"], ["to", "invalid_time"], ["last", "invalid_duration"], ["range", "invalid_duration"], ["tz", "invalid_zone"]]) {
+    const responses = await request(...[...ROUTES, "window", "report"].map(name => route(name, `${param}=`)));
+    for (const response of responses) {
+      expect(response.status, response.path).toBe(400);
+      expect(response.body.error, response.path).toMatchObject({ code, param });
+    }
+  }
+  const responses = await request(...["overview", "window", "report"].map(name => route(name, "last=999999999999999999999999h")));
+  for (const response of responses) {
+    expect(response.status, response.path).toBe(400);
+    expect(response.body.error).toMatchObject({ code: "invalid_duration", param: "last" });
+  }
+});
+
 test("absent, ISO and epoch from/to keep answering 200 with the window asked for", async () => {
   const [absent, iso, epoch, ui] = await request(
     "/api/overview",

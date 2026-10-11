@@ -56,7 +56,7 @@ function numberParam(value: string | undefined): number | undefined {
 
 /** The window a query asks for: `from`/`to`/`last`/`range` read in `tz` (default: the server zone). Throws WindowError. */
 function timeWindow(query: Record<string, string | undefined>, first: number, now: number): TimeWindow {
-  return parseWindow({ from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz || TIME_ZONE }, { now, first, defaultRange: "30d" });
+  return parseWindow({ from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz ?? TIME_ZONE }, { now, first, defaultRange: "30d" });
 }
 
 /** What every route reports as `window`, so a client can always show the window it got. */

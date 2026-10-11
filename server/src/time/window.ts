@@ -37,6 +37,7 @@ const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
+const MAX_INSTANT = 8_640_000_000_000_000;
 const UNIT_MS: Record<string, number> = { h: HOUR, m: MINUTE, s: SECOND };
 const PRESETS: Record<string, number> = { "24h": DAY, "7d": 7 * DAY, "30d": 30 * DAY, "90d": 90 * DAY };
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -61,7 +62,7 @@ function formatter(tz: string): Intl.DateTimeFormat {
   if (!cached) {
     cached = new Intl.DateTimeFormat("en-US", {
       timeZone: tz, hourCycle: "h23", weekday: "short",
-      year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric",
+      era: "short", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric",
     });
     formatters.set(tz, cached);
   }
@@ -72,14 +73,18 @@ function wallAt(ts: Instant, tz: string): Wall & { weekday: number } {
   const parts: Record<string, string> = {};
   for (const part of formatter(tz).formatToParts(ts)) parts[part.type] = part.value;
   return {
-    year: Number(parts.year), month: Number(parts.month), day: Number(parts.day),
+    year: parts.era === "BC" ? 1 - Number(parts.year) : Number(parts.year), month: Number(parts.month), day: Number(parts.day),
     hour: Number(parts.hour), minute: Number(parts.minute), second: Number(parts.second),
     weekday: WEEKDAYS.indexOf(parts.weekday ?? ""),
   };
 }
 
 function wallAsUtc(wall: Wall): number {
-  return Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
+  // Date.UTC treats years 0–99 as 1900–1999; setUTCFullYear preserves the input year.
+  const date = new Date(0);
+  date.setUTCFullYear(wall.year, wall.month - 1, wall.day);
+  date.setUTCHours(wall.hour, wall.minute, wall.second, 0);
+  return date.getTime();
 }
 
 function millis(ts: Instant): number {
@@ -105,7 +110,8 @@ function resolveWall(wall: Wall, ms: number, tz: string, gap: "reject" | "shift"
 }
 
 function addDays(wall: Wall, days: number): Wall {
-  const date = new Date(Date.UTC(wall.year, wall.month - 1, wall.day + days));
+  const date = new Date(wallAsUtc({ ...wall, hour: 0, minute: 0, second: 0 }));
+  date.setUTCDate(date.getUTCDate() + days);
   return { ...wall, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
 }
 
@@ -113,10 +119,16 @@ function midnight(wall: Wall, tz: string): Instant {
   return resolveWall({ ...wall, hour: 0, minute: 0, second: 0 }, 0, tz, "shift")!;
 }
 
-function shift(ts: Instant, duration: Duration, sign: 1 | -1, tz: string): Instant {
-  let shifted = ts;
-  if (duration.days) shifted = resolveWall(addDays(wallAt(ts, tz), sign * duration.days), millis(ts), tz, "shift")!;
-  return shifted + sign * duration.ms;
+function shift(ts: Instant, duration: Duration, sign: 1 | -1, tz: string, text: string, param: string): Instant {
+  try {
+    let shifted = ts;
+    if (duration.days) shifted = resolveWall(addDays(wallAt(ts, tz), sign * duration.days), millis(ts), tz, "shift")!;
+    const result = shifted + sign * duration.ms;
+    if (Number.isSafeInteger(result) && Math.abs(result) <= MAX_INSTANT) return result;
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+  }
+  throw new WindowError("invalid_duration", param, `"${text}" moves the time outside the supported date range. Use a shorter duration.`);
 }
 
 function zone(tz: string): string {
@@ -137,6 +149,10 @@ function readDuration(text: string, param: string): Duration {
     if (unit === "w") duration.days += 7 * Number(amount);
     else if (unit === "d") duration.days += Number(amount);
     else duration.ms += Number(amount) * UNIT_MS[unit!]!;
+  }
+  const nominal = duration.days * DAY + duration.ms;
+  if (!Number.isSafeInteger(nominal) || nominal > MAX_INSTANT) {
+    throw new WindowError("invalid_duration", param, `"${text}" is too large to represent as a duration. Use a shorter length, like 8h or 2d.`);
   }
   if (duration.days === 0 && duration.ms === 0) {
     throw new WindowError("invalid_duration", param, `"${text}" is an empty duration. Use a length greater than zero, like 8h.`);
@@ -160,7 +176,8 @@ function invalidTime(text: string, param: string): WindowError {
 function readCalendar(match: RegExpExecArray, text: string, tz: string, param: string): Instant {
   const [, year, month, day, hour, minute, second, fraction, offset] = match;
   const wall: Wall = { year: Number(year), month: Number(month), day: Number(day), hour: Number(hour ?? 0), minute: Number(minute ?? 0), second: Number(second ?? 0) };
-  const daysInMonth = new Date(Date.UTC(wall.year, wall.month, 0)).getUTCDate();
+  const leap = wall.year % 4 === 0 && (wall.year % 100 !== 0 || wall.year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][wall.month - 1]!;
   if (wall.month < 1 || wall.month > 12 || wall.day < 1 || wall.day > daysInMonth || wall.hour > 23 || wall.minute > 59 || wall.second > 59) {
     throw invalidTime(text, param);
   }
@@ -192,17 +209,17 @@ function readInstant(text: string, ctx: { tz: string; now: Instant; anchor?: Ins
     const keyword = word!.toLowerCase();
     let base = ctx.now;
     if (keyword !== "now") base = midnight(addDays(wallAt(ctx.now, ctx.tz), keyword === "yesterday" ? -1 : 0), ctx.tz);
-    return sign ? shift(base, readDuration(duration!, param), sign === "-" ? -1 : 1, ctx.tz) : base;
+    return sign ? shift(base, readDuration(duration!, param), sign === "-" ? -1 : 1, ctx.tz, text, param) : base;
   }
 
   const relative = OFFSET_ONLY.exec(trimmed);
   if (relative) {
     const [, sign, duration] = relative;
-    if (sign === "-") return shift(ctx.now, readDuration(duration!, param), -1, ctx.tz);
+    if (sign === "-") return shift(ctx.now, readDuration(duration!, param), -1, ctx.tz, text, param);
     if (ctx.anchor === undefined) {
       throw new WindowError("invalid_time", param, `"${text}" counts from the start, so it only works as an end time. Use now${trimmed} or an exact time here.`);
     }
-    return shift(ctx.anchor, readDuration(duration!, param), 1, ctx.tz);
+    return shift(ctx.anchor, readDuration(duration!, param), 1, ctx.tz, text, param);
   }
   throw invalidTime(text, param);
 }
@@ -220,10 +237,6 @@ function serverZone(): string {
   return process.env.YALD_TZ ?? process.env.OCX_OBSERVATORY_TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-function present(value: string | undefined): string | undefined {
-  return value === undefined || value.trim() === "" ? undefined : value;
-}
-
 /**
  * Resolves a half-open window. `from`+`to`, `last` (optionally ending at `to`),
  * `from`+`last` and `from` alone (to now) are exact; otherwise a `range` preset
@@ -235,11 +248,16 @@ export function parseWindow(
   input: { from?: string; to?: string; last?: string; range?: string; tz?: string },
   ctx: { now: Instant; first: Instant; defaultRange?: string },
 ): TimeWindow {
-  const tz = zone(present(input.tz) ?? serverZone());
-  const from = present(input.from);
-  const to = present(input.to);
-  const last = present(input.last);
-  const range = present(input.range);
+  const tz = zone(input.tz ?? serverZone());
+  const { from, to, last, range } = input;
+  // Only omission selects a default. An explicitly blank input is still an input.
+  for (const [param, text] of [["from", from], ["to", to]] as const) {
+    if (text !== undefined && text.trim() === "") throw invalidTime(text, param);
+  }
+  if (last !== undefined && last.trim() === "") readDuration(last, "last");
+  if (range !== undefined && range.trim() === "") {
+    throw new WindowError("invalid_duration", "range", `Unknown range "${range}". Use 24h, 7d, 30d, 90d or all.`);
+  }
   const echo: TimeWindow["input"] = {};
   if (from !== undefined) echo.from = from;
   if (to !== undefined) echo.to = to;
@@ -252,12 +270,12 @@ export function parseWindow(
   } else if (from !== undefined) {
     start = readInstant(from, { tz, now: ctx.now }, "from");
     if (to !== undefined) end = readInstant(to, { tz, now: ctx.now, anchor: start }, "to");
-    else if (last !== undefined) end = shift(start, readDuration(last, "last"), 1, tz);
+    else if (last !== undefined) end = shift(start, readDuration(last, "last"), 1, tz, last, "last");
     else end = ctx.now;
   } else if (last !== undefined) {
     const duration = readDuration(last, "last");
     end = to === undefined ? ctx.now : readInstant(to, { tz, now: ctx.now }, "to");
-    start = shift(end, duration, -1, tz);
+    start = shift(end, duration, -1, tz, last, "last");
   } else {
     // Read `to` first so an unreadable value is reported as such, not as a missing start.
     end = to === undefined ? ctx.now : readInstant(to, { tz, now: ctx.now }, "to");
@@ -285,6 +303,7 @@ export function parseWindow(
  * Phases must lie inside the window and may touch but not overlap.
  */
 export function parsePhases(specs: string[], window: TimeWindow): Phase[] {
+  const tz = zone(window.tz);
   const phases: (Phase & { param: string })[] = [];
   specs.forEach((spec, index) => {
     const param = `phase[${index}]`;
@@ -300,7 +319,7 @@ export function parsePhases(specs: string[], window: TimeWindow): Phase[] {
     if (phases.some(phase => phase.name === name)) {
       throw new WindowError("invalid_phase", param, `Phase name "${name}" is used twice. Give each phase its own name.`);
     }
-    const ctx = { tz: window.tz, now: window.to };
+    const ctx = { tz, now: window.to };
     const from = readInstant(spec.slice(equals + 1, separator), ctx, param);
     const to = readInstant(spec.slice(separator + 2), { ...ctx, anchor: from }, param);
     if (from >= to) {
@@ -323,15 +342,38 @@ export function parsePhases(specs: string[], window: TimeWindow): Phase[] {
 
 /** Start of the local hour, day or Monday-based week containing `ts` in `tz`. */
 export function zonedBucketStart(ts: Instant, bucket: "hour" | "day" | "week", tz: string): Instant {
+  tz = zone(tz);
   const wall = wallAt(ts, tz);
-  if (bucket === "hour") return ts - (wall.minute * MINUTE + wall.second * SECOND + millis(ts));
+  if (bucket === "hour") {
+    const start = ts - (wall.minute * MINUTE + wall.second * SECOND + millis(ts));
+    // A half-hour DST change can truncate the hour at the offset transition.
+    return offsetAt(start, tz) === offsetAt(ts, tz) ? start : offsetTransition(start, ts, tz);
+  }
   return midnight(addDays(wall, bucket === "week" ? -wall.weekday : 0), tz);
 }
 
 /** The bucket after the one starting at `start`; local days and weeks may be 23h or 25h long. */
 export function nextBucketStart(start: Instant, bucket: "hour" | "day" | "week", tz: string): Instant {
-  const step = bucket === "hour" ? HOUR : bucket === "day" ? DAY : 7 * DAY;
-  return zonedBucketStart(start + step * 1.5, bucket, tz);
+  tz = zone(tz);
+  const wall = wallAt(start, tz);
+  if (bucket === "hour") {
+    const end = start + HOUR - (wall.minute * MINUTE + wall.second * SECOND + millis(start));
+    return offsetAt(start, tz) === offsetAt(end - 1, tz) ? end : offsetTransition(start, end - 1, tz);
+  }
+  // Advance the local date rather than probing with a fixed elapsed-time step:
+  // a date-line change can make a calendar day as long as 47 hours.
+  return midnight(addDays(wall, bucket === "day" ? 1 : 7), tz);
+}
+
+/** First instant at the changed offset; callers bracket one transition within an hour. */
+function offsetTransition(before: Instant, after: Instant, tz: string): Instant {
+  const offset = offsetAt(before, tz);
+  while (after - before > 1) {
+    const middle = Math.floor((before + after) / 2);
+    if (offsetAt(middle, tz) === offset) before = middle;
+    else after = middle;
+  }
+  return after;
 }
 
 function pad(value: number, width = 2): string {

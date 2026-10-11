@@ -208,6 +208,10 @@ describe("invalid input exits 2 with the message and writes nothing", () => {
   const specCases: Array<[string[], ReportSpecInput]> = [
     [["--from", "nonsense"], { from: "nonsense" }],
     [["--last", "2x"], { last: "2x" }],
+    [["--from", ""], { from: "" }],
+    [["--to", " "], { to: " " }],
+    [["--tz", ""], { tz: "" }],
+    [["--last", "999999999999999999999999h"], { last: "999999999999999999999999h" }],
     [["--tz", "Mars/Base", "--last", "8h"], { tz: "Mars/Base", last: "8h" }],
     [["--tz", "America/New_York", "--from", "2026-03-08 02:30", "--to", "2026-03-08 05:00"], { tz: "America/New_York", from: "2026-03-08 02:30", to: "2026-03-08 05:00" }],
     [["--tz", window.tz, "--from", window.to, "--to", window.from], { tz: window.tz, from: window.to, to: window.from }],
