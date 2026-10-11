@@ -34,6 +34,10 @@ import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
+import { buildReport } from "./report/build";
+import { liveReportContext } from "./report/context";
+import { renderReportHtml } from "./report/render";
+import { buildReportSpec, ReportSpecError } from "./report/spec";
 import { isoInZone, parsePhases, parseWindow, windowLabel, WindowError, type TimeWindow } from "./time/window";
 
 const METRICS: Metric[] = ["tokens", "cost", "requests", "outputTokens", "inputTokens", "cacheReadTokens", "reasoningTokens"];
@@ -184,7 +188,7 @@ function toCsv(rows: Record<string, unknown>[]): string {
 export const api = new Hono<{ Variables: { dataset: Dataset; now: number } }>();
 
 api.onError((error, c) => {
-  if (error instanceof WindowError) {
+  if (error instanceof WindowError || error instanceof ReportSpecError) {
     return c.json({ ok: false, error: { code: error.code, param: error.param, message: error.message } }, 400);
   }
   console.error(error);
@@ -638,6 +642,40 @@ api.get("/api/window", async c => {
       ...phase, label: windowLabel(phase.from, phase.to, window.tz), fromIso: isoInZone(phase.from, window.tz), toIso: isoInZone(phase.to, window.tz),
     })),
   });
+});
+
+/** Served with format=html: the embedded JSON is data, nothing may run or load. */
+export const REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'none'";
+
+/**
+ * The report for a window (#39): the same buildReportSpec, buildReport and live
+ * context as `yald report`, so the JSON matches the CLI's apart from meta.generatedAt,
+ * which is this request's time. The ETag middleware above keys on the dataset
+ * revision and URL (plus the clock for windows that move), never on generatedAt.
+ */
+api.get("/api/report", async c => {
+  const dataset = c.get("dataset");
+  const now = c.get("now");
+  const query = c.req.query();
+  const format = query.format?.trim() || "json";
+  if (format !== "json" && format !== "html") {
+    return c.json({ ok: false, error: { code: "invalid_format", param: "format", message: `Unknown format "${query.format}". Use json or html.` } }, 400);
+  }
+  const joined = (key: string) => c.req.queries(key)?.join(",");
+  const spec = buildReportSpec({
+    from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz,
+    phases: c.req.queries("phase") ?? [],
+    sources: joined("sources"), projects: joined("projects"),
+    top: query.top, redact: query.redact, title: query.title,
+  }, { now, first: dataset.rows[0]?.ts ?? now });
+  const report = buildReport(dataset, spec, liveReportContext(now));
+  if (["1", "true"].includes(query.download?.trim().toLowerCase() ?? "")) {
+    c.header("Content-Disposition", `attachment; filename="yald-report-${fileStamp(spec.window.from, spec.window.tz)}.${format}"`);
+  }
+  if (format === "json") return c.json({ ok: true, report });
+  c.header("Content-Type", "text/html; charset=utf-8");
+  c.header("Content-Security-Policy", REPORT_CSP);
+  return c.body(renderReportHtml(report));
 });
 
 /** "2026-10-11T0900+0800": the local time and offset, safe in a file name. */

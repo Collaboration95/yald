@@ -1,6 +1,6 @@
 # API reference
 
-All endpoints return JSON except `/api/export`. Responses include an ETag derived from the dataset revision and full request URL. Analytics queries whose window can move with the clock (no `to`, or a relative time such as `now`, `today` or `-8h`) also include the current request time, so rolling windows continue advancing when source files are unchanged. Queries pinned to exact instants, metadata, health, and conversation detail can return `304 Not Modified` for an unchanged query and dataset. Each response uses one dataset snapshot and one time for its window boundaries. Analytics endpoints rebuild the dataset if a ledger file's size or modification time changed. The browser polls visible views every 30 seconds; hidden tabs pause polling. Refresh forces a dataset rebuild. Query parameters are URL encoded.
+All endpoints return JSON except `/api/export` and `/api/report?format=html`. Responses include an ETag derived from the dataset revision and full request URL. Analytics queries whose window can move with the clock (no `to`, or a relative time such as `now`, `today` or `-8h`) also include the current request time, so rolling windows continue advancing when source files are unchanged. Queries pinned to exact instants, metadata, health, and conversation detail can return `304 Not Modified` for an unchanged query and dataset. Each response uses one dataset snapshot and one time for its window boundaries. Analytics endpoints rebuild the dataset if a ledger file's size or modification time changed. The browser polls visible views every 30 seconds; hidden tabs pause polling. Refresh forces a dataset rebuild. Query parameters are URL encoded.
 
 Shared analytics parameters: the time-window parameters below, comma-separated `providers`, `models`, `efforts`, and `statuses` (`ok`, `error`, `cancelled`), `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
 
@@ -78,7 +78,7 @@ A window parameter that cannot be read, or a combination that does not define on
 { "ok": false, "error": { "code": "invalid_time", "param": "from", "message": "Could not read \"2026-10-11T09:00:00 08:00\" as a time. If it has a +HH:MM offset, URL-encode the + as %2B." } }
 ```
 
-`param` names the input (`from`, `to`, `last`, `tz`, `range`, `phase[0]`, …) and `message` quotes it and says what would work. Codes: `invalid_time`, `nonexistent_time`, `invalid_duration` (also an unknown `range`), `invalid_zone`, `empty_window`, `conflicting_params`, and, from `GET /api/window` only, `invalid_phase`, `phase_outside_window` and `phase_overlap`.
+`param` names the input (`from`, `to`, `last`, `tz`, `range`, `phase[0]`, …) and `message` quotes it and says what would work. Codes: `invalid_time`, `nonexistent_time`, `invalid_duration` (also an unknown `range`), `invalid_zone`, `empty_window`, `conflicting_params`, and, from `GET /api/window` and `GET /api/report` only, `invalid_phase`, `phase_outside_window` and `phase_overlap`. `GET /api/report` answers its other bad inputs in the same shape: `invalid_source` (`sources`), `invalid_top` (`top`) and `invalid_format` (`format`).
 
 ### `GET /api/window`
 
@@ -90,6 +90,33 @@ curl -s 'http://127.0.0.1:4318/api/window?tz=Asia/Singapore&from=2026-10-11%2009
 
 returns `{ ok: true, window, phases: [{ name, from, to, label, fromIso, toIso }] }`, or the 400 error above.
 
+### `GET /api/report`
+
+The report `yald report` produces, from the running server: KPIs, a phase table, a timeline by source, models, top conversations, quota burn and coverage notes for one window. The route and the CLI build the same `ReportSpec` and call the same `buildReport()`, so for the same inputs the JSON is identical apart from `meta.generatedAt`, which is the request time. The payload is `ReportData`, `schemaVersion: 1` (see [`server/src/report/types.ts`](../server/src/report/types.ts)).
+
+| Param | Meaning |
+| --- | --- |
+| `from`, `to`, `last`, `tz`, `range` | The window, as above. With phases but no window, the window runs from the first phase's start to the last phase's end; with neither, it is the last 24 hours |
+| `phase` | Repeatable `name=start..end`, URL-encoded, as in `GET /api/window`. Errors name the parameter by its position in the URL: the first `phase` is `phase[0]` |
+| `sources` | Comma-separated `claude-code` and `ocx`, or the aliases `claude` and `codex`. Default both |
+| `projects` | Comma-separated folder globs, as for the analytics routes; sets `coverage.unattributedRows` |
+| `top` | Conversations to list: default 10, at most 100 (larger values are capped) |
+| `redact` | `1` (default) or `0`. Redaction cuts conversation ids to 8 characters, shows the home directory as `~` and replaces account labels, because the output is meant to be shared |
+| `title` | Heading; default `yald report · <window label>` |
+| `format` | `json` (default) or `html`; anything else is `invalid_format` |
+| `download` | `1` adds `Content-Disposition: attachment; filename="yald-report-<local from>.<ext>"`, e.g. `yald-report-2026-10-11T0900+0800.html` |
+
+`format=json` answers `{ ok: true, report }` with `Content-Type: application/json`. `format=html` answers exactly what `renderReportHtml()` renders: one self-contained file with inline CSS and SVG and the payload embedded as JSON data, served as `text/html; charset=utf-8` with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'none'`. A bad window, phase, source, `top` or `format` is the 400 error above, as JSON for either format.
+
+The ETag works as on every other route: it hashes the dataset revision and the full URL (so `format` and `download` get their own), plus the request time when the window moves with the clock. It never depends on `generatedAt`, so a report for a pinned window answers `304 Not Modified` until the data changes.
+
+```bash
+# The 09:00–17:00 build phase in Singapore, as a downloadable HTML file
+curl -sOJ 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=2026-10-11T17:00:00%2B08:00&tz=Asia/Singapore&phase=Build%3D2026-10-11%2009:00..%2B6h&phase=Demo%3D2026-10-11%2015:00..2026-10-11%2017:00&title=Build%20day&format=html&download=1'
+# The same report as JSON, for one project
+curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=2026-10-11T17:00:00%2B08:00&tz=Asia/Singapore&projects=~%2Fwork%2Fapp-a*'
+```
+
 ## Routes
 
 `projects` is a comma-separated list of URL-encoded folder globs, for example `projects=~%2Fwork%2Fapp-a*,%2Ftmp%2Fapp-a-*`. A request matches when its working directory, or any folder above it, matches a glob; `~` expands to the home directory and a trailing `/` is ignored. Requests without a known folder never match. Every analytics response filtered by `projects` (all routes taking shared parameters, except the CSV export) includes `coverage: { unattributedRows, unattributedTokens }`: the requests that matched every other filter but were dropped because their folder is unknown. Without `projects`, `coverage` is omitted. See [Project attribution](metrics.md#project-attribution).
@@ -99,6 +126,7 @@ returns `{ ok: true, window, phases: [{ name, from, to, label, fromIso, toIso }]
 | `GET /api/health` | — | `ok`, dataset `revision`, row count, parse timing, malformed-line count, pricing status |
 | `GET /api/meta` | — | Paths, file stats, parse info, totals, providers/models/efforts, quota and ledger summaries |
 | `GET /api/window` | Window parameters; repeated `phase` | The resolved window and phases; no data |
+| `GET /api/report` | Window parameters; repeated `phase`, `sources`, `projects`, `top`, `redact`, `title`, `format`, `download` | `{ ok, report }` (`ReportData`) or the standalone HTML report; see [`GET /api/report`](#get-apireport) |
 | `GET /api/overview` | Shared parameters | Window, summary, prior-period comparison (the equally long window just before, `[from − span, from)`), deltas, sparkline, series, compositions, leaders, heatmap, context, quota, recent rows |
 | `GET /api/timeseries` | Shared; `limit` | Window and grouped series |
 | `GET /api/models` | Shared | Model/provider/effort breakdowns, scatter points, effort matrix |
