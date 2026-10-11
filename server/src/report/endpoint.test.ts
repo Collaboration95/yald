@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -20,6 +20,7 @@ const CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; scrip
 let home = "";
 let pricing = "";
 let child: ChildProcessWithoutNullStreams;
+let probeEnv: Record<string, string | undefined> = {};
 let next: () => Promise<any>;
 
 interface ApiResponse { path: string; status: number; etag: string | null; type: string | null; disposition: string | null; csp: string | null; body: any }
@@ -30,7 +31,7 @@ beforeAll(async () => {
   pricing = await materializeFixturePricing();
   child = spawn(process.execPath, [join(root, "tests/helpers/store-probe.ts"), root], {
     cwd: root, stdio: "pipe",
-    env: {
+    env: probeEnv = {
       ...process.env, HOME: home, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), CODEX_HOME: join(home, "codex"),
       OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: "", YALD_TEST_NOW: String(SAMPLE_NOW), TZ: "UTC", YALD_TZ: "UTC",
     },
@@ -209,4 +210,19 @@ test("projects filters by folder and reports unattributed rows in coverage", asy
   expect(scoped!.body.report.coverage.unattributedRows).toBeGreaterThan(0);
   expect(scoped!.body.report.kpis.tokens).toBeLessThan(all!.body.report.kpis.tokens);
   expect(scoped!.body.report.meta.filters.projects).toEqual([projects]);
+});
+
+test("yald report --json - prints the same report as format=json", async () => {
+  const flags = ["--tz", SAMPLE_INPUT.tz!, "--from", SAMPLE_INPUT.from!, "--to", SAMPLE_INPUT.to!, "--title", SAMPLE_INPUT.title!,
+    ...SAMPLE_INPUT.phases!.flatMap(phase => ["--phase", phase])];
+  for (const extra of [[], ["--source", "codex", "--project", "~/work/app-a*", "--no-redact"]]) {
+    const query = extra.length ? `${SAMPLE_QUERY}&${qs({ sources: "codex", projects: "~/work/app-a*", redact: "0" })}` : SAMPLE_QUERY;
+    const api = await one(`/api/report?${query}&format=json`);
+    // The CLI's clock is frozen at the probe's, so meta.generatedAt matches too.
+    const cli = spawnSync(process.execPath, ["--preload", join(root, "tests/helpers/frozen-clock.ts"), join(root, "server/src/report/cli.ts"),
+      ...flags, ...extra, "--json", "-", "--out", join(home, `parity-${extra.length}.html`)], { cwd: root, env: probeEnv, encoding: "utf8" });
+    expect(cli.status).toBe(0);
+    expect(api.status).toBe(200);
+    expect(JSON.stringify(JSON.parse(cli.stdout))).toBe(JSON.stringify(api.body.report));
+  }
 });
