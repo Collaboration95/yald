@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { normalizeRow } from "../ocx/store";
-import { appendFile, copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectEntries, readClaudeEntries } from "./transcripts";
@@ -166,4 +166,101 @@ test("archived Claude entries outlive their deleted transcript", async () => {
   await rm(join(dir, "sess-1.jsonl"));
   const after = await readClaudeEntries(dir, archive);
   expect(after.entries.map(e => e.requestId)).toEqual(["req_1"]);
+});
+
+test("old archive cwd is back-filled even from an incomplete live snapshot", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-backfill-"));
+  const archiveDir = await mkdtemp(join(tmpdir(), "yald-archive-"));
+  const archive = join(archiveDir, "usage.jsonl");
+  const old = collectEntries([block("text")])[0]!;
+  await writeFile(archive, JSON.stringify(old) + "\n");
+  const live = JSON.parse(block("text"));
+  live.cwd = "/work/app-a";
+  live.message.usage.output_tokens = 0;
+  live.message.stop_reason = null;
+  await writeFile(join(dir, "session.jsonl"), JSON.stringify(live) + "\n");
+  const result = await readClaudeEntries(dir, archive);
+  expect(result.entries[0]!.cwd).toBe("/work/app-a");
+  expect(result.entries[0]!.totalTokens).toBe(old.totalTokens);
+  expect(result.entries[0]!.closeReason).toBe(old.closeReason);
+  await rm(join(dir, "session.jsonl"));
+  expect((await readClaudeEntries(dir, archive)).entries[0]!.cwd).toBe("/work/app-a");
+  await Promise.all([dir, archiveDir].map(path => rm(path, { recursive: true })));
+});
+
+test("a more complete snapshot without cwd preserves known attribution", () => {
+  const early = JSON.parse(block("thinking"));
+  early.cwd = "/work/app-a";
+  early.message.usage.output_tokens = 0;
+  const complete = JSON.parse(block("text"));
+  const entries = collectEntries([JSON.stringify(early), JSON.stringify(complete)]);
+  expect(entries[0]!.cwd).toBe("/work/app-a");
+  expect(entries[0]!.totalTokens).toBe(65813);
+});
+
+test("a same-size change in an older transcript invalidates the combined signature", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-signature-"));
+  const archiveDir = await mkdtemp(join(tmpdir(), "yald-archive-"));
+  const archive = join(archiveDir, "usage.jsonl");
+  const oldFile = join(dir, "old.jsonl");
+  const newFile = join(dir, "new.jsonl");
+  const line = JSON.parse(block("text"));
+  line.cwd = "/work/app-a";
+  await writeFile(oldFile, JSON.stringify(line) + "\n");
+  await writeFile(newFile, block("text").replaceAll("req_1", "req_2") + "\n");
+  await utimes(oldFile, 100, 100);
+  await utimes(newFile, 200, 200);
+  const first = await readClaudeEntries(dir, archive);
+  line.requestId = "req_3";
+  line.cwd = "/work/app-b";
+  await writeFile(oldFile, JSON.stringify(line) + "\n");
+  await utimes(oldFile, 101, 101);
+  const changed = await readClaudeEntries(dir, archive);
+  expect(changed.entries.find(entry => entry.requestId === "req_3")!.cwd).toBe("/work/app-b");
+  expect(changed.signature).not.toBe(first.signature);
+  await Promise.all([dir, archiveDir].map(path => rm(path, { recursive: true })));
+});
+
+test("cached live cwd backfill is persisted when another old archive is opened", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-cached-"));
+  const archiveDir = await mkdtemp(join(tmpdir(), "yald-archive-"));
+  const firstArchive = join(archiveDir, "first.jsonl");
+  const oldArchive = join(archiveDir, "old.jsonl");
+  const line = JSON.parse(block("text"));
+  line.cwd = "/work/app-a";
+  const transcript = join(dir, "session.jsonl");
+  await writeFile(transcript, JSON.stringify(line) + "\n");
+  await readClaudeEntries(dir, firstArchive);
+  await writeFile(oldArchive, JSON.stringify(collectEntries([block("text")])[0]) + "\n");
+  await readClaudeEntries(dir, oldArchive);
+  await rm(transcript);
+  const reloaded = join(archiveDir, "reloaded.jsonl");
+  await copyFile(oldArchive, reloaded);
+  expect((await readClaudeEntries(dir, reloaded)).entries[0]!.cwd).toBe("/work/app-a");
+  await Promise.all([dir, archiveDir].map(path => rm(path, { recursive: true })));
+});
+
+test("external archive appends, same-size rewrites and deletion refresh entries and signature", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-external-"));
+  const archiveDir = await mkdtemp(join(tmpdir(), "yald-archive-"));
+  const archive = join(archiveDir, "usage.jsonl");
+  const old = { ...collectEntries([block("text")])[0]!, cwd: "/work/app-a" };
+  await writeFile(archive, JSON.stringify(old) + "\n");
+  await utimes(archive, 100.0001, 100.0001);
+  const first = await readClaudeEntries(dir, archive);
+  await writeFile(archive, JSON.stringify({ ...old, cwd: "/work/app-b" }) + "\n");
+  await utimes(archive, 100.0002, 100.0002);
+  const rewritten = await readClaudeEntries(dir, archive);
+  expect(rewritten.entries[0]!.cwd).toBe("/work/app-b");
+  expect(rewritten.signature).not.toBe(first.signature);
+  await appendFile(archive, JSON.stringify({ ...old, requestId: "req_2" }) + "\n");
+  const appended = await readClaudeEntries(dir, archive);
+  expect(appended.entries).toHaveLength(2);
+  expect(appended.signature).not.toBe(rewritten.signature);
+  expect((await readClaudeEntries(dir, archive)).signature).toBe(appended.signature);
+  await rm(archive);
+  const removed = await readClaudeEntries(dir, archive);
+  expect(removed.entries).toEqual([]);
+  expect(removed.signature).not.toBe(appended.signature);
+  await Promise.all([dir, archiveDir].map(path => rm(path, { recursive: true })));
 });

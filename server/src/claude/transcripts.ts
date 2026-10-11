@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { CLAUDE_ARCHIVE, CLAUDE_PROJECTS } from "../env";
@@ -60,19 +61,27 @@ export function toUsageEntry(line: Record<string, any>): Record<string, unknown>
  */
 function retainEntry(byRequest: Map<string, Record<string, unknown>>, entry: Record<string, unknown>): boolean {
   const key = String(entry.requestId);
-  const old = byRequest.get(key);
+  let old = byRequest.get(key);
+  let backfilled = false;
   if (old) {
+    // Attribution is independent of streaming usage completeness. An incomplete
+    // live copy can back-fill an old archive, and a later snapshot must keep it.
+    if (!old.cwd && entry.cwd) {
+      old = { ...old, cwd: entry.cwd };
+      byRequest.set(key, old);
+      backfilled = true;
+    }
+    if (!entry.cwd && old.cwd) entry = { ...entry, cwd: old.cwd };
     const tokens = num(entry.totalTokens);
     const oldTokens = num(old.totalTokens);
-    if (tokens < oldTokens) return false;
+    if (tokens < oldTokens) return backfilled;
     if (tokens === oldTokens) {
       const timestamp = num(entry.timestamp);
       const oldTimestamp = num(old.timestamp);
-      if (timestamp < oldTimestamp) return false;
-      // An equal copy wins only if it adds a stop reason, or a cwd the archived entry predates.
+      if (timestamp < oldTimestamp) return backfilled;
+      // An equal copy wins only if it adds a stop reason.
       const addsCloseReason = !old.closeReason && entry.closeReason;
-      const addsCwd = !old.cwd && entry.cwd && (entry.closeReason || !old.closeReason);
-      if (timestamp === oldTimestamp && !addsCloseReason && !addsCwd) return false;
+      if (timestamp === oldTimestamp && !addsCloseReason) return backfilled;
     }
   }
   byRequest.set(key, entry);
@@ -98,11 +107,23 @@ export function collectEntries(texts: string[]): Record<string, unknown>[] {
 /** Parsed entries per transcript, reused until the file's size or mtime changes. */
 const fileCache = new Map<string, { signature: string; entries: Record<string, unknown>[] }>();
 
-/** Archived entries by requestId, loaded from disk once per archive path. */
-let archive: { path: string; byRequest: Map<string, Record<string, unknown>> } | null = null;
+interface ArchiveInfo { signature: string; bytes: number; identity: string }
+
+async function archiveInfo(path: string): Promise<ArchiveInfo | null> {
+  const info = await stat(path, { bigint: true }).catch(() => null);
+  return info ? {
+    signature: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`,
+    bytes: Number(info.size),
+    identity: `${info.dev}:${info.ino}`,
+  } : null;
+}
+
+/** Archived entries by requestId, reused until the archive changes on disk. */
+let archive: { path: string; info: ArchiveInfo | null; byRequest: Map<string, Record<string, unknown>> } | null = null;
 
 async function loadArchive(path: string): Promise<Map<string, Record<string, unknown>>> {
-  if (archive?.path === path) return archive.byRequest;
+  const info = await archiveInfo(path);
+  if (archive?.path === path && archive.info?.signature === info?.signature) return archive.byRequest;
   const byRequest = new Map<string, Record<string, unknown>>();
   // Old archives can contain zeroed resumed copies after the complete response.
   for (const raw of (await readFile(path, "utf8").catch(() => "")).split("\n")) {
@@ -113,7 +134,7 @@ async function loadArchive(path: string): Promise<Map<string, Record<string, unk
       // Blank or torn line.
     }
   }
-  archive = { path, byRequest };
+  archive = { path, info, byRequest };
   return byRequest;
 }
 
@@ -126,41 +147,45 @@ async function loadArchive(path: string): Promise<Map<string, Record<string, unk
 export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLAUDE_ARCHIVE): Promise<{ entries: Record<string, unknown>[]; signature: string }> {
   let files: string[] = [];
   try {
-    files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl")).map(f => join(dir, f));
+    files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl")).map(f => join(dir, f)).sort();
   } catch {
     // No transcripts left; the archive still counts.
   }
-  let bytes = 0;
-  let newest = 0;
-  const fresh: Record<string, unknown>[] = [];
+  const signatures = new Map<string, string>();
   const perFile = await Promise.all(files.map(async path => {
-    const info = await stat(path).catch(() => null);
+    const info = await stat(path, { bigint: true }).catch(() => null);
     if (!info) return [];
-    bytes += info.size;
-    newest = Math.max(newest, info.mtimeMs);
-    const signature = `${info.size}:${Math.round(info.mtimeMs)}`;
+    const signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+    signatures.set(path, signature);
     const cached = fileCache.get(path);
     if (cached?.signature === signature) return cached.entries;
     // ponytail: a changed file is re-parsed whole; read from the last byte offset if a live session gets huge.
     const entries = collectEntries([await readFile(path, "utf8")]);
     fileCache.set(path, { signature, entries });
-    fresh.push(...entries);
     return entries;
   }));
   // Files that disappeared drop out of the cache.
   for (const path of fileCache.keys()) if (!files.includes(path)) fileCache.delete(path);
 
-  // Only re-parsed transcripts can hold new or changed (still streaming) entries. Entries
+  // Cached transcripts also back-fill when a different archive is opened. Entries
   // archived before cwd was kept are re-appended once with the cwd from their live transcript.
-  const archived = await loadArchive(archivePath);
+  let archived = await loadArchive(archivePath);
   const candidates = new Map(archived);
-  for (const entry of fresh) retainEntry(candidates, entry);
+  for (const entries of perFile) for (const entry of entries) retainEntry(candidates, entry);
   const changed = [...candidates.values()].filter(entry => entry !== archived.get(String(entry.requestId)));
   if (changed.length) {
     try {
       await mkdir(dirname(archivePath), { recursive: true });
-      await appendFile(archivePath, changed.map(entry => JSON.stringify(entry) + "\n").join(""));
+      const text = changed.map(entry => JSON.stringify(entry) + "\n").join("");
+      const before = archive!.info;
+      await appendFile(archivePath, text);
       for (const entry of changed) archived.set(String(entry.requestId), entry);
+      const after = await archiveInfo(archivePath);
+      // Preserve entry identity after our own append. A concurrent append or
+      // replacement must instead be loaded before its fingerprint is published.
+      if (after && after.bytes === (before?.bytes ?? 0) + Buffer.byteLength(text)
+        && (!before || before.identity === after.identity)) archive!.info = after;
+      else archived = await loadArchive(archivePath);
     } catch {
       // Forget parses so the next refresh retries the write.
       fileCache.clear();
@@ -170,5 +195,8 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
   // Resumed copies can have zeroed usage. Apply the same selection to live and archived entries.
   const byRequest = new Map(archived);
   for (const entry of perFile.flat()) retainEntry(byRequest, entry);
-  return { entries: [...byRequest.values()], signature: `${files.length}:${bytes}:${Math.round(newest)}` };
+  const signature = createHash("sha256")
+    .update(JSON.stringify([archivePath, archive?.info?.signature ?? null, files.map(path => [path, signatures.get(path) ?? null])]))
+    .digest("hex");
+  return { entries: [...byRequest.values()], signature };
 }

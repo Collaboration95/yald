@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { filterRows, projectCoverage } from "./analytics";
@@ -73,4 +73,20 @@ test("projects roll up to the nearest git root, including worktrees with a .git 
   expect(projects[1]).toMatchObject({ gitRoot: false, requests: 1 });
   expect(projects[3]).toMatchObject({ requests: 1, tokens: 1_000, folders: [] });
   expect(projectBreakdown([]).map(p => p.project)).toEqual(["(unattributed)"]);
+});
+
+test("project rollups follow git roots created or removed after an earlier lookup", async () => {
+  const base = await mkdtemp(join(tmpdir(), "yald-project-roots-"));
+  const repo = join(base, "repo");
+  const nested = join(repo, "nested");
+  await mkdir(nested, { recursive: true });
+  expect(gitRoot(nested)).toBeNull();
+  await mkdir(join(repo, ".git"));
+  expect(projectBreakdown([row("1", nested)])[0]!.project).toBe(repo);
+  await writeFile(join(nested, ".git"), "gitdir: elsewhere\n");
+  expect(projectBreakdown([row("1", nested)])[0]!.project).toBe(nested);
+  await rm(join(nested, ".git"));
+  await rm(join(repo, ".git"), { recursive: true });
+  expect(projectBreakdown([row("1", nested)])[0]).toMatchObject({ project: nested, gitRoot: false });
+  await rm(base, { recursive: true });
 });
