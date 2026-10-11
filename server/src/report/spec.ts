@@ -50,7 +50,7 @@ function list(value: string[] | string | undefined): string[] {
   return parts.map(part => part.trim()).filter(Boolean);
 }
 
-function readSources(value: string[] | string | undefined): Source[] {
+export function readSources(value: string[] | string | undefined): Source[] {
   const picked = new Set<Source>();
   for (const name of list(value)) {
     const source = parseSource(name);

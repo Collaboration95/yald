@@ -203,6 +203,24 @@ test("sources accepts aliases", async () => {
   expect(both!.body).toEqual((await one(`/api/report?${SAMPLE_QUERY}`)).body);
 });
 
+test("overview and reports agree for the same sources and projects", async () => {
+  for (const sources of ["claude", "codex", "claude-code,ocx"]) {
+    for (const projects of [undefined, "~/work/app-a*"]) {
+      const query = `${SAMPLE_QUERY}&${qs({ sources, projects })}`;
+      const [overview, report] = await get([`/api/overview?${query}`, `/api/report?${query}`]);
+      expect(overview!.status).toBe(200);
+      expect(report!.status).toBe(200);
+      expect(overview!.body.summary.requests).toBe(report!.body.report.kpis.requests);
+      expect(overview!.body.summary.tokens.total).toBe(report!.body.report.kpis.tokens);
+      expect(overview!.body.summary.cost).toBe(report!.body.report.kpis.costUsd);
+      if (projects) expect(overview!.body.coverage.unattributedRows).toBe(report!.body.report.coverage.unattributedRows);
+    }
+  }
+  const [invalid] = await get([`/api/overview?${SAMPLE_QUERY}&sources=gemini`]);
+  expect(invalid!.status).toBe(400);
+  expect(invalid!.body.error).toMatchObject({ code: "invalid_source", param: "sources" });
+});
+
 test("projects filters by folder and reports unattributed rows in coverage", async () => {
   const projects = "~/work/app-a*";
   const [all, scoped] = await get([`/api/report?${SAMPLE_QUERY}`, `/api/report?${SAMPLE_QUERY}&${qs({ projects })}`]);

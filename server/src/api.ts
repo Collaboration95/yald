@@ -37,7 +37,7 @@ import { projectBreakdown, projectMatcher } from "./projects";
 import { buildReport } from "./report/build";
 import { liveReportContext } from "./report/context";
 import { renderReportHtml } from "./report/render";
-import { buildReportSpec, ReportSpecError } from "./report/spec";
+import { buildReportSpec, readSources, ReportSpecError } from "./report/spec";
 import { isoInZone, parsePhases, parseWindow, windowLabel, WindowError, type TimeWindow } from "./time/window";
 
 const METRICS: Metric[] = ["tokens", "cost", "requests", "outputTokens", "inputTokens", "cacheReadTokens", "reasoningTokens"];
@@ -111,6 +111,7 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
     from: window.from,
     to: window.to,
     providers: listParam(query.providers),
+    sources: readSources(query.sources),
     models: listParam(query.models),
     efforts: listParam(query.efforts),
     routeKinds: listParam(query.routeKinds),
