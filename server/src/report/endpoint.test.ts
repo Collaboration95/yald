@@ -180,6 +180,15 @@ test("an unchanged dataset and pinned window answer 304 to the ETag", async () =
   expect((await get([paths[1]!], html!.etag!))[0]!.status).toBe(304);
 });
 
+test("invalid reports remain 400 when repeated with their error response ETag", async () => {
+  const path = `/api/report?${SAMPLE_QUERY}&format=pdf`;
+  const [first] = await get([path]);
+  expect(first!.status).toBe(400);
+  const [again] = await get([path], first!.etag!);
+  expect(again!.status).toBe(400);
+  expect(again!.body).toEqual(first!.body);
+});
+
 test("redact=0 keeps full conversation ids and paths", async () => {
   const projects = "~/work/app-*";
   const [redacted, plain] = await get([`/api/report?${SAMPLE_QUERY}&${qs({ projects })}`, `/api/report?${SAMPLE_QUERY}&${qs({ projects })}&redact=0`]);

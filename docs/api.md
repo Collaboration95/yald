@@ -109,7 +109,7 @@ The report `yald report` produces, from the running server: KPIs, a phase table,
 
 `format=json` answers `{ ok: true, report }` with `Content-Type: application/json`. `format=html` answers exactly what `renderReportHtml()` renders: one self-contained file with inline CSS and SVG and the payload embedded as JSON data, served as `text/html; charset=utf-8` with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'none'`. A bad window, phase, source, `top` or `format` is the 400 error above, as JSON for either format.
 
-The ETag works as on every other route: it hashes the dataset revision and the full URL (so `format` and `download` get their own), plus the request time when the window moves with the clock. It never depends on `generatedAt`, so a report for a pinned window answers `304 Not Modified` until the data changes.
+The report ETag hashes the resolved payload and the full URL (so `format` and `download` get their own), excluding `generatedAt`. A report for a pinned window answers `304 Not Modified` until its data or derived project roots change. Inputs are validated before a conditional response, so invalid report requests always return 400.
 
 ```bash
 # The 09:00–17:00 build phase in Singapore, as a downloadable HTML file

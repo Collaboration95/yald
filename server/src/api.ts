@@ -212,7 +212,9 @@ api.use("/api/*", async (c, next) => {
   const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
-  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  // Reports contain derived project roots and coverage, which can change without
+  // a ledger revision. Their route hashes the resolved report after validation.
+  if (c.req.path !== "/api/report" && c.req.header("if-none-match") === etag) return c.body(null, 304);
   await next();
 });
 
@@ -670,9 +672,14 @@ api.get("/api/report", async c => {
     top: query.top, redact: query.redact, title: query.title,
   }, { now, first: dataset.rows[0]?.ts ?? now });
   const report = buildReport(dataset, spec, liveReportContext(now));
+  const stable = { ...report, meta: { ...report.meta, generatedAt: 0 } };
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(stable)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
   if (["1", "true"].includes(query.download?.trim().toLowerCase() ?? "")) {
     c.header("Content-Disposition", `attachment; filename="yald-report-${fileStamp(spec.window.from, spec.window.tz)}.${format}"`);
   }
+  if (format === "html") c.header("Content-Security-Policy", REPORT_CSP);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
   if (format === "json") return c.json({ ok: true, report });
   c.header("Content-Type", "text/html; charset=utf-8");
   c.header("Content-Security-Policy", REPORT_CSP);

@@ -143,6 +143,53 @@ describe("renderReportHtml", () => {
     expect(renderReportHtml(onlyTotals)).not.toContain("<h2>Phases</h2>");
   });
 
+  test("user phase names can match the two summary labels", () => {
+    const data = clone();
+    data.phases[0]!.name = "Total";
+    data.phases[1]!.name = "(outside phases)";
+    data.phases = [data.phases[0]!, data.phases[1]!, ...data.phases.slice(-2)];
+    const html = markup(renderReportHtml(data));
+    expect(html).toContain("<h2>Phases</h2>");
+    expect(html).toContain('<tr><td class="ink wrap">Total</td>');
+    expect(html).toContain('<tr><td class="ink wrap">(outside phases)</td>');
+    expect(html.match(/<rect class="band"/g)).toHaveLength(2);
+    expect(html.match(/<tr class="total"/g)).toHaveLength(2); // phase and cache totals
+    expect(html.match(/<tr class="outside"/g)).toHaveLength(1);
+  });
+
+  test("timeline ends at the window end on a 25-hour final day", () => {
+    const data = clone();
+    data.meta.tz = "America/New_York";
+    data.meta.window = { from: Date.parse("2026-10-30T00:00:00-04:00"), to: Date.parse("2026-11-02T00:00:00-05:00"), label: "DST weekend" };
+    data.phases = [];
+    data.timeline = { bucket: "day", points: [
+      { ts: data.meta.window.from, label: "Fri 30 Oct", bySource: data.timeline.points[0]!.bySource },
+      { ts: Date.parse("2026-10-31T00:00:00-04:00"), label: "Sat 31 Oct", bySource: data.timeline.points[0]!.bySource },
+      { ts: Date.parse("2026-11-01T00:00:00-04:00"), label: "Sun 1 Nov", bySource: data.timeline.points[0]!.bySource },
+    ] };
+    const html = markup(renderReportHtml(data));
+    const dots = [...html.matchAll(/<circle class="request-dot" cx="([\d.]+)"/g)].map(match => Number(match[1]));
+    // The final bucket spans the last 25 of the window's 73 hours.
+    expect(dots[2]).toBeCloseTo(60 + (48 + 12.5) / 73 * 848, 1);
+  });
+
+  test("output describes reasoning as included, and cache hit rate names observed input", () => {
+    const html = markup(renderReportHtml(sample));
+    expect(html).toContain("reasoning included");
+    expect(html).not.toMatch(/\+ [^<]+ reasoning/);
+    expect(html).toContain("observed cache reads ÷ observed input");
+  });
+
+  test("late spend coverage and project exclusions do not claim missing request history", () => {
+    const data = clone();
+    data.coverage.ledgerStartsAt = data.meta.window.from + 3_600_000;
+    data.coverage.unattributedRows = 3;
+    const html = markup(renderReportHtml(data));
+    expect(html).not.toContain("earlier opencodex requests are missing");
+    expect(html).toContain("earlier spend-ledger events are unavailable");
+    expect(html).toContain("3 requests in the window have no project folder");
+  });
+
   test("renders without quota data", () => {
     const data = clone();
     data.quota.windows = [];

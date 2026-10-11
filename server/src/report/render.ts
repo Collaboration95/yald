@@ -12,8 +12,6 @@ const CSS = readFileSync(new URL("./report.css", import.meta.url), "utf8");
 export const REPO_URL = "https://github.com/Collaboration95/yald";
 export const QUOTA_DOCS_URL = `${REPO_URL}/blob/main/docs/metrics.md#claude-code-quota`;
 
-const OUTSIDE = "(outside phases)";
-const TOTAL = "Total";
 const LOCALE = "en-US";
 const ALL_SOURCES: Source[] = ["claude-code", "ocx"];
 const SOURCE_NAMES: Record<string, string> = { "claude-code": "Claude Code", ocx: "opencodex" };
@@ -168,9 +166,9 @@ function kpis(data: ReportData): string {
   const items: Array<[string, string, string, boolean?]> = [
     ["Requests", integer(k.requests), ""],
     ["Total tokens", compact(k.tokens), integer(k.tokens)],
-    ["Output tokens", compact(k.output), k.reasoning > 0 ? `+ ${compact(k.reasoning)} reasoning` : ""],
+    ["Output tokens", compact(k.output), k.reasoning > 0 ? `${compact(k.reasoning)} reasoning included` : ""],
     ["Cost", priced ? usd(k.costUsd) : "—", "API list-price equivalent"],
-    ["Cache hit rate", percent(k.cacheHitRate), "cache reads ÷ input"],
+    ["Cache hit rate", percent(k.cacheHitRate), "observed cache reads ÷ observed input"],
     ["Cache savings", priced ? usd(k.cacheSavingsUsd) : "—", "vs. fresh-input price"],
     ["Conversations", integer(k.conversations), ""],
     ["Active hours", integer(k.activeHours), "hours with a request"],
@@ -189,10 +187,11 @@ function splitBar(row: Row, sources: Source[]): string {
 }
 
 function phasesSection(data: ReportData, clock: Clock, sources: Source[]): string {
-  const named = data.phases.filter(p => p.name !== OUTSIDE && p.name !== TOTAL);
+  const named = data.phases.slice(0, -2);
   if (named.length === 0) return "";
-  const rows = data.phases.map(p => {
-    const kind = p.name === TOTAL ? "total" : p.name === OUTSIDE ? "outside" : "";
+  const rows = data.phases.map((p, i) => {
+    // The contract identifies summary rows by position, not by user-editable names.
+    const kind = i === data.phases.length - 1 ? "total" : i === data.phases.length - 2 ? "outside" : "";
     const when = kind === "outside" ? "rest of window" : shortRange(clock, p.from, p.to);
     return `<tr${kind ? ` class="${kind}"` : ""}>${td(esc(p.name), "ink wrap")}${td(esc(when), "nowrap")}${num(integer(p.requests))}${num(compact(p.freshInput))}${num(compact(p.cacheWrite))}${num(compact(p.cacheRead))}${num(compact(p.output))}${num(compact(p.reasoning))}${num(compact(p.tokens))}${num(usd(p.costUsd))}${num(integer(p.conversations))}${td(esc(p.topModel ?? "—"), "nowrap")}${td(splitBar(p, sources))}</tr>`;
   });
@@ -204,22 +203,21 @@ function phasesSection(data: ReportData, clock: Clock, sources: Source[]): strin
 function timelineSection(data: ReportData, clock: Clock, sources: Source[]): string {
   const points = data.timeline.points;
   if (points.length === 0) return "";
-  const step = data.timeline.bucket === "day" ? 86_400_000 : 3_600_000;
   const { from: wFrom, to: wTo } = data.meta.window;
   const bars = points.map((p, i) => {
-    const next = points[i + 1]?.ts ?? Math.min(p.ts + step, Math.max(wTo, p.ts + 1));
+    const next = points[i + 1]?.ts ?? wTo;
     return {
       from: p.ts,
-      to: next > p.ts ? next : p.ts + step,
+      to: next,
       label: p.label,
       segments: sources.map((s): Segment => ({ value: p.bySource?.[s]?.tokens ?? 0, className: `s-${s}` })),
     };
   });
-  const domain: [number, number] = [Math.min(wFrom, bars[0]!.from), Math.max(wTo, bars[bars.length - 1]!.to)];
+  const domain: [number, number] = [wFrom, wTo];
   const requests = points.map(p => sources.reduce((a, s) => a + (p.bySource?.[s]?.requests ?? 0), 0));
   const tokens = points.map(p => sources.reduce((a, s) => a + (p.bySource?.[s]?.tokens ?? 0), 0));
   const peak = tokens.indexOf(Math.max(...tokens));
-  const bands = data.phases.filter(p => p.name !== OUTSIDE && p.name !== TOTAL).map(p => ({ from: p.from, to: p.to, name: p.name }));
+  const bands = data.phases.slice(0, -2).map(p => ({ from: p.from, to: p.to, name: p.name }));
   const unit = data.timeline.bucket === "day" ? "day" : "hour";
   const desc = [
     `Tokens per ${unit}, stacked by source (${sources.map(sourceName).join(", ")}), from ${clock.full(domain[0])} to ${clock.full(domain[1])}.`,
@@ -340,9 +338,9 @@ function coverageSection(data: ReportData, clock: Clock): string {
   }
   if (finite(c.estimatedCostShare) && c.estimatedCostShare > 0) sentences.push(`${percent(c.estimatedCostShare)} of the dollar total is marked as estimated by the opencodex pricing engine.`);
   if (c.rowsWithoutConversation > 0) sentences.push(`${integer(c.rowsWithoutConversation)} ${c.rowsWithoutConversation === 1 ? "request has" : "requests have"} no conversation id and ${c.rowsWithoutConversation === 1 ? "is" : "are"} not in the conversation counts.`);
-  if (finite(c.ledgerStartsAt)) sentences.push(`The opencodex spend ledger starts at ${clock.full(c.ledgerStartsAt)}, after the window begins; earlier opencodex requests are missing.`);
+  if (finite(c.ledgerStartsAt)) sentences.push(`The opencodex spend ledger starts at ${clock.full(c.ledgerStartsAt)}, after the window begins; earlier spend-ledger events are unavailable.`);
   if (c.unattributedRows === null) sentences.push("No project filter was applied.");
-  else if (c.unattributedRows > 0) sentences.push(`${integer(c.unattributedRows)} ${c.unattributedRows === 1 ? "request" : "requests"} in the window did not match the project filter and ${c.unattributedRows === 1 ? "is" : "are"} excluded.`);
+  else if (c.unattributedRows > 0) sentences.push(`${integer(c.unattributedRows)} ${c.unattributedRows === 1 ? "request" : "requests"} in the window ${c.unattributedRows === 1 ? "has" : "have"} no project folder and ${c.unattributedRows === 1 ? "is" : "are"} excluded.`);
   sentences.push("Success rate counts opencodex requests only; Claude Code transcripts record only completed requests.");
   return card("Coverage and caveats", "", `<ul class="sentences">${sentences.map(s => `<li>${esc(s)}</li>`).join("")}</ul>`);
 }
