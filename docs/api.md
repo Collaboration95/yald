@@ -2,7 +2,19 @@
 
 All endpoints return JSON except `/api/export`. Responses include an ETag derived from the dataset revision and full request URL. Analytics queries without an explicit `to` also include the current request time, so rolling windows continue advancing when source files are unchanged. Queries with a fixed `to`, metadata, health, and conversation detail can return `304 Not Modified` for an unchanged query and dataset. Each response uses one dataset snapshot and one time for its window boundaries. Analytics endpoints rebuild the dataset if a ledger file's size or modification time changed. The browser polls visible views every 30 seconds; hidden tabs pause polling. Refresh forces a dataset rebuild. Query parameters are URL encoded.
 
-Shared analytics parameters: `range` (`24h`, `7d`, `30d`, `90d`, `all`), `from` and `to` (Unix milliseconds), comma-separated `providers`, `models`, `efforts`, and `statuses` (`ok`, `error`, `cancelled`), `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection). `from`/`to` override the corresponding range boundary.
+Shared analytics parameters: `range` (`24h`, `7d`, `30d`, `90d`, `all`), `from` and `to` (Unix milliseconds or URL-encoded ISO-8601), comma-separated `providers`, `models`, `efforts`, and `statuses` (`ok`, `error`, `cancelled`), `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection). `from`/`to` override the corresponding range boundary.
+
+An ISO-8601 time with a positive offset must encode the `+` as `%2B`; an unencoded `+` decodes to a space:
+
+```bash
+curl -s 'http://127.0.0.1:4318/api/overview?from=2026-10-11T09:00:00%2B08:00&to=2026-10-11T17:00:00%2B08:00'
+```
+
+A `from` or `to` that cannot be read is rejected with HTTP 400 instead of falling back to the default range:
+
+```json
+{ "ok": false, "error": { "code": "invalid_time", "param": "from", "message": "Could not read \"2026-10-11T09:00:00 08:00\" as a time. If it has a +HH:MM offset, URL-encode the + as %2B." } }
+```
 
 | Route | Additional query parameters | Response |
 | --- | --- | --- |

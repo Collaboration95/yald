@@ -45,12 +45,36 @@ function numberParam(value: string | undefined): number | undefined {
   return Number.isFinite(numeric) ? numeric : undefined;
 }
 
-function timeParam(value: string | undefined): number | undefined {
-  if (!value) return undefined;
+/** A query parameter that was present but unreadable. Answered with 400, never a silent default. */
+class QueryError extends Error {
+  constructor(readonly code: string, readonly param: string, message: string) {
+    super(message);
+  }
+}
+
+// An unencoded `+` in a query string decodes to a space: "…T09:00:00+08:00" arrives as "…T09:00:00 08:00".
+const DECODED_PLUS_OFFSET = /\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)? \d{2}:?\d{2}$/;
+
+/** Undefined only when the parameter is absent; an unreadable value throws instead of widening the window. */
+function timeParam(value: string | undefined, param: string): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
   const numeric = Number(value);
-  if (Number.isFinite(numeric) && value.trim() !== "") return numeric;
+  if (Number.isFinite(numeric)) return numeric;
   const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  if (Number.isFinite(parsed)) return parsed;
+  const hint = DECODED_PLUS_OFFSET.test(value.trim())
+    ? "If it has a +HH:MM offset, URL-encode the + as %2B."
+    : "Use epoch milliseconds or a URL-encoded ISO-8601 time.";
+  throw new QueryError("invalid_time", param, `Could not read "${value}" as a time. ${hint}`);
+}
+
+/** Unreadable values are left for the route to reject, so its 400 names the first bad parameter. */
+function pinnedEnd(value: string | undefined): boolean {
+  try {
+    return timeParam(value, "to") !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 interface ParsedQuery {
@@ -67,7 +91,7 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
   const first = dataset.rows[0]?.ts ?? now;
   const last = dataset.rows[dataset.rows.length - 1]?.ts ?? now;
   const window = resolveWindow(
-    { from: timeParam(query.from), to: timeParam(query.to), range: query.range },
+    { from: timeParam(query.from, "from"), to: timeParam(query.to, "to"), range: query.range },
     { first, last },
     now,
   );
@@ -144,6 +168,14 @@ function toCsv(rows: Record<string, unknown>[]): string {
 
 export const api = new Hono<{ Variables: { dataset: Dataset; now: number } }>();
 
+api.onError((error, c) => {
+  if (error instanceof QueryError) {
+    return c.json({ ok: false, error: { code: error.code, param: error.param, message: error.message } }, 400);
+  }
+  console.error(error);
+  return c.text("Internal Server Error", 500);
+});
+
 api.use("/api/*", async (c, next) => {
   if (c.req.path === "/api/dataset/refresh") {
     await next();
@@ -156,7 +188,7 @@ api.use("/api/*", async (c, next) => {
   const pointInTime = c.req.path === "/api/health" || c.req.path === "/api/meta"
     || c.req.path.startsWith("/api/conversations/");
   // An unchanged ledger does not mean an unchanged rolling time window.
-  const clockKey = pointInTime || timeParam(c.req.query("to")) !== undefined ? "" : now;
+  const clockKey = pointInTime || pinnedEnd(c.req.query("to")) ? "" : now;
   const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
@@ -434,7 +466,7 @@ api.get("/api/quota", async c => {
   const dataset = c.get("dataset");
   const samples = dataset.quota.samples;
   const resolved = resolveWindow(
-    { from: timeParam(c.req.query("from")), to: timeParam(c.req.query("to")), range: c.req.query("range") },
+    { from: timeParam(c.req.query("from"), "from"), to: timeParam(c.req.query("to"), "to"), range: c.req.query("range") },
     { first: samples[0]?.observedAt ?? c.get("now"), last: samples[samples.length - 1]?.observedAt ?? c.get("now") },
     c.get("now"),
   );
@@ -449,7 +481,7 @@ api.get("/api/ledger", async c => {
   const dataset = c.get("dataset");
   const events = dataset.ledger.events;
   const resolved = resolveWindow(
-    { from: timeParam(c.req.query("from")), to: timeParam(c.req.query("to")), range: c.req.query("range") },
+    { from: timeParam(c.req.query("from"), "from"), to: timeParam(c.req.query("to"), "to"), range: c.req.query("range") },
     { first: events[0]?.at ?? c.get("now"), last: events[events.length - 1]?.at ?? c.get("now") },
     c.get("now"),
   );
