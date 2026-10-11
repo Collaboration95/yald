@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { normalizeRow } from "../ocx/store";
-import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectEntries, readClaudeEntries } from "./transcripts";
@@ -113,6 +113,44 @@ test("readClaudeEntries reuses unchanged transcripts and re-parses appended ones
   const appended = await readClaudeEntries(dir, archive);
   expect(appended.entries.map(e => e.requestId).sort()).toEqual(["req_1", "req_2"]);
   expect(appended.signature).not.toBe(first.signature);
+});
+
+test("Claude entries keep the transcript cwd and the archive stores it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-"));
+  const archive = join(await mkdtemp(join(tmpdir(), "yald-archive-")), "claude.jsonl");
+  const line = JSON.parse(block("text"));
+  line.cwd = "/work/app-a/server";
+  await writeFile(join(dir, "sess-1.jsonl"), JSON.stringify(line) + "\n");
+  const { entries } = await readClaudeEntries(dir, archive);
+  expect(normalizeRow(entries[0]!).cwd).toBe("/work/app-a/server");
+  expect(JSON.parse(await readFile(archive, "utf8")).cwd).toBe("/work/app-a/server");
+  expect(normalizeRow(collectEntries([block("text")])[0]!).cwd).toBeNull();
+});
+
+test("archive entries written before cwd was kept are back-filled from a live transcript, else null", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-claude-"));
+  const archive = join(await mkdtemp(join(tmpdir(), "yald-archive-")), "claude.jsonl");
+  // Two pre-cwd archive entries: req_1 still has its transcript, req_gone does not.
+  const old = collectEntries([block("text")])[0]!;
+  await writeFile(archive, [old, { ...old, requestId: "req_gone" }].map(entry => JSON.stringify(entry)).join("\n") + "\n");
+  const line = JSON.parse(block("text"));
+  line.cwd = "/work/app-a";
+  await writeFile(join(dir, "sess-1.jsonl"), JSON.stringify(line) + "\n");
+
+  const { entries } = await readClaudeEntries(dir, archive);
+  const rows = Object.fromEntries(entries.map(entry => [String(entry.requestId), normalizeRow(entry)]));
+  expect(rows.req_1!.cwd).toBe("/work/app-a");
+  expect(rows.req_gone!.cwd).toBeNull();
+  expect(rows.req_1!.totalTokens).toBe(normalizeRow(old).totalTokens);
+  // The back-filled copy is appended once, so attribution survives the transcript's deletion.
+  const archived = (await readFile(archive, "utf8")).trim().split("\n").map(raw => JSON.parse(raw));
+  expect(archived.filter(entry => entry.requestId === "req_1").map(entry => entry.cwd ?? null)).toEqual([null, "/work/app-a"]);
+  // A fresh load of that archive (new path, so nothing is cached) prefers the copy with a cwd.
+  await rm(join(dir, "sess-1.jsonl"));
+  const reloaded = archive.replace(/claude\.jsonl$/, "reloaded.jsonl");
+  await copyFile(archive, reloaded);
+  const after = await readClaudeEntries(dir, reloaded);
+  expect(after.entries.find(entry => entry.requestId === "req_1")!.cwd).toBe("/work/app-a");
 });
 
 test("archived Claude entries outlive their deleted transcript", async () => {

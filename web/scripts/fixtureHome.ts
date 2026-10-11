@@ -4,8 +4,13 @@
  * The dashboard is only meaningful with data, but nobody should have to publish
  * their own usage to run the tests. Timestamps are generated relative to now so
  * the default 30-day window always contains them.
+ *
+ * Point CODEX_HOME at `<home>/codex` and CLAUDE_PROJECTS_DIR at `<home>/claude-projects`.
+ * Project folders live under `<home>/work`: app-a is a git repo with a `server` subfolder,
+ * app-b is a plain folder, and one Codex SDK run started in a macOS temp folder.
  */
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,7 +40,30 @@ const MODELS: FixtureModel[] = [
   { provider: "openai", model: "gpt-6-astra", effort: "xhigh", input: 96_000, output: 3_200, cacheRead: 80_000, reasoning: 900, durationMs: 21_500, ttftMs: 2_400, status: 200 },
 ];
 
-const CONVERSATIONS = ["fixture0000000000000000000000000001", "fixture0000000000000000000000000002"];
+/** opencodex names a Codex conversation by the first 32 hex chars of sha256(<session id>). */
+const conversationKey = (sessionId: string) => createHash("sha256").update(sessionId).digest("hex").slice(0, 32);
+
+const CODEX_SESSIONS = ["019a0000-0000-7000-8000-00000000000a", "019a0000-0000-7000-8000-00000000000b"] as const;
+const SUBAGENT_SESSION = "019a0000-0000-7000-8000-00000000001a";
+const CONVERSATIONS = CODEX_SESSIONS.map(conversationKey);
+/** An opencodex conversation whose rollout Codex has already deleted. */
+const ORPHAN_CONVERSATION = conversationKey("019a0000-0000-7000-8000-0000000000ff");
+const TEMP_RUN = "/private/var/folders/yd/fixture/T/app-a-sdk-run";
+
+function rollout(meta: Record<string, unknown>, ts: number): string {
+  const timestamp = new Date(ts).toISOString();
+  return [
+    { timestamp, type: "session_meta", payload: { ...meta, timestamp, cli_version: "0.0.0-fixture", model_provider: "openai", base_instructions: { text: "fixture instructions" } } },
+    { timestamp, type: "event_msg", payload: { type: "user_message", message: "fixture" } },
+  ].map(line => JSON.stringify(line)).join("\n") + "\n";
+}
+
+function claudeLine(requestId: string, sessionId: string, cwd: string, ts: number, input: number): string {
+  return JSON.stringify({
+    type: "assistant", requestId, sessionId, cwd, timestamp: new Date(ts).toISOString(),
+    message: { id: "msg_" + requestId, model: "claude-fixture-opus", stop_reason: "end_turn", usage: { input_tokens: input, cache_read_input_tokens: input * 4, cache_creation_input_tokens: 600, output_tokens: 450, service_tier: "standard" } },
+  });
+}
 
 function usageRow(index: number, ts: number, spec: FixtureModel, conversationId: string): string {
   const failed = spec.status >= 400;
@@ -104,6 +132,32 @@ export async function materializeFixtureHome(): Promise<string> {
   ledger.push(JSON.stringify({ v: 1, kind: "lost", send: "fixture-send-" + index, at: now - 2 * HOUR }));
   index++;
   rows.push(usageRow(index, now - 40 * MINUTE, { ...MODELS[2]!, status: 499, errorCode: "client_closed_request", closeReason: "client_closed" }, CONVERSATIONS[1]!));
+  index++;
+  rows.push(usageRow(index, now - 3 * HOUR, MODELS[1]!, ORPHAN_CONVERSATION));
+
+  // Codex rollouts: app-a's root session, a review subagent naming that root, and an SDK run in a temp folder.
+  const appA = join(root, "work", "app-a");
+  const appB = join(root, "work", "app-b");
+  await mkdir(join(appA, ".git"), { recursive: true });
+  await mkdir(join(appA, "server"), { recursive: true });
+  await mkdir(appB, { recursive: true });
+  const sessions = join(root, "codex", "sessions", "2026", "10", "01");
+  const archived = join(root, "codex", "archived_sessions");
+  await mkdir(sessions, { recursive: true });
+  await mkdir(archived, { recursive: true });
+  const [rootSession, sdkSession] = CODEX_SESSIONS;
+  const started = now - 3 * DAY - HOUR;
+  await writeFile(join(sessions, `rollout-2026-10-01T09-00-00-${rootSession}.jsonl`), rollout({ id: rootSession, session_id: rootSession, cwd: appA, originator: "codex_cli_rs", source: "cli" }, started));
+  await writeFile(join(sessions, `rollout-2026-10-01T09-30-00-${SUBAGENT_SESSION}.jsonl`), rollout({ id: SUBAGENT_SESSION, session_id: rootSession, parent_thread_id: rootSession, cwd: appA, originator: "codex_cli_rs", source: { subagent: "review" } }, started));
+  await writeFile(join(archived, `rollout-2026-10-01T10-00-00-${sdkSession}.jsonl`), rollout({ id: sdkSession, session_id: sdkSession, cwd: TEMP_RUN, originator: "codex_sdk_ts", source: "exec" }, started));
+
+  // Claude Code transcripts from two folders: app-a's server subfolder and app-b.
+  const transcripts = [["-work-app-a-server", "claude-fixture-session-a", join(appA, "server"), 5 * HOUR], ["-work-app-b", "claude-fixture-session-b", appB, 26 * HOUR]] as const;
+  for (const [folder, sessionId, cwd, ago] of transcripts) {
+    await mkdir(join(root, "claude-projects", folder), { recursive: true });
+    const lines = [0, 1].map(turn => claudeLine(`${sessionId}-req-${turn}`, sessionId, cwd, now - ago + turn * 4 * MINUTE, 1_200 + turn * 300));
+    await writeFile(join(root, "claude-projects", folder, `${sessionId}.jsonl`), lines.join("\n") + "\n", "utf8");
+  }
 
   const quotaSamples = Array.from({ length: 40 }, (_, position) => ({
     observedAt: now - (39 - position) * 90 * MINUTE,

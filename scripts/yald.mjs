@@ -12,7 +12,7 @@ if (args.includes("--version") || args.includes("-v")) {
   process.exit(0);
 }
 if (args.includes("--help") || args.includes("-h")) {
-  console.log("Usage: yald [--port PORT] [--host HOST] [--ocx-home PATH] [--open] [--version]");
+  console.log("Usage: yald [--port PORT] [--host HOST] [--ocx-home PATH] [--codex-home PATH] [--open] [--version]");
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -36,7 +36,7 @@ for (let i = 0; i < args.length; i++) {
     args.splice(i--, 1);
     continue;
   }
-  const envFlags = { "--port": "YALD_PORT", "--host": "YALD_HOST", "--ocx-home": "OCX_HOME" };
+  const envFlags = { "--port": "YALD_PORT", "--host": "YALD_HOST", "--ocx-home": "OCX_HOME", "--codex-home": "CODEX_HOME" };
   if (envFlags[flag]) {
     const value = args[i + 1];
     if (!value || value.startsWith("--")) {

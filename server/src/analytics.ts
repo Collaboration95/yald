@@ -1,4 +1,5 @@
 import type { Dataset, RequestRow } from "./ocx/store";
+import { projectMatcher } from "./projects";
 
 export type Bucket = "hour" | "day" | "week";
 export type Metric = "tokens" | "cost" | "requests" | "outputTokens" | "inputTokens" | "cacheReadTokens" | "reasoningTokens";
@@ -13,6 +14,8 @@ export interface RowFilter {
   routeKinds?: string[];
   conversationId?: string;
   search?: string;
+  /** Folder globs; a row matches when its cwd or an ancestor does. Rows without a cwd never match. */
+  projects?: string[];
 }
 
 const DAY_MS = 86_400_000;
@@ -86,6 +89,7 @@ export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] 
   const effortSet = filter.efforts?.length ? new Set(filter.efforts) : null;
   const statusSet = filter.statuses?.length ? new Set(filter.statuses) : null;
   const routeSet = filter.routeKinds?.length ? new Set(filter.routeKinds) : null;
+  const inProject = filter.projects?.length ? projectMatcher(filter.projects) : null;
   return rows.filter(row => {
     if (filter.from !== undefined && row.ts < filter.from) return false;
     if (filter.to !== undefined && row.ts > filter.to) return false;
@@ -94,6 +98,7 @@ export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] 
     if (effortSet && !effortSet.has(row.effort ?? "unknown")) return false;
     if (routeSet && !routeSet.has(row.routeKind ?? "unrouted")) return false;
     if (filter.conversationId && row.conversationId !== filter.conversationId) return false;
+    if (inProject && !inProject(row.cwd)) return false;
     if (statusSet) {
       const kind = outcome(row);
       if (!statusSet.has(kind)) return false;
@@ -104,6 +109,22 @@ export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] 
     }
     return true;
   });
+}
+
+/**
+ * With a project filter active, the rows it had to drop because their folder is unknown:
+ * everything else about them matched. Null when no project filter is applied.
+ */
+export function projectCoverage(rows: RequestRow[], filter: RowFilter): { unattributedRows: number; unattributedTokens: number } | null {
+  if (!filter.projects?.length) return null;
+  let unattributedRows = 0;
+  let unattributedTokens = 0;
+  for (const row of filterRows(rows, { ...filter, projects: undefined })) {
+    if (row.cwd !== null) continue;
+    unattributedRows++;
+    unattributedTokens += row.totalTokens;
+  }
+  return { unattributedRows, unattributedTokens };
 }
 
 export type Outcome = "ok" | "error" | "cancelled";

@@ -7,6 +7,7 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 ### Added
 
 - Claude Code subscription usage, read from `~/.claude/projects` transcripts (`CLAUDE_PROJECTS_DIR`) and shown as provider `anthropic` in every view, priced by the opencodex cost engine ([#26](https://github.com/Collaboration95/yald/pull/26)).
+- Project attribution ([#35](https://github.com/Collaboration95/yald/issues/35)): every request carries the folder it came from, from Claude Code transcripts and, for opencodex rows, from the first line of the matching Codex rollout (`CODEX_HOME`, `--codex-home`). Analytics routes take a `projects` glob filter and report `coverage` for unattributed requests, and `GET /api/projects` lists usage per git root.
 - Hover and focus personality across the dashboard: each navigation and stat icon gets its own animation, money stats turn green and float dollar signs, and card links, model dots, leaderboard bars, filters, and the footer react to the pointer. A few easter eggs are hidden for curious users. Reduced-motion preferences switch all of it off.
 
 ## [0.1.0] - 2026-10-03

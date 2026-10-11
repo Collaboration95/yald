@@ -12,6 +12,9 @@ export const CLAUDE_PROJECTS = process.env.CLAUDE_PROJECTS_DIR ?? join(homedir()
 /** Every Claude Code entry yald has seen, so usage outlives Claude Code deleting old transcripts. */
 export const CLAUDE_ARCHIVE = join(OCX_HOME, "yald-claude-usage.jsonl");
 
+/** Codex rollouts, read only for the working directory of each session. Missing is fine. */
+export const CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), ".codex");
+
 export const PORT = Number(process.env.YALD_PORT ?? process.env.OCX_OBSERVATORY_PORT ?? process.env.PORT ?? 4317);
 export const HOSTNAME = process.env.YALD_HOST ?? process.env.HOST ?? "127.0.0.1";
 

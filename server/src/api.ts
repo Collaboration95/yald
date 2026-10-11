@@ -17,6 +17,7 @@ import {
   latencyTimeline,
   outcome,
   percentile,
+  projectCoverage,
   quotaView,
   reliability,
   resolveWindow,
@@ -30,6 +31,7 @@ import {
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
+import { projectBreakdown, projectMatcher } from "./projects";
 
 const METRICS: Metric[] = ["tokens", "cost", "requests", "outputTokens", "inputTokens", "cacheReadTokens", "reasoningTokens"];
 
@@ -85,6 +87,7 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
     statuses: listParam(query.statuses) as RowFilter["statuses"],
     conversationId: query.conversationId,
     search: query.search,
+    projects: listParam(query.projects),
   };
   return { filter, range: query.range ?? "30d", bucket, from: window.from, to: window.to, metric, groupBy: query.groupBy ?? "model" };
 }
@@ -92,6 +95,12 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
 function previousWindow(filter: RowFilter, from: number, to: number): RowFilter {
   const span = Math.max(1, to - from);
   return { ...filter, from: from - span, to: from - 1 };
+}
+
+/** Any response filtered by project says how many otherwise-matching rows had no known folder. */
+function coverageField(rows: RequestRow[], filter: RowFilter) {
+  const coverage = projectCoverage(rows, filter);
+  return coverage ? { coverage } : {};
 }
 
 function delta(current: number, prior: number): number | null {
@@ -234,6 +243,7 @@ api.get("/api/overview", async c => {
 
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to, bucket: query.bucket, range: query.range, requests: rows.length },
     summary,
     prior,
@@ -270,6 +280,7 @@ api.get("/api/timeseries", async c => {
   const rows = filterRows(dataset.rows, query.filter);
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to, bucket: query.bucket },
     series: buildSeries(rows, {
       bucket: query.bucket,
@@ -310,6 +321,7 @@ api.get("/api/models", async c => {
   }
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to },
     models,
     providers,
@@ -326,6 +338,7 @@ api.get("/api/usage", async c => {
   const composition = compositionSeries(rows, query.bucket, query.from, query.to);
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to, bucket: query.bucket },
     summary: summarize(rows),
     composition,
@@ -355,7 +368,7 @@ api.get("/api/usage/heatmap-dates", async c => {
     weekday, hour, metric, timeZone: TIME_ZONE,
     limit: numberParam(params.limit), offset: numberParam(params.offset),
   });
-  return c.json({ ok: true, window: { from: query.from, to: query.to, range: query.range, timeZone: TIME_ZONE }, ...breakdown });
+  return c.json({ ok: true, ...coverageField(dataset.rows, query.filter), window: { from: query.from, to: query.to, range: query.range, timeZone: TIME_ZONE }, ...breakdown });
 });
 
 api.get("/api/cost", async c => {
@@ -364,6 +377,7 @@ api.get("/api/cost", async c => {
   const rows = filterRows(dataset.rows, query.filter);
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to, bucket: query.bucket },
     summary: summarize(rows),
     composition: costComposition(rows),
@@ -390,6 +404,7 @@ api.get("/api/performance", async c => {
 
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to, bucket: query.bucket },
     timeline,
     histogram: {
@@ -421,6 +436,7 @@ api.get("/api/reliability", async c => {
   const failureRows = rows.filter(row => outcome(row) !== "ok").slice(-500);
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to },
     ...report,
     recentFailures: [...failureRows].sort((a, b) => b.ts - a.ts).slice(0, 40).map(publicRow),
@@ -507,6 +523,7 @@ api.get("/api/conversations", async c => {
   });
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     window: { from: query.from, to: query.to },
     conversations: sorted,
     totals: {
@@ -528,6 +545,21 @@ api.get("/api/conversations/:id", async c => {
     ok: true,
     ...timeline,
     requests: dataset.rows.filter(row => row.conversationId === id).sort((a, b) => a.ts - b.ts).map(publicRow),
+  });
+});
+
+api.get("/api/projects", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  // Unattributed rows stay listed under a project filter, matching `coverage`.
+  const inProject = query.filter.projects?.length ? projectMatcher(query.filter.projects) : null;
+  const rows = filterRows(dataset.rows, { ...query.filter, projects: undefined })
+    .filter(row => !inProject || row.cwd === null || inProject(row.cwd));
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { from: query.from, to: query.to, range: query.range },
+    projects: projectBreakdown(rows),
   });
 });
 
@@ -555,6 +587,7 @@ api.get("/api/filters", async c => {
   const rows = filterRows(dataset.rows, { ...query.filter, providers: undefined, models: undefined, efforts: undefined, statuses: undefined, routeKinds: undefined });
   return c.json({
     ok: true,
+    ...coverageField(dataset.rows, query.filter),
     providers: [...new Set(rows.map(row => row.provider))].sort(),
     models: [...new Set(rows.map(row => row.model))].sort(),
     efforts: [...new Set(rows.map(row => row.effort ?? "unknown"))].sort(),

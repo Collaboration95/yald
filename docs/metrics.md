@@ -22,6 +22,25 @@ Cost is estimated by the opencodex pricing engine used by `ocx usage`. It applie
 
 Success rate uses logical request outcomes, not physical sends. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.
 
+## Project attribution
+
+Each request carries the working directory (`cwd`) it was made from, or none when that is unknown.
+
+- **Claude Code:** every transcript line records `cwd`, and yald keeps it, including in its Claude archive. Archive entries written before yald kept `cwd` get it from the live transcript while that file still exists (the filled-in copy is appended to the archive once); otherwise they stay unattributed.
+- **Codex through opencodex:** ledger rows carry no folder. An opencodex `conversationId` is the first 32 hex characters of `sha256(<Codex session id>)`, and the first line (`session_meta`) of each Codex rollout in `~/.codex/sessions/**/rollout-*.jsonl` and `~/.codex/archived_sessions/rollout-*.jsonl` records that session id and its `cwd`. Yald hashes every rollout's id and joins on it. Only that first line is read (at most 64 KB per file), and unchanged files are not re-read. Subagent traffic is mostly sent under the root thread's id and inherits the root's folder; some is sent under the subagent's own id, which its own rollout also covers. When the root rollout is gone, a surviving subagent rollout still names the root and supplies its folder. `CODEX_HOME` (or `--codex-home`) selects another Codex home.
+
+A project filter (`projects`) is a list of folder globs. A request matches when its `cwd`, or any folder above it, matches a glob, so `~/work/app-a` covers `~/work/app-a/server` and `~/work/app-a*` also covers `~/work/app-a-api`. `~` is the home directory and a trailing `/` is ignored. On macOS, `/tmp/...` and `/private/tmp/...` (and `/var/...` and `/private/var/...`) are treated as the same folder, so `/tmp/app-a-*` and `/private/var/folders/**/T/app-a-*` match Codex SDK runs started in temp folders. Unattributed requests never match a project filter: they are excluded and reported as `coverage.unattributedRows` and `coverage.unattributedTokens`, so a filtered total can be read as a lower bound.
+
+The projects list rolls each folder up to the nearest enclosing git root (a folder holding a `.git` directory or file, checked on disk once per folder while yald runs), and lists unattributed requests as `(unattributed)`. Folders that no longer exist keep their own path.
+
+Limits:
+
+- Codex sessions run without opencodex do not appear in the opencodex ledger, so yald sees neither their usage nor their folder.
+- Codex can delete or prune old rollouts. Their opencodex rows then lose attribution and count as unattributed, while their usage still counts.
+- opencodex traffic from clients other than Codex (or without a conversation id) has no rollout and stays unattributed.
+- Attribution is by the folder a session started in. A session that changes directory part-way still counts toward its starting folder.
+- Absolute paths appear only in the local API. Shareable outputs redact the home directory to `~`.
+
 ## Time series and quota
 
 Calendar buckets use the configured local timezone. Weeks begin Monday. Quota burn is measured from observed samples inside the selected time range; current utilization remains the latest point-in-time value. The history chart may include the sample immediately before the range as a visual baseline, but it does not count toward the two in-range samples required for a burn estimate. With insufficient samples, the dashboard reports that state instead of extrapolating. Projections compare the measured burn against the provider's reset time and may be null when a reset or a positive burn rate is unavailable.
