@@ -174,6 +174,9 @@ export function outputPaths(args: Pick<CliArgs, "out" | "json">, spec: Pick<Repo
   else if (args.json === "-") json = null;
   else if (args.json !== "") json = args.json;
   else json = html === null ? `${stem}.json` : html.replace(/\.html?$/i, "") + ".json";
+  if (html !== null && json !== undefined && json !== null && resolve(html) === resolve(json)) {
+    throw new UsageError("--out and --json must use different file paths.");
+  }
   return { html, json };
 }
 
@@ -325,6 +328,7 @@ function fail(message: string): number {
 export async function main(argv: string[], deps: MainDeps = defaultDeps): Promise<number> {
   let args: CliArgs;
   let spec: ReportSpec;
+  let outputs: Outputs;
   const now = deps.now();
   try {
     args = parseCliArgs(argv);
@@ -334,6 +338,7 @@ export async function main(argv: string[], deps: MainDeps = defaultDeps): Promis
     }
     // Pure: validates every window, phase, source and top input before any data is read.
     spec = buildReportSpec(args.spec, { now, first: now });
+    outputs = outputPaths(args, spec);
   } catch (error) {
     if (error instanceof WindowError || error instanceof ReportSpecError) return fail(`${flagOf(error.param)}: ${error.message}`);
     if (error instanceof UsageError) return fail(error.message);
@@ -352,7 +357,6 @@ export async function main(argv: string[], deps: MainDeps = defaultDeps): Promis
     const { liveReportContext } = await import("./context");
     const { buildReport } = await import("./build");
     const { renderReportHtml } = await import("./render");
-    const outputs = outputPaths(args, spec);
 
     if (!args.dryRun) process.stderr.write(`Reading usage for ${spec.window.label}…\n`);
     await loadPricing();
