@@ -63,7 +63,7 @@ interface Acc {
 const ACC_KEYS = ["requests", "tokens", "freshInput", "cacheRead", "cacheWrite", "output", "reasoning", "costMicros"] as const;
 
 const freshInput = (row: RequestRow) => Math.max(0, row.inputTokens - row.cacheReadTokens - row.cacheWriteTokens);
-const micros = (row: RequestRow) => Math.round(row.cost * MICRO);
+const micros = (row: RequestRow) => row.priced ? Math.round(row.cost * MICRO) : 0;
 
 function accumulate(rows: RequestRow[]): Acc {
   const acc: Acc = { requests: 0, tokens: 0, freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, costMicros: 0 };
@@ -103,7 +103,7 @@ function toTotals(acc: Acc, priced: boolean): Totals {
 }
 
 function distinctConversations(rows: RequestRow[]): number {
-  return new Set(rows.flatMap(row => (row.conversationId ? [row.conversationId] : []))).size;
+  return new Set(rows.flatMap(row => (row.conversationId ? [JSON.stringify([sourceOf(row), row.conversationId])] : []))).size;
 }
 
 /** Most tokens, then name; null without rows. */
@@ -241,57 +241,74 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
 
   // Models: one row per source, provider and model, by tokens then name.
   const SEP = "\u0000";
-  const models: ReportData["models"] = breakdown(rows, row => [sourceOf(row), row.provider, row.model].join(SEP))
+  const modelKey = (row: RequestRow) => [sourceOf(row), row.provider, row.model].join(SEP);
+  const modelCosts = new Map<string, number>();
+  for (const row of rows) {
+    const key = modelKey(row);
+    modelCosts.set(key, (modelCosts.get(key) ?? 0) + micros(row));
+  }
+  const models: ReportData["models"] = breakdown(rows, modelKey)
     .map(entry => {
       const [source, provider, model] = entry.key.split(SEP) as [Source, string, string];
+      const cost = modelCosts.get(entry.key)! / MICRO;
       const hasPrice = priced && entry.unpricedRequests < entry.requests;
       return {
         model, provider, source,
         requests: entry.requests, tokens: entry.tokens,
         share: kpis.tokens > 0 ? round(entry.tokens / kpis.tokens, 4) : 0,
         output: entry.outputTokens,
-        costUsd: hasPrice ? entry.cost : null,
-        usdPerMTok: hasPrice ? entry.costPer1MTokens : null,
+        costUsd: hasPrice ? cost : null,
+        usdPerMTok: hasPrice && entry.tokens > 0 ? round(cost / entry.tokens * MICRO, 2) : null,
         cacheHitRate: entry.cacheHitRate,
         ttftP50Ms: entry.ttftP50 === null ? null : Math.round(entry.ttftP50),
       };
     })
     .sort((a, b) => b.tokens - a.tokens || compare(a.model, b.model) || compare(a.source, b.source) || compare(a.provider, b.provider));
 
-  // Conversations: the top N by tokens then id, with the folder of their first attributed row.
-  const firstRow = new Map<string, RequestRow>();
-  const cwdOf = new Map<string, string>();
-  const pricedRows = new Map<string, number>();
-  for (const row of rows) {
-    const id = row.conversationId;
-    if (!id) continue;
-    if (!firstRow.has(id)) firstRow.set(id, row);
-    if (row.cwd !== null && !cwdOf.has(id)) cwdOf.set(id, row.cwd);
-    if (row.priced) pricedRows.set(id, (pricedRows.get(id) ?? 0) + 1);
-  }
+  // Conversation IDs are local to each source: an identical id in the two
+  // ledgers must not merge tokens, projects or costs into a single source.
   const projectOf = ctx.projectOf ?? ((cwd: string) => cwd);
-  const conversations: ReportData["conversations"] = conversationRows(rows, Number.MAX_SAFE_INTEGER)
-    .sort((a, b) => b.tokens - a.tokens || compare(a.id, b.id))
-    .slice(0, Math.max(0, spec.top))
-    .map(entry => {
+  const conversations: ReportData["conversations"] = sources.flatMap(source => {
+    const list = rows.filter(row => sourceOf(row) === source);
+    const cwdOf = new Map<string, string>();
+    const costs = new Map<string, number>();
+    const pricedIds = new Set<string>();
+    for (const row of list) {
+      const id = row.conversationId;
+      if (!id) continue;
+      if (row.cwd !== null && !cwdOf.has(id)) cwdOf.set(id, row.cwd);
+      costs.set(id, (costs.get(id) ?? 0) + micros(row));
+      if (row.priced) pricedIds.add(id);
+    }
+    return conversationRows(list, Number.MAX_SAFE_INTEGER).map(entry => {
       const cwd = cwdOf.get(entry.id);
       return {
-        id: redact ? entry.id.slice(0, 8) : entry.id,
-        source: sourceOf(firstRow.get(entry.id)!),
+        id: entry.id,
+        source,
         models: entry.models,
         requests: entry.requests,
         tokens: entry.tokens,
-        costUsd: priced && pricedRows.has(entry.id) ? entry.cost : null,
+        costUsd: priced && pricedIds.has(entry.id) ? costs.get(entry.id)! / MICRO : null,
         from: entry.startedAt,
         to: entry.endedAt,
         project: cwd === undefined ? null : show(projectOf(cwd)),
       };
     });
+  })
+    .sort((a, b) => b.tokens - a.tokens || compare(a.id, b.id) || compare(a.source, b.source))
+    .slice(0, Math.max(0, spec.top))
+    .map(entry => ({ ...entry, id: redact ? entry.id.slice(0, 8) : entry.id }));
 
   // Quota: opencodex accounts only; fewer than two samples in the window stays "insufficient".
   const quota: ReportData["quota"] = { windows: [], claudeCode: "unavailable" };
   if (sources.includes("ocx")) {
-    const view = quotaView(dataset, { from, to }, ctx.now);
+    // quotaView includes a pre-window baseline for dashboard charts. A report
+    // measures the requested window only; that baseline must not affect burn.
+    const view = quotaView({ quota: {
+      ...dataset.quota,
+      samples: dataset.quota.samples.filter(sample => sample.observedAt >= from && sample.observedAt < to)
+        .sort((a, b) => a.observedAt - b.observedAt),
+    } }, { from, to }, ctx.now);
     const accounts = [...new Set(view.burn.map(entry => entry.account))].sort(compare);
     quota.windows = [...view.burn]
       .sort((a, b) => compare(a.account, b.account) || compare(a.window, b.window))

@@ -232,6 +232,53 @@ describe("buildReport", () => {
     expect(short.quota.windows.every(w => w.status === "insufficient" && w.burnPctPerDay === null)).toBe(true);
   });
 
+  test("quota start and burn use only samples inside the half-open report window", () => {
+    const window = report(WINDOW).meta.window;
+    const sample = (observedAt: number, usedPercent: number) => ({
+      account: "private-account", family: "codex", window: "weekly", usedPercent,
+      observedAt, resetAtMs: null, source: "test",
+    });
+    const data: ReportDataset = {
+      ...dataset,
+      quota: {
+        updatedAt: window.to,
+        windows: [{ account: "private-account", window: "weekly", usedPercent: 90, resetAtMs: null, updatedAt: window.to }],
+        samples: [sample(window.from - 12 * 3_600_000, 0), sample(window.from, 30), sample(window.from + 12 * 3_600_000, 40), sample(window.to, 90)],
+      },
+    };
+    expect(report(WINDOW, {}, data).quota.windows).toEqual([{
+      account: "account 1", window: "weekly", status: "measured", samples: 2,
+      usedPctStart: 30, usedPctEnd: 40, burnPctPerDay: 20,
+    }]);
+  });
+
+  test("conversation identity includes source, with source-specific tokens and projects", () => {
+    const window = report(WINDOW).meta.window;
+    const id = "shared-conversation-id";
+    const rows = [
+      { ...dataset.rows[0]!, ts: window.from, protocol: "claude-code", conversationId: id, cwd: `${home}/claude-project`, model: "claude-model", totalTokens: 100 },
+      { ...dataset.rows[0]!, ts: window.from + 1, protocol: "responses", conversationId: id, cwd: `${home}/ocx-project`, model: "ocx-model", totalTokens: 200 },
+    ];
+    const data = report({ ...WINDOW, redact: false }, {}, { ...dataset, rows });
+    expect(data.kpis.conversations).toBe(2);
+    expect(data.conversations).toMatchObject([
+      { id, source: "ocx", requests: 1, tokens: 200, models: ["ocx-model"], project: `${home}/ocx-project` },
+      { id, source: "claude-code", requests: 1, tokens: 100, models: ["claude-model"], project: `${home}/claude-project` },
+    ]);
+    const phased = report({ ...WINDOW, phases: [`Build=${window.from}..${window.to}`] }, {}, { ...dataset, rows });
+    expect(phased.phases.every(p => p.requests === 0 || p.conversations === 2)).toBe(true);
+  });
+
+  test("model and conversation dollar totals retain the same precision as the KPI", () => {
+    const window = report(WINDOW).meta.window;
+    const row = { ...dataset.rows[0]!, ts: window.from, cost: 0.000042, priced: true, conversationId: "tiny-cost", model: "tiny-model" };
+    const data = report(WINDOW, {}, { ...dataset, rows: [row] });
+    expect(data.kpis.costUsd).toBe(0.000042);
+    expect(data.models[0]!.costUsd).toBe(data.kpis.costUsd);
+    expect(data.conversations[0]!.costUsd).toBe(data.kpis.costUsd);
+    expect(data.models[0]!.usdPerMTok).toBeCloseTo(0.000042 / row.totalTokens * 1e6, 2);
+  });
+
   test("redaction is on by default and redact: false keeps full values", () => {
     const redacted = report(WINDOW);
     const json = JSON.stringify(redacted);
