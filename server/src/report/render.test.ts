@@ -1,0 +1,193 @@
+import { describe, expect, test } from "bun:test";
+import sampleJson from "./__fixtures__/report.sample.json";
+import { QUOTA_DOCS_URL, REPO_URL, renderReportHtml } from "./render";
+import type { ReportData, Source } from "./types";
+
+// JSON imports widen literals ("measured" → string, 1 → number), so the
+// compile-time check runs against a widened ReportData: every key, nesting
+// level and primitive type must match. The literal values are checked below.
+type Widened<T> = T extends string ? string
+  : T extends number ? number
+  : T extends boolean ? boolean
+  : T extends Array<infer U> ? Widened<U>[]
+  : T extends object ? { [K in keyof T]: Widened<T[K]> }
+  : T;
+const widened = sampleJson satisfies Widened<ReportData>;
+
+function asReport(value: Widened<ReportData>): ReportData {
+  const sources = new Set<string>(["claude-code", "ocx"]);
+  const isSource = (s: string): s is Source => sources.has(s);
+  expect(value.schemaVersion).toBe(1);
+  expect(["hour", "day"]).toContain(value.timeline.bucket);
+  expect(["ok", "unavailable"]).toContain(value.coverage.pricing);
+  expect(value.quota.claudeCode).toBe("unavailable");
+  for (const s of value.meta.filters.sources) expect(isSource(s)).toBe(true);
+  for (const m of value.models) expect(isSource(m.source)).toBe(true);
+  for (const c of value.conversations) expect(isSource(c.source)).toBe(true);
+  for (const w of value.quota.windows) expect(["measured", "insufficient"]).toContain(w.status);
+  return value as ReportData;
+}
+
+const sample = asReport(widened);
+const clone = (): ReportData => structuredClone(sample);
+const EMBED = /<script type="application\/json" id="yald-report">([\s\S]*?)<\/script>/;
+
+function embedded(html: string): unknown {
+  const match = EMBED.exec(html);
+  expect(match).not.toBeNull();
+  return JSON.parse(match![1]!);
+}
+
+/** Markup outside the embedded payload, where escaping must have happened. */
+function markup(html: string): string {
+  return html.replace(EMBED, "");
+}
+
+describe("renderReportHtml", () => {
+  test("sample fixture is a consistent one-day report", () => {
+    expect(sample.timeline.points).toHaveLength(24);
+    expect(sample.models).toHaveLength(6);
+    expect(sample.conversations).toHaveLength(10);
+    expect(sample.phases.map(p => p.name).slice(-2)).toEqual(["(outside phases)", "Total"]);
+    const total = sample.phases.at(-1)!;
+    expect(total.tokens).toBe(sample.kpis.tokens);
+    expect(total.requests).toBe(sample.kpis.requests);
+  });
+
+  test("renders the sample payload", () => {
+    expect(renderReportHtml(sample)).toMatchSnapshot();
+  });
+
+  test("stays under 200 KB for a one-day report", () => {
+    expect(Buffer.byteLength(renderReportHtml(sample))).toBeLessThan(200 * 1024);
+  });
+
+  test("makes no network references", () => {
+    const html = renderReportHtml(sample);
+    for (const needle of ["<link", 'src="http', "@import", "url(http"]) expect(html.toLowerCase()).not.toContain(needle);
+    expect(html).not.toMatch(/\ssrc=/i);
+    expect(html.match(/<script/g)).toHaveLength(1);
+    // The only absolute URLs point into the repository: the credit and the quota docs link.
+    const urls = markup(html).match(/https?:\/\/[^\s"'<>)]+/g) ?? [];
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(url === REPO_URL || url.startsWith(`${REPO_URL}/`)).toBe(true);
+    expect(html).toContain(`<a href="${REPO_URL}">Numbers from yald v${sample.meta.yaldVersion}</a>`);
+    expect(html).toContain(`href="${QUOTA_DOCS_URL}"`);
+  });
+
+  test("shows the required labels", () => {
+    const html = renderReportHtml(sample);
+    expect(html).toContain("API list-price equivalent");
+    expect(html).toContain("opencodex only");
+    expect(html).toContain("not enough samples in this window (2)");
+    expect(html).toContain("Claude Code quota: unavailable.");
+    expect(html).toContain("prefers-color-scheme: dark");
+    expect(html).toContain("@media print");
+    expect(html).toMatch(/<svg class="chart"[^>]*><title id="timeline-title">/);
+    expect(html).toContain('<table class="sr-only">');
+  });
+
+  test("escapes hostile strings everywhere they are interpolated", () => {
+    const evil = `</script><img src=x onerror=alert(1)>"'&`;
+    const data = clone();
+    data.meta.title = `Title ${evil}`;
+    data.meta.window.label = `Label ${evil}`;
+    data.meta.yaldVersion = `0.1.0${evil}`;
+    data.meta.filters.projects = [`~/proj-${evil}`];
+    data.models[0]!.model = `model-${evil}`;
+    data.models[0]!.provider = `provider-${evil}`;
+    data.phases[0]!.name = `phase-${evil}`;
+    data.phases[0]!.topModel = `top-${evil}`;
+    data.conversations[0]!.id = `conv-${evil}`;
+    data.conversations[0]!.project = `~/project-${evil}`;
+    data.conversations[0]!.models = [`cmodel-${evil}`];
+    data.timeline.points[0]!.label = `label-${evil}`;
+    data.quota.windows[0]!.account = `account-${evil}`;
+    data.quota.windows[0]!.window = `window-${evil}`;
+    data.coverage.sourcesRead = [`source-${evil}`];
+    data.coverage.unpriced = [{ model: `unpriced-${evil}`, requests: 3 }];
+    data.meta.tz = `Asia/${evil}`;
+    const html = renderReportHtml(data);
+    const visible = markup(html);
+    expect(visible).not.toContain("<img");
+    expect(visible).not.toContain("</script>");
+    expect(visible).toContain("Title &lt;/script&gt;&lt;img src=x onerror=alert(1)&gt;&quot;&#39;&amp;");
+    for (const prefix of ["model-", "provider-", "phase-", "top-", "conv-", "~/project-", "cmodel-", "account-", "window-", "source-", "unpriced-"]) {
+      expect(visible).toContain(`${prefix}&lt;/script&gt;&lt;img`);
+    }
+    // The payload cannot close its own tag.
+    expect(html.match(/<\/script>/g)).toHaveLength(1);
+    expect(html.match(/<img/g)).toBeNull();
+    expect(embedded(html)).toEqual(data);
+  });
+
+  test("embedded JSON parses back to the input", () => {
+    const html = renderReportHtml(sample);
+    expect(EMBED.exec(html)![1]).not.toContain("<");
+    expect(embedded(html)).toEqual(sample);
+  });
+
+  test("renders without phases", () => {
+    const data = clone();
+    data.phases = [];
+    const html = renderReportHtml(data);
+    expect(html).not.toContain("<h2>Phases</h2>");
+    expect(html).toContain("<h2>Timeline</h2>");
+    const onlyTotals = clone();
+    onlyTotals.phases = onlyTotals.phases.slice(-2);
+    expect(renderReportHtml(onlyTotals)).not.toContain("<h2>Phases</h2>");
+  });
+
+  test("renders without quota data", () => {
+    const data = clone();
+    data.quota.windows = [];
+    const html = renderReportHtml(data);
+    expect(html).toContain("No opencodex quota samples in this window.");
+    expect(html).toContain("Claude Code quota: unavailable.");
+  });
+
+  test("renders a single source", () => {
+    const data = clone();
+    data.meta.filters.sources = ["claude-code"];
+    data.models = data.models.filter(m => m.source === "claude-code");
+    data.conversations = data.conversations.filter(c => c.source === "claude-code");
+    for (const p of data.timeline.points) p.bySource.ocx = { tokens: 0, requests: 0 };
+    for (const p of data.phases) p.tokensBySource.ocx = 0;
+    data.kpis.successRate = null;
+    const html = renderReportHtml(data);
+    expect(html).toContain("<h2>Timeline</h2>");
+    expect(html).not.toContain('class="s-ocx"');
+    expect(html).toContain("Token split, % (Claude Code)");
+  });
+
+  test("renders an empty window", () => {
+    const data = clone();
+    const zero = { requests: 0, tokens: 0, freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, costUsd: 0 };
+    data.kpis = { ...zero, conversations: 0, activeHours: 0, cacheHitRate: null, cacheSavingsUsd: 0, successRate: null };
+    data.phases = [];
+    data.timeline.points = data.timeline.points.map(p => ({ ...p, bySource: { "claude-code": { tokens: 0, requests: 0 }, ocx: { tokens: 0, requests: 0 } } }));
+    data.composition = { freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 };
+    data.models = [];
+    data.conversations = [];
+    data.cache = { hitRate: null, savingsUsd: 0, costByClass: { freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0 } };
+    data.quota.windows = [];
+    data.coverage = { sourcesRead: [], unpriced: [], estimatedCostShare: 0, rowsWithoutConversation: 0, ledgerStartsAt: null, pricing: "ok", unattributedRows: null };
+    const html = renderReportHtml(data);
+    expect(html).toContain("No requests in this window");
+    expect(embedded(html)).toEqual(data);
+    data.timeline.points = [];
+    expect(() => renderReportHtml(data)).not.toThrow();
+  });
+
+  test("handles missing pricing, a late ledger and an unknown time zone", () => {
+    const data = clone();
+    data.coverage.pricing = "unavailable";
+    data.coverage.ledgerStartsAt = data.meta.window.from + 3_600_000;
+    data.kpis.costUsd = null;
+    data.meta.tz = "Not/A_Zone";
+    const html = renderReportHtml(data);
+    expect(html).toContain("Pricing was unavailable");
+    expect(html).toContain("spend ledger starts at");
+    expect(html).toContain("Time zone</b> UTC");
+  });
+});
