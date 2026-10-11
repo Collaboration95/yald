@@ -85,7 +85,7 @@ function readRedact(value: boolean | string | undefined): boolean {
  * for the rest.
  */
 export function buildReportSpec(input: ReportSpecInput, ctx: { now: Instant; first: Instant; defaultRange?: string }): ReportSpec {
-  const phaseSpecs = (input.phases ?? []).filter(spec => spec.trim() !== "");
+  const phaseSpecs = input.phases ?? [];
   const windowGiven = [input.from, input.to, input.last, input.range].some(value => present(value) !== undefined);
   let window: TimeWindow;
   let phases: Phase[];

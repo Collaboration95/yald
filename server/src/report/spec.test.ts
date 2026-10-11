@@ -45,6 +45,8 @@ describe("buildReportSpec", () => {
       [{ phases: ["A=2026-10-11 09:00..+2h", "B=2026-10-11 10:00..+2h"] }, "phase_overlap", "phase[1]"],
       [{ phases: ["Future=now..+1h"] }, "phase_outside_window", "phase[0]"],
       [{ phases: ["no separator"] }, "invalid_phase", "phase[0]"],
+      [{ phases: [""] }, "invalid_phase", "phase[0]"],
+      [{ phases: ["Build=2026-10-11 09:00..+2h", "   "] }, "invalid_phase", "phase[1]"],
     ];
     for (const [input, code, param] of cases) {
       const error = thrown(() => spec(input));

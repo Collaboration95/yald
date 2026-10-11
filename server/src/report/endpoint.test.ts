@@ -124,12 +124,14 @@ test("repeated phase params are read in the order given; an invalid one is a 400
     `/api/report?${qs({ ...window, phase: [prep!, build!, "Demo=2026-10-11 15:00"] })}`,
     `/api/report?${qs({ ...window, phase: [prep!, "Late=2026-10-11 17:00..2026-10-11 19:00", build!] })}&format=html`,
     `/api/report?${qs({ ...window, phase: ["Overlap=2026-10-11 14:00..2026-10-11 16:00", prep!, build!] })}`,
+    `/api/report?${qs({ ...window, phase: [prep!, ""] })}`,
   ]);
   expect(invalid.map(response => [response.status, response.body.error?.code, response.body.error?.param])).toEqual([
     [400, "invalid_phase", "phase[2]"],
     [400, "phase_outside_window", "phase[1]"],
     // Build (phase[2]) starts first, so the overlap is reported on the phase given first.
     [400, "phase_overlap", "phase[0]"],
+    [400, "invalid_phase", "phase[1]"],
   ]);
   for (const response of invalid) {
     expect(response.type).toStartWith("application/json");
