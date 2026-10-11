@@ -129,6 +129,32 @@ If the package cannot be found, the UI keeps working and marks cost as unavailab
 - **Conversations** — sessions ranked by tokens, cost, requests, recency or errors, plus a detail view with cumulative
   token growth against submitted context size, model mix and the request list.
 
+## Reports
+
+`yald report` writes one self-contained HTML file (and, with `--json`, its JSON payload) for an exact time window. It
+reads the same ledgers as the dashboard but starts no server and opens no port, so it works anywhere `yald` is
+installed and the file can be shared or attached as is.
+
+```bash
+yald report --last 8h --open
+yald report --from yesterday --to today --tz Asia/Singapore --out yesterday.html
+yald report --tz Asia/Singapore \
+  --phase "Prep=2026-10-10 23:30..2026-10-11 09:00" \
+  --phase "Build=2026-10-11 09:00..+6h" \
+  --phase "Demo=2026-10-11 15:00..2026-10-11 18:00" \
+  --project '~/personal/common-grounds-makeathon*' \
+  --out makeathon.html --json
+```
+
+Windows are half-open (`[from, to)`), naive times are read in `--tz` (default `YALD_TZ`, then the system zone), and
+phases split the window into named rows that add up to the total. Without `--out` the file is named for the window's
+local start, e.g. `yald-report-2026-10-11T0900+0800.html`; `--out -` and `--json -` write to stdout, and progress goes
+to stderr. Reports are redacted by default: conversation ids are cut to 8 characters, your home directory is shown as
+`~` and account labels are left out; `--no-redact` keeps them. Dollar figures are the **API list-price equivalent**
+from the opencodex cost engine, not what a subscription actually bills; unpriced requests are excluded from dollars
+and counted in the coverage notes. `--dry-run` prints the resolved window, phases and row counts without writing
+anything; `yald report --help` lists every option. Invalid input exits with status 2, runtime failures with 1.
+
 ## Ideas worth building next
 
 These came out of the same ledgers and would be straightforward additions:
