@@ -24,6 +24,7 @@ import { LabsPage, LabsInvestigationPage } from "../src/pages/labs/LabsPage";
 import { LabsLayout } from "../src/pages/labs/LabsLayout";
 import { InvestigationScope } from "../src/pages/labs/InvestigationScope";
 import { InvestigationState, type InvestigationStateKind } from "../src/pages/labs/InvestigationState";
+import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { OverviewPage } from "../src/pages/Overview";
 import { UsagePage } from "../src/pages/Usage";
@@ -418,8 +419,10 @@ async function checkLabsShell() {
   }
   const enabledPreferences = { labsEnabled: true, hideArtwork: true };
   const home = renderPage(LabsPage, client, `/labs?${params}`, "/labs", true, enabledPreferences);
-  check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs", "Not available yet."].every(text => home.includes(text)), "enabled shell exposes the three independent component slots");
+  check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs"].every(text => home.includes(text))
+    && home.includes("Not available yet.") === LABS_INVESTIGATIONS.some(entry => !entry.Component), "enabled shell exposes the three independent component slots");
   for (const path of ["project-radar", "cache-detective", "context-replay", "evidence", "unknown/deep"]) {
+    if (LABS_INVESTIGATIONS.find(entry => entry.path === path)?.Component) continue; // Implemented views have their own payload checks.
     const html = renderPage(LabsInvestigationPage, client, `/labs/${path}?${params}`, "/labs/*", true, enabledPreferences);
     check(html.includes("not available yet") && html.includes("All investigations") && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
   }
