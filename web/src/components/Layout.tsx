@@ -26,6 +26,8 @@ import { NoScopeMatches, ProjectFilter, ScopeStatus, SourceFilter } from "./Scop
 import { formatCompact, formatRelative } from "../lib/format";
 import type { MetaResponse, ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
+import { DEMO, displayNow } from "../lib/demo";
+import { YaldiDemoArtwork } from "./YaldiArtwork";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -119,13 +121,21 @@ export function Layout() {
           </div>
           {meta.data ? (
             <p className={clsx("mx-2 rounded-lg px-2 py-1.5 text-[10.5px] leading-4", meta.data.pricing.available ? "bg-accent-soft text-accent" : "bg-warn-soft text-warn")}>
-              {meta.data.pricing.available ? "pricing: opencodex engine" : `pricing unavailable`}
+              {DEMO ? "pricing: illustrative examples" : meta.data.pricing.available ? "pricing: opencodex engine" : `pricing unavailable`}
             </p>
           ) : null}
         </div>
       </aside>
 
       <div className="relay-workspace">
+          {DEMO ? <div data-demo-banner className="sticky top-0 z-40 flex items-center gap-3 border-b border-line bg-accent-soft px-4 py-2 text-ink">
+            <YaldiDemoArtwork />
+            <div className="text-[11.5px] leading-5">
+              <p className="font-semibold">Demo / synthetic data</p>
+              <p>Illustrative example prices, not live rates. Projects, usage and quota are synthetic. API list-price equivalents, not bills.</p>
+              {DEMO.clock === "fixed" ? <p>Screenshot clock: {new Date(DEMO.now!).toISOString()}</p> : null}
+            </div>
+          </div> : null}
         <header className="relay-toolbar">
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -206,7 +216,7 @@ export function Layout() {
           <ScopeStatus data={scope.data} loading={scope.isLoading} error={scope.error} />
           {hasScope(filters) && scope.data?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
             ? <NoScopeMatches /> : <Outlet />}
-          <footer className="relay-footer"><span>{new Date().getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
+          <footer className="relay-footer"><span>{new Date(displayNow()).getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
         </main>
       </div>
       </div>

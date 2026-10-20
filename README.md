@@ -77,6 +77,17 @@ cohort, source identity, coverage and request metadata. Toolbar changes do not
 move that case; Radar retains both original periods. [Investigation guide](docs/guide.md#labs-investigations)
 and [case evidence](docs/labs-evidence.md).
 
+Explore the development build with isolated synthetic data after
+[development setup](docs/install.md#development-checkout):
+
+```bash
+node scripts/yald.mjs demo --open
+```
+
+An installed development package provides `yald demo --open`; the published
+v0.1.0 preview does not include the demo. Example prices are illustrative, not
+live rates. See [the demo guide](docs/demo.md) for its sample clock and cleanup.
+
 ## One report
 
 Available on `dev`, after [development setup](docs/install.md#development-checkout):

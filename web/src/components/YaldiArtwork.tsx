@@ -4,11 +4,11 @@ import { useTheme } from "../lib/theme";
 export type YaldiArtworkState = "investigating" | "analysing" | "empty" | "insufficient" | "error" | "resting";
 export interface YaldiArtworkProps {
   state: YaldiArtworkState;
-  size?: 80 | 120 | 160;
+  size?: 48 | 80 | 120 | 160;
   className?: string;
 }
 
-function ArtworkImage({ state, size = 80, className }: Omit<YaldiArtworkProps, "state"> & { state: YaldiArtworkState | "clue-found" }) {
+function ArtworkImage({ state, size = 80, className }: Omit<YaldiArtworkProps, "state"> & { state: YaldiArtworkState | "clue-found" | "demo" }) {
   const { hideArtwork } = usePreferences();
   const { theme } = useTheme();
   if (hideArtwork) return null;
@@ -20,6 +20,10 @@ function ArtworkImage({ state, size = 80, className }: Omit<YaldiArtworkProps, "
 /** Decorative companion to complete, visible state text. Uses the app's chosen theme. */
 export function YaldiArtwork(props: YaldiArtworkProps) {
   return <ArtworkImage {...props} />;
+}
+
+export function YaldiDemoArtwork() {
+  return <ArtworkImage state="demo" size={48} />;
 }
 
 /** Place beside an existing finding summary only after its server evidence passes eligibility. */

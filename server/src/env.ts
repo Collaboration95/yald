@@ -54,6 +54,13 @@ let cachedPackageDir: string | null | undefined;
  */
 export function ocxPackageDir(): string | null {
   if (cachedPackageDir !== undefined) return cachedPackageDir;
+  // The packaged demo must never discover, probe or import a global engine.
+  // Keep normal discovery (including its existing explicit-path fallback) intact.
+  if (process.env.YALD_DEMO === "1") {
+    const explicit = process.env.OCX_PACKAGE_DIR;
+    cachedPackageDir = explicit && looksLikeOcxPackage(explicit) ? explicit : null;
+    return cachedPackageDir;
+  }
   const candidates: string[] = [];
   if (process.env.OCX_PACKAGE_DIR) candidates.push(process.env.OCX_PACKAGE_DIR);
 

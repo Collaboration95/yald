@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { DEMO, requestNow } from "./demo/mode";
 import { publicRow } from "./publicRow";
 import { EvidenceIntentError, parseCaseIntent } from "./labs/evidence-intent";
 import { buildEvidenceCase } from "./labs/evidence";
@@ -185,7 +186,7 @@ api.use("/api/*", async (c, next) => {
     return;
   }
   const dataset = await getDataset();
-  const now = Date.now();
+  const now = requestNow();
   c.set("dataset", dataset);
   c.set("now", now);
   // A conversation detail without window parameters is all-history, so only its dataset revision matters.
@@ -241,6 +242,7 @@ api.get("/api/meta", async c => {
   return c.json({
     ok: true,
     ocxHome: OCX_HOME,
+    ...(DEMO ? { demo: DEMO } : {}),
     timeZone: TIME_ZONE,
     pricing: pricingStatus(),
     files: dataset.files,
