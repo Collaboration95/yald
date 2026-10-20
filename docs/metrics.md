@@ -1,8 +1,20 @@
 # Metric definitions
 
+Dollar amounts are **API list-price equivalents**, not subscription bills or
+proof of savings. This guide describes current development, including Labs;
+the published v0.1.0 preview predates Claude ingestion, reports and Labs. See
+[installation](install.md) for distribution status and [views and reports](guide.md)
+for the investigation workflow.
+
 ## Requests, sends, and attempts
 
-A **request** is one logical dashboard row, identified by a request ID. An **attempt** is one provider execution made to complete that request; retries can create multiple attempts. A **physical send** is a dispatched upstream request recorded by the spend ledger. One logical request can therefore have multiple attempts and sends. Reservations that never dispatch are not sends.
+A **request** is one logical dashboard row. Source, request ID and original-order
+ordinal distinguish rows when IDs collide; sessions use `(source, conversationId)`.
+An **attempt** is one observed provider execution made to complete a request;
+retries can create multiple attempts. A **physical send** is a dispatched upstream
+request recorded by the spend ledger. One logical request can therefore have
+multiple attempts and sends. Reservations that never dispatch are not sends.
+Claude transcripts do not measure retry histories or physical sends.
 
 ## Tokens and cache
 
@@ -17,6 +29,15 @@ Cache provenance is `observed`, `synthesized`, or `unknown`. Cache hit-rate calc
 Metering coverage is the share of requests with reported or otherwise recoverable usage. The four `usageStatus` values are `reported`, `estimated`, `unreported`, and `unsupported`; missing or unfamiliar values are grouped under `other`. Coverage counts reported and estimated rows. Unpriced requests have token usage but no matching price; unmetered requests have no usable token count. Both are excluded from estimated cost totals, and coverage fields expose them.
 
 Cost is estimated by the opencodex pricing engine used by `ocx usage`. It applies the jawcode price table, expected-price overlay, user overlays, long-context bands, and priority multiplier. If that engine is unavailable, yald marks pricing unavailable instead of presenting a second price table.
+
+Missing input is not observed zero input; missing price is unavailable, not free.
+A priced zero remains valid. An all-unpriced sum cannot establish a zero cost;
+mixed coverage gives only the priced subtotal. **Price coverage and project
+attribution coverage are independent:** a request can be priced without a known
+folder, or attributed without a price. Cost/model views expose price gaps;
+project selection, reports and Radar disclose attribution exclusions separately.
+See [pricing discovery](install.md#pricing-discovery) and
+[project attribution](#project-attribution).
 
 ## Net cache economics
 
@@ -97,7 +118,7 @@ Success rate uses observed logical request outcomes, not physical sends or Claud
 
 Each request carries the working directory (`cwd`) it was made from, or none when that is unknown.
 
-- **Claude Code:** every transcript line records `cwd`, and yald keeps it, including in its Claude archive. Archive entries written before yald kept `cwd` get it from the live transcript while that file still exists (the filled-in copy is appended to the archive once); otherwise they stay unattributed.
+- **Claude Code:** when a usage record includes `cwd`, Yald keeps it, including in its Claude archive. Archive entries written before Yald kept `cwd` get it from a live transcript that still supplies it (the filled-in copy is appended to the archive once); otherwise they stay unattributed.
 - **Codex through opencodex:** ledger rows carry no folder. An opencodex `conversationId` is the first 32 hex characters of `sha256(<Codex session id>)`, and the first line (`session_meta`) of each Codex rollout in `~/.codex/sessions/**/rollout-*.jsonl` and `~/.codex/archived_sessions/rollout-*.jsonl` records that session id and its `cwd`. Yald hashes every rollout's id and joins on it. Only that first line is read (at most 64 KB per file), and unchanged files are not re-read. Subagent traffic is mostly sent under the root thread's id and inherits the root's folder; some is sent under the subagent's own id, which its own rollout also covers. When the root rollout is gone, a surviving subagent rollout still names the root and supplies its folder. `CODEX_HOME` (or `--codex-home`) selects another Codex home.
 
 A project filter (`projects`) is a list of folder globs. A request matches when its `cwd`, or any folder above it, matches a glob, so `~/work/app-a` covers `~/work/app-a/server` and `~/work/app-a*` also covers `~/work/app-a-api`. `~` is the home directory and a trailing `/` is ignored. On macOS, `/tmp/...` and `/private/tmp/...` (and `/var/...` and `/private/var/...`) are treated as the same folder, so `/tmp/app-a-*` and `/private/var/folders/**/T/app-a-*` match Codex SDK runs started in temp folders. Unattributed requests never match a project filter: they are excluded and reported as `coverage.unattributedRows` and `coverage.unattributedTokens`, so a filtered total can be read as a lower bound.
@@ -128,7 +149,7 @@ Limits:
 - Codex can delete or prune old rollouts. Their opencodex rows then lose attribution and count as unattributed, while their usage still counts.
 - opencodex traffic from clients other than Codex (or without a conversation id) has no rollout and stays unattributed.
 - Attribution is by the folder a session started in. A session that changes directory part-way still counts toward its starting folder.
-- Absolute paths appear only in the local API. Shareable outputs redact the home directory to `~`.
+- The local API can include absolute paths. Reports redact home paths to `~` by default, but other absolute paths can remain; `--no-redact` keeps full paths. Review shareable outputs before sending them.
 
 ## Time series and quota
 
@@ -205,8 +226,13 @@ New Claude archive records retain the raw presence flags. Older archive entries
 already replaced missing counters with zeros, so absence cannot be reconstructed
 from those records alone. Their input/cache presence remains unavailable until a
 live copy with the same usage supplies evidence. Yald never changes source logs;
-its own append-only Claude usage archive under the opencodex home persists usage
-after source transcripts are deleted and has no automatic retention expiry.
+its own append-only Claude usage archive at
+`$OCX_HOME/yald-claude-usage.jsonl` (default
+`~/.opencodex/yald-claude-usage.jsonl`) persists usage after source transcripts
+are deleted and has no automatic retention expiry. An empty transcript folder
+does not remove archived usage; a source filter does not delete the archive or
+disable ingestion. [Local storage details](install.md#data-locations-and-local-archive)
+explain isolation with a separate home.
 
 ## Project Radar (Labs)
 
@@ -278,3 +304,10 @@ is never a numeric zero; observed zero remains valid. Recorded token-volume
 totals can include incomplete or attempt-summed usage and are not context medians.
 All observations use existing server builders without inferred causes or new
 pricing logic. The request list contains public metadata only.
+
+Cache population subtotals use the server's six-decimal USD aggregation, with
+ties rounded away from zero. The eligible subtotal is exactly the builder's
+actual fixed-workload price; the original subtotal independently includes priced
+comparison exclusions. Raw individual request costs are unchanged and need not
+sum after display rounding. Radar and Context retain unrounded priced-cost sums.
+These precision rules do not turn an all-unpriced population into observed zero.
