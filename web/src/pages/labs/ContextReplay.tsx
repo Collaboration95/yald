@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { filtersKey, sourceLabel, useContextReplay } from "../../api";
 import { Chart } from "../../components/Chart";
 import { Card, CardHeader, TableShell, Td, Th } from "../../components/ui";
+import { YaldiFindingArtwork } from "../../components/YaldiArtwork";
 import { useChartStyle } from "../../lib/chartStyle";
 import { formatDuration, formatInteger } from "../../lib/format";
 import { colorAt } from "../../lib/palette";
@@ -94,20 +95,27 @@ function ContextSessionReplay({ session, tz }: { session: ContextSession; tz: st
   const design = useChartStyle();
   const modelColor = design?.modelColor ?? contextModelColor;
   const option = useMemo(() => contextTimelineOption(chartTheme, session, tz, modelColor), [chartTheme, session, tz, modelColor]);
+  const findingSupported = session.growth.ranked && session.growth.baseline !== null && session.growth.latest !== null;
   return <>
     <Card>
-      <CardHeader title="Submitted and cached input" subtitle={<><span className="font-medium">{sourceLabel(session.source)}</span> · <span className="break-all font-mono">{session.conversationId}</span></>}
-        action={<Link className="rounded border border-line px-3 py-2 text-[12px] text-ink hover:border-line-strong" to={contextEvidenceHref(session.evidence)}>Open session requests</Link>} />
+      <CardHeader title="Submitted and cached input" subtitle={<><span className="font-medium">{sourceLabel(session.source)}</span> · <span className="break-all font-mono">{session.conversationId}</span></>} />
       <p className="text-[12px] leading-5 text-ink-soft">{formatInteger(session.eligibleRequests)} of {formatInteger(session.inWindowRequests)} selected requests eligible; {formatInteger(session.excludedRequests)} excluded.
         {" "}History covers loaded data only.</p>
       {session.truncated ? <p className="mt-1 text-[12px] leading-5 text-ink-soft">Sequence limited by {session.history.rangeLimited ? "the window" : ""}{session.history.rangeLimited && session.history.cohortLimited ? " and " : ""}{session.history.cohortLimited ? "the cohort" : ""}:
         {" "}{formatInteger(session.history.beforeWindowRequests)} loaded requests before the window, {formatInteger(session.history.afterWindowRequests)} at or after its end,
         {" "}{formatInteger(session.history.outsideCohortRequests)} within the window outside the cohort. {formatInteger(session.totalRequests)} loaded requests in this source/session.</p> : null}
       <Exclusions counts={session.exclusions} />
-      {!session.growth.ranked ? <div className="mt-3"><InvestigationState kind="insufficient" title="Insufficient data for growth ranking"
-        detail={`${formatInteger(session.eligibleRequests)} eligible requests; at least six are needed. Every selected request remains inspectable below.`} /></div> : <p className="mt-2 text-[12px] text-ink-soft">
-        First-three median {contextTokens(session.growth.baseline)} → last-three median {contextTokens(session.growth.latest)} input tokens · change {signedTokens(session.growth.absoluteChange)} tokens.
-      </p>}
+      <section className="mt-3" data-finding-summary="context-replay" aria-label="Selected session input change" aria-live="polite">
+        {!findingSupported ? <InvestigationState kind="insufficient" title="Insufficient data for growth ranking"
+          detail={`${formatInteger(session.eligibleRequests)} eligible requests; at least six are needed. Every selected request remains inspectable below.`} /> : <div className="flex items-start gap-4">
+          <YaldiFindingArtwork evidenceSufficient={findingSupported} />
+          <p className="min-w-0 flex-1 text-[12px] leading-5 text-ink-soft">
+            First-three median {contextTokens(session.growth.baseline)} → last-three median {contextTokens(session.growth.latest)} input tokens · change {signedTokens(session.growth.absoluteChange)} tokens.
+            {" "}Last / first: {session.growth.ratio === null ? (session.growth.baseline === 0 ? "Unavailable · zero baseline" : "Unavailable") : `${session.growth.ratio.toLocaleString("en-US", { maximumFractionDigits: 3 })}×`}.
+          </p>
+        </div>}
+        <Link className="mt-2 inline-block rounded border border-line px-3 py-2 text-[12px] text-ink hover:border-line-strong" to={contextEvidenceHref(session.evidence)}>Open session requests</Link>
+      </section>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-soft" aria-label="Input series legend">
         {["Submitted input", "Cache read", "Cache write"].map((name, index) => <span key={name} className="inline-flex items-center gap-1.5">
           <span className="w-4 border-t-2" style={{ borderColor: design?.color(colorAt(index)) ?? colorAt(index), borderTopStyle: index === 0 ? "solid" : "dashed" }} aria-hidden="true" />

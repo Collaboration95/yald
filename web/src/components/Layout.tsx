@@ -41,7 +41,7 @@ const NAV = [
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   "/": { title: "Overview", subtitle: "Usage recorded by your selected sources" },
   "/usage": { title: "Usage", subtitle: "Token volume, composition and context pressure" },
-  "/cost": { title: "Cost & spend", subtitle: "Estimated spend from opencodex's own pricing engine" },
+  "/cost": { title: "Cost & spend", subtitle: "API list-price equivalents for your selected sources" },
   "/performance": { title: "Performance", subtitle: "Latency, time-to-first-token and throughput" },
   "/reliability": { title: "Reliability", subtitle: "Outcomes, failures and metering coverage" },
   "/models": { title: "Models", subtitle: "Compare every model on volume, price and speed" },
@@ -50,7 +50,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
 };
 
 export function Layout() {
-  const { labsEnabled, setPreference } = usePreferences();
+  const { labsEnabled, hideArtwork, setPreference } = usePreferences();
   const { filters, set, toggleIn, reset } = useFilters();
   const { theme, toggle } = useTheme();
   const location = useLocation();
@@ -80,6 +80,7 @@ export function Layout() {
       <div className="relay-frame">
       <aside className="relay-sidebar">
         <Wordmark />
+        <p className="mt-2 text-[10px] leading-4 text-muted">opencodex + Claude Code</p>
         <nav className="relay-nav" aria-label="Analytics sections">
           {[...NAV, ...(labsEnabled ? [{ to: "/labs", label: "Labs", icon: FlaskConical }] : [])].map(item => (
             <NavLink
@@ -97,6 +98,11 @@ export function Layout() {
           <input type="checkbox" role="switch" checked={labsEnabled}
             onChange={event => setPreference("labsEnabled", event.target.checked)} className="accent-accent" />
           Enable Labs
+        </label>
+        <label className="mx-4 mt-2 flex cursor-pointer items-center gap-2 text-[11.5px] text-ink-soft">
+          <input type="checkbox" role="switch" checked={hideArtwork}
+            onChange={event => setPreference("hideArtwork", event.target.checked)} className="accent-accent" />
+          Hide artwork
         </label>
         <div className="relay-activity">
           <div className="px-2">
@@ -174,7 +180,7 @@ export function Layout() {
                 onClick={() => void refresh()}
                 className="rounded-lg border border-line bg-surface p-1.5 text-muted transition hover:text-ink"
                 aria-label="Refresh data"
-                title="Re-read opencodex data"
+                title="Re-read local opencodex and Claude Code data"
               >
                 <RefreshCw size={13} className={meta.isFetching ? "animate-spin" : undefined} />
               </button>

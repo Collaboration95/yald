@@ -38,6 +38,7 @@ import { materializeFixtureHome, materializeFixturePricing } from "./fixtureHome
 import { addContextReplayFixtures } from "./context-replay-fixtures";
 import { checkContextReplaySmoke } from "./context-replay-smoke";
 import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
+import { checkYaldiArtwork } from "./yaldi-smoke";
 
 type AnyComponent = () => React.ReactElement | null;
 
@@ -434,7 +435,8 @@ async function checkLabsShell() {
   const cache = renderPage(LabsInvestigationPage, client, `/labs/cache-detective?${params}`, "/labs/*", true, enabledPreferences);
   check(["Cache Detective", "No requests to investigate", "Read discount", "Write premium", "Net · Unavailable", "Unnamed requests", "Investigation scope"].every(text => cache.includes(text)), "registered Cache Detective renders the real empty API payload without treating missing money as zero");
   for (const kind of ["loading", "error", "empty", "insufficient"] as InvestigationStateKind[]) {
-    const html = renderToString(<InvestigationState kind={kind} onRetry={() => {}} />);
+    const html = renderToString(<ThemeProvider><PreferencesProvider storage={{ getItem: () => JSON.stringify({ version: 1, ...enabledPreferences }), setItem: () => {} }}>
+      <InvestigationState kind={kind} onRetry={() => {}} /></PreferencesProvider></ThemeProvider>);
     check(html.includes(`role="${kind === "error" ? "alert" : "status"}"`) && html.includes("aria-describedby") && !html.includes("<img")
       && html.includes("Try again") === (kind === "error"), `${kind} state has complete text and accessible semantics`);
   }
@@ -454,6 +456,7 @@ async function checkLabsShell() {
 }
 await checkLabsShell();
 if (useFixtures) await checkContextReplaySmoke();
+failures += checkYaldiArtwork();
 if (useFixtures) await Promise.all([process.env.OCX_HOME!, fixturePricing].map(path => rm(path, { recursive: true, force: true })));
 
 globalThis.fetch = realFetch;

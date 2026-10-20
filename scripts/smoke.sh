@@ -7,6 +7,10 @@ bun="${root}/scripts/bun"
 # Extra arguments are forwarded, so `./scripts/smoke.sh --fixtures` forces the synthetic ledger.
 (cd "${root}/web" && "${bun}" run scripts/smoke.tsx "$@")
 
+# Each real-view fixture initializes its own isolated source homes and pricing.
+"${bun}" run "${root}/web/scripts/project-radar-smoke.tsx"
+"${bun}" run "${root}/web/scripts/cache-detective-smoke.tsx"
+
 # `yald report --last 24h` through the npm bin, against a fixture home and the fixture
 # cost engine, so it never reads real ledgers and never opens a port.
 read -r fixture pricing < <(YALD_FIXTURE_MODULE="${root}/web/scripts/fixtureHome.ts" "${bun}" -e '

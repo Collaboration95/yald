@@ -7,7 +7,7 @@ import { DEFAULT_FILTERS, fetchJson, filtersFromParams, filtersToParams } from "
 import { lineChart } from "../src/components/chartOptions";
 import { ChartStyleContext } from "../src/lib/chartStyle";
 import { makeRelayStyle } from "../src/lib/relayStyle";
-import { ThemeProvider } from "../src/lib/theme";
+import { YaldiSmokeProviders } from "./yaldi-smoke";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { ContextReplay, ContextReplayView, ContextRequestDetails } from "../src/pages/labs/ContextReplay";
 import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
@@ -28,8 +28,8 @@ export async function checkContextReplaySmoke() {
   const main = data.sessions.find(s => s.source === "ocx" && s.conversationId === "l07-shared")!;
   const transcript = data.sessions.find(s => s.source === "claude-code" && s.conversationId === "l07-shared")!;
   const models = [...new Set(data.sessions.flatMap(s => s.requests.map(r => r.model)))];
-  const render = (payload: ContextReplayResponse, dark = false) => renderToString(<ThemeProvider><ChartStyleContext.Provider value={makeRelayStyle(dark, models)}>
-    <MemoryRouter><ContextReplayView data={payload} /></MemoryRouter></ChartStyleContext.Provider></ThemeProvider>);
+  const render = (payload: ContextReplayResponse, dark = false, hideArtwork = false) => renderToString(<YaldiSmokeProviders theme={dark ? "dark" : "light"} hideArtwork={hideArtwork}><ChartStyleContext.Provider value={makeRelayStyle(dark, models)}>
+    <MemoryRouter><ContextReplayView data={payload} /></MemoryRouter></ChartStyleContext.Provider></YaldiSmokeProviders>);
 
   check(() => {
     assert.deepEqual(main.growth, { ranked: true, baseline: 200, latest: 1000, absoluteChange: 800, ratio: 5 });
@@ -103,6 +103,19 @@ export async function checkContextReplaySmoke() {
       assert.equal(zero.growth.ratio, null);
       const excluded = data.sessions.find(s => s.conversationId === "l07-excluded")!;
       assert.match(plain(render({ ...data, sessions: [excluded] }, dark)), /0 eligible requests; at least six are needed/);
+      for (const [session, supported] of [[main, true], [transcript, true], [zero, true], [short, false], [excluded, false]] as const) {
+        const shown = plain(render({ ...data, sessions: [session] }, dark));
+        const hidden = plain(render({ ...data, sessions: [session] }, dark, true));
+        assert.equal(shown.includes(`/yaldi/state-clue-found${dark ? "-dark" : ""}.svg`), supported);
+        assert.equal(shown.replace(/<img[^>]*>/g, ""), hidden);
+        assert(!hidden.includes("<img"));
+        assert(shown.includes('data-finding-summary="context-replay"'));
+        const href = shown.match(/href="([^"]+)"[^>]*>Open session requests<\/a>/)![1]!.replace(/&amp;/g, "&");
+        const original = new URL(session.evidence.href, "http://fixture.invalid");
+        const intent = new URL(href, "http://fixture.invalid");
+        for (const [key, value] of original.searchParams) assert.equal(intent.searchParams.get(key), value);
+        assert.deepEqual(JSON.parse(intent.searchParams.get("selector")!).selection, { kind: "session", source: session.source, conversationId: session.conversationId });
+      }
       const tooltip: any = contextTimelineOption(theme, { ...short, requests: [{ ...short.requests[0]!, id: "<fixture>" }] }, data.window.tz);
       assert.match(tooltip.tooltip.formatter([{ dataIndex: 0 }]), /&lt;fixture&gt;/);
     }, `${dark ? "dark" : "light"} render uses server ranking, medians, truncation, short/zero-baseline/excluded states`);
@@ -165,8 +178,8 @@ export async function checkContextReplaySmoke() {
     const params = filtersToParams(filters);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     client.setQueryData(["/api/labs/context", params], scoped);
-    const html = plain(renderToString(<QueryClientProvider client={client}><ThemeProvider><MemoryRouter initialEntries={[`/labs/context-replay?${filteredParams}`]}>
-      <FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></ThemeProvider></QueryClientProvider>));
+    const html = plain(renderToString(<QueryClientProvider client={client}><YaldiSmokeProviders><MemoryRouter initialEntries={[`/labs/context-replay?${filteredParams}`]}>
+      <FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>));
     assert.match(html, /l07-shared/);
     assert(!html.includes("l07-claude-0"));
     assert(!html.includes("l07-model-change"));
@@ -191,11 +204,13 @@ export async function checkContextReplaySmoke() {
     assert.match(render(unnamed), /No named sessions/);
     assert.match(render(unnamed), /Open scope requests/);
     const unseeded = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const html = renderToString(<QueryClientProvider client={unseeded}><MemoryRouter><FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></QueryClientProvider>);
+    const stateRender = () => renderToString(<QueryClientProvider client={unseeded}><YaldiSmokeProviders><MemoryRouter><FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>);
+    const html = stateRender();
     assert.match(html, /Loading investigation/);
     unseeded.setQueryData(["/api/labs/context", filtersToParams(DEFAULT_FILTERS)], data);
     unseeded.getQueryCache().find({ queryKey: ["/api/labs/context", filtersToParams(DEFAULT_FILTERS)] })!.setState({ status: "error", error: new Error("Synthetic L07 API error") });
-    assert.match(renderToString(<QueryClientProvider client={unseeded}><MemoryRouter><FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></QueryClientProvider>), /Synthetic L07 API error/);
+    assert.match(stateRender(), /Synthetic L07 API error/);
+    assert(!stateRender().includes("clue-found"));
     unseeded.clear();
   }, "empty, unnamed, loading and error states remain readable");
   console.log(`PASS  L07 ${checks} focused API/render/chart groups`);

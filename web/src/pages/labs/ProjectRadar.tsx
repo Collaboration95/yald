@@ -4,6 +4,7 @@ import { filtersKey, sourceLabel, useEndpoint } from "../../api";
 import { Chart, type ChartOption } from "../../components/Chart";
 import { axisCommon, baseGrid, legendCommon, tooltipCommon, type ThemeTokens } from "../../components/chartOptions";
 import { Card, CardHeader } from "../../components/ui";
+import { YaldiFindingArtwork } from "../../components/YaldiArtwork";
 import { formatDelta, formatInteger, formatUsd } from "../../lib/format";
 import { colorAt } from "../../lib/palette";
 import { useTheme } from "../../lib/theme";
@@ -50,6 +51,8 @@ export function ProjectRadarResult({ data, initialProject }: { data: ProjectRada
   const { chartTheme } = useTheme();
   const selected = data.projects.find(project => project.project === selection) ?? data.projects[0];
   const empty = data.current.totals.requests === 0 && data.prior.totals.requests === 0;
+  const findingSupported = !empty && !!selected && (selected.current.totals.pricedRequests > 0 || selected.prior.totals.pricedRequests > 0)
+    && (selected.comparison.pricedCostUsd.state === "compared" || selected.comparison.pricedCostUsd.state === "new");
   const unattributed = data.projects.find(project => project.project === "(unattributed)");
   function selectWithKeyboard(event: KeyboardEvent, index: number) {
     const next = event.key === "ArrowDown" ? Math.min(index + 1, data.projects.length - 1)
@@ -61,17 +64,19 @@ export function ProjectRadarResult({ data, initialProject }: { data: ProjectRada
     if (project) { setSelection(project.project); buttons.current.get(project.project)?.focus(); }
   }
   return <div className="space-y-3" data-project-radar>
-    {/* Semantic finding summary is the later artwork integration point; text stands alone. */}
     <section className="card p-4" data-finding-summary="project-radar" aria-labelledby="radar-finding-title">
-      <div aria-live="polite" aria-atomic="true">
-        <h2 id="radar-finding-title" className="text-[16px] font-semibold text-ink">{empty ? "No project activity recorded in these windows" : selected ? projectLabel(selected.project) : "Project Radar"}</h2>
-        {selected && !empty ? <>
-          <p className="mt-1 break-words text-[11px] text-muted" data-selected-project={selected.project}>{selected.project}</p>
-          <p className="mt-2 text-[13px] text-ink" data-radar-finding>
-            {formatInteger(selected.current.totals.requests)} current requests · {formatInteger(selected.current.totals.tokens)} recorded tokens · {money(selected.current.totals)} API list-price equivalents.
-          </p>
-          <p className="mt-1 text-[12px] text-ink-soft">Request change: <Change change={selected.comparison.requests} metric="requests" />. Cost change: <Change change={selected.comparison.pricedCostUsd} metric="pricedCostUsd" />.</p>
-        </> : null}
+      <div className="flex items-start gap-4">
+        <YaldiFindingArtwork evidenceSufficient={findingSupported} />
+        <div className="min-w-0 flex-1" aria-live="polite" aria-atomic="true">
+          <h2 id="radar-finding-title" className="text-[16px] font-semibold text-ink">{empty ? "No project activity recorded in these windows" : selected ? projectLabel(selected.project) : "Project Radar"}</h2>
+          {selected && !empty ? <>
+            <p className="mt-1 break-words text-[11px] text-muted" data-selected-project={selected.project}>{selected.project}</p>
+            <p className="mt-2 text-[13px] text-ink" data-radar-finding>
+              {formatInteger(selected.current.totals.requests)} current requests · {formatInteger(selected.current.totals.tokens)} recorded tokens · {money(selected.current.totals)} API list-price equivalents.
+            </p>
+            <p className="mt-1 text-[12px] text-ink-soft">Request change: <Change change={selected.comparison.requests} metric="requests" />. Cost change: <Change change={selected.comparison.pricedCostUsd} metric="pricedCostUsd" />.</p>
+          </> : null}
+        </div>
       </div>
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <PeriodLabel label="Current" window={data.window} />

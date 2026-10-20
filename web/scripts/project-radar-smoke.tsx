@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { DEFAULT_FILTERS, filtersFromParams, filtersToParams } from "../src/api";
-import { ThemeProvider } from "../src/lib/theme";
+import { YaldiSmokeProviders } from "./yaldi-smoke";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { ProjectRadar, ProjectRadarResult, radarDailyOption } from "../src/pages/labs/ProjectRadar";
 import type { ProjectRadarResponse, RadarChange, RadarTotals } from "../src/types";
@@ -24,8 +24,8 @@ const decode = (value: string) => value.replace(/&amp;/g, "&").replace(/&quot;/g
 const money = (totals: RadarTotals) => totals.pricedRequests ? `$${totals.pricedCostUsd.toLocaleString("en-US", { minimumFractionDigits: 6, maximumFractionDigits: 6 })}` : "Unavailable";
 let assertions = 0;
 function check(condition: unknown, label: string) { assert.ok(condition, label); assertions++; }
-function render(data: ProjectRadarResponse, project?: string) {
-  return decode(renderToStaticMarkup(<ThemeProvider><MemoryRouter><ProjectRadarResult data={data} initialProject={project} /></MemoryRouter></ThemeProvider>));
+function render(data: ProjectRadarResponse, project?: string, theme: "light" | "dark" = "light", hideArtwork = false) {
+  return decode(renderToStaticMarkup(<YaldiSmokeProviders theme={theme} hideArtwork={hideArtwork}><MemoryRouter><ProjectRadarResult data={data} initialProject={project} /></MemoryRouter></YaldiSmokeProviders>));
 }
 async function payload(patch: Record<string, string> = {}) {
   const params = new URLSearchParams({ ...RADAR_WINDOW, ...patch });
@@ -136,21 +136,39 @@ try {
   const typed = buildProjectRadar(dataset.rows, { projects: [`${fixture.root}/work/{alpha,beacon}`], models: ["radar,model"] }, parseWindow(RADAR_WINDOW, { now: Date.now(), first: dataset.rows[0]!.ts }));
   verifyPayload(typed, "server payload with comma-bearing typed arrays");
 
+  const pricedZero = await payload({ from: String(RADAR_FROM + RADAR_DAY), to: String(RADAR_FROM + 3 * RADAR_DAY), projects: fixture.alpha, models: "radar-metered" });
+  assert.equal(pricedZero.data.projects[0]!.current.totals.pricedCostUsd, 0);
+  assert.equal(pricedZero.data.projects[0]!.comparison.pricedCostUsd.state, "compared");
+  const missingBaseline = await payload({ from: String(RADAR_FROM - 4 * RADAR_DAY - 1), to: String(RADAR_FROM - 4 * RADAR_DAY + 1) });
+  for (const theme of ["light", "dark"] as const) for (const [data, project, supported] of [
+    [full.data, fixture.alpha, true], [full.data, fixture.beacon, true], [full.data, fixture.noPrice, false],
+    [full.data, fixture.zero, false], [full.data, fixture.priorOnly, true], [pricedZero.data, fixture.alpha, true],
+    [missingBaseline.data, fixture.alpha, false], [(await payload({ projects: "/no/synthetic/project" })).data, undefined, false],
+  ] as const) {
+    const shown = render(data, project, theme);
+    const hidden = render(data, project, theme, true);
+    check(shown.includes(`/yaldi/state-clue-found${theme === "dark" ? "-dark" : ""}.svg`) === supported, `B02 ${theme}: actual selected cost finding ${project} eligibility`);
+    check(!hidden.includes("<img") && shown.replace(/<img[^>]*>/g, "") === hidden, `B02 ${theme}: hiding artwork preserves every finding, evidence URL and value`);
+  }
+
   // Exercise the production hook/query key, not only the result renderer.
   for (const { data, params } of [full, combined]) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     const filters = filtersFromParams(params);
     client.setQueryData(["/api/labs/projects", filtersToParams(filters)], data);
-    const html = decode(renderToStaticMarkup(<QueryClientProvider client={client}><ThemeProvider><MemoryRouter initialEntries={[`/labs/project-radar?${params}`]}><FiltersProvider><ProjectRadar /></FiltersProvider></MemoryRouter></ThemeProvider></QueryClientProvider>));
+    const html = decode(renderToStaticMarkup(<QueryClientProvider client={client}><YaldiSmokeProviders><MemoryRouter initialEntries={[`/labs/project-radar?${params}`]}><FiltersProvider><ProjectRadar /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>));
     check(html.includes(`data-selected-project="${data.projects[0]!.project}"`) && html.includes(data.window.label), "Hook consumes the full response for its complete filter key");
     client.clear();
   }
   const stateClient = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });
-  const renderState = () => renderToStaticMarkup(<QueryClientProvider client={stateClient}><ThemeProvider><MemoryRouter><FiltersProvider><ProjectRadar /></FiltersProvider></MemoryRouter></ThemeProvider></QueryClientProvider>);
+  const renderState = () => renderToStaticMarkup(<QueryClientProvider client={stateClient}><YaldiSmokeProviders><MemoryRouter><FiltersProvider><ProjectRadar /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>);
   check(renderState().includes("Loading investigation"), "Pending query uses shared loading state");
   try { await stateClient.fetchQuery({ queryKey: ["/api/labs/projects", filtersToParams(DEFAULT_FILTERS)], queryFn: () => Promise.reject(new Error("Synthetic API error")) }); } catch { /* Expected synthetic failure. */ }
   const error = renderState();
   check(error.includes('role="alert"') && error.includes("Synthetic API error") && error.includes("Try again"), "Query failure uses accessible error and retry");
+  stateClient.setQueryData(["/api/labs/projects", filtersToParams(DEFAULT_FILTERS)], full.data);
+  stateClient.getQueryCache().getAll()[0]!.setState({ status: "error", error: new Error("Synthetic refresh failure") });
+  check(renderState().includes("Synthetic refresh failure") && !renderState().includes("clue-found"), "B02 refresh error never decorates retained Radar data");
   stateClient.clear();
   console.log(`PASS L03 ${assertions} payload/SSR assertions; synthetic inputs only`);
 } finally {

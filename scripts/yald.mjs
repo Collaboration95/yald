@@ -51,6 +51,9 @@ function serve() {
   }
   if (args.includes("--help") || args.includes("-h")) {
     console.log([
+      "Yald — local, read-only analytics for opencodex and Claude Code usage.",
+      "Yaldi is Yald's detective companion in optional Labs investigations.",
+      "",
       "Usage: yald [--port PORT] [--host HOST] [--ocx-home PATH] [--codex-home PATH] [--open] [--version]",
       "       yald report [window] [options]",
       "",
