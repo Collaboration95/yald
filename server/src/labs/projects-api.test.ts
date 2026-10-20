@@ -75,6 +75,8 @@ test("real API parses common filters, discloses F03 exclusions and keeps current
   Object.entries({ sources: "codex", projects: repo, providers: "fixture-provider", models: "priced", efforts: "high", statuses: "ok", routeKinds: "native", conversationId: "fixture-collision", search: "fixture" }).forEach(([key, value]) => q.set(key, value));
   const { status, body } = await request(q.toString());
   expect(status).toBe(200);
+  expect(Object.keys(body.window).sort()).toEqual(["from", "fromIso", "halfOpen", "label", "to", "toIso", "tz"]);
+  expect(Object.keys(body.priorWindow).sort()).toEqual(Object.keys(body.window).sort());
   expect(body.current.totals).toMatchObject({ requests: 1, tokens: 500, pricedRequests: 1, unpricedRequests: 0 });
   expect(body.prior.totals).toMatchObject({ requests: 1, tokens: 1000 });
   expect(body.current.totals.pricedCostUsd).toBeCloseTo(0.005, 10);

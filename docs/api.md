@@ -241,7 +241,14 @@ The existing dataset refresh policy applies to pricing-only changes.
 
 Every evidence selector has `{version:1,window,cohort,selection,eligibility}`.
 Its fixed window and every cohort dimension serialize into `/labs/evidence` query
-parameters; there is no moving `range`. Project selection adds
+parameters; there is no moving `range`. `selectorVersion=1` identifies the format.
+The `selector` parameter is the complete URL-encoded JSON selector, including its
+fixed window, typed cohort arrays, selection and eligibility. It is authoritative
+for a case file; the readable `from`/`to`/selection parameters are mirrors for
+inspection. A literal comma inside a model or project glob cannot split a list
+item, and changing the dashboard's rolling preset cannot move the embedded case
+window. The evidence endpoint must validate and decode this object rather than
+pass it through the dashboard's legacy comma-separated list parser. Project selection adds
 `kind=project&projectKey=<exact identity>`, further intersecting the cohort;
 it is **not a project glob**. Scope selection uses `kind=scope`. Current and prior
 have separate selectors, including for empty groups. L08 supplies the bounded

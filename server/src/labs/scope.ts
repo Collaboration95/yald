@@ -61,13 +61,14 @@ export function analysisScope(filter: RowFilter, window: AnalysisWindow) {
 
 /** The URL contains the resolved window and every cohort dimension, never a moving range preset. */
 export function evidenceParams(selector: EvidenceSelector): URLSearchParams {
-  const { window, cohort, selection } = selector;
-  const params = new URLSearchParams({ from: String(window.from), to: String(window.to), tz: window.tz, kind: selection.kind, eligibility: selector.eligibility });
-  for (const key of ["sources", "projects", "providers", "models", "efforts", "statuses", "routeKinds"] as const) {
-    if (cohort[key].length) params.set(key, cohort[key].join(","));
-  }
-  if (cohort.conversationId) params.set("conversationId", cohort.conversationId);
-  if (cohort.search) params.set("search", cohort.search);
+  const { window, selection } = selector;
+  const params = new URLSearchParams({
+    selectorVersion: String(selector.version), from: String(window.from), to: String(window.to), tz: window.tz,
+    kind: selection.kind, eligibility: selector.eligibility,
+    // This is authoritative for a case file; dashboard controls may change the readable mirrors below.
+    // Structured arrays preserve literal commas, and the embedded window stays pinned after range changes.
+    selector: JSON.stringify(selector),
+  });
   if (selection.kind === "project") params.set("projectKey", selection.project);
   if (selection.kind === "session") {
     params.set("sessionSource", selection.source);

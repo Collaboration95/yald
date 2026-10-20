@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { filterRows } from "../analytics";
 import type { RowFilter } from "../analytics";
 import type { RequestRow } from "../ocx/store";
 import { analysisScope, evidenceFor, evidenceParams, orderedRequests, sessionKey } from "./scope";
@@ -15,9 +16,8 @@ test("scope evidence serializes fixed bounds, every cohort dimension, exact proj
   const params = new URL(evidence.href, "http://fixture").searchParams;
   expect(params.toString()).toBe(evidenceParams(evidence.selector).toString());
   expect(Object.fromEntries(params)).toEqual({
-    from: String(window.from), to: String(window.to), tz: window.tz, kind: "project", eligibility: "all",
-    sources: "ocx,claude-code", projects: "/fixture/A & B*,/fixture/other", providers: "anthropic", models: "m-one,m-two",
-    efforts: "high", statuses: "unobserved,error", routeKinds: "native", conversationId: "c/1+2", search: "fixture & clue+",
+    selectorVersion: "1", from: String(window.from), to: String(window.to), tz: window.tz, kind: "project", eligibility: "all",
+    selector: JSON.stringify(evidence.selector),
     projectKey: "/fixture/A & B/nested",
   });
   expect(params.has("range")).toBe(false);
@@ -29,6 +29,25 @@ test("scope evidence serializes fixed bounds, every cohort dimension, exact proj
   // Scope values are snapshots, independent of later UI filter mutations.
   filter.sources!.push("ocx");
   expect(evidence.selector.cohort.sources).toEqual(["ocx", "claude-code"]);
+});
+
+test("a comma-containing project glob retains the exact evidence population after URL round trip", () => {
+  const filter: RowFilter = { projects: ["/fixture/{app-a,app-b}"] };
+  const evidence = evidenceFor(filter, window);
+  const params = new URL(evidence.href, "http://fixture").searchParams;
+  const restored = JSON.parse(params.get("selector")!);
+  const cohort = restored.cohort;
+  expect(cohort.projects).toEqual(filter.projects);
+  const split = evidenceFor({ projects: ["/fixture/{app-a", "app-b}"] }, window);
+  expect(split.href).not.toBe(evidence.href);
+  const rows = ["app-a", "app-b", "app-c"].map(id => ({ id, ts: window.from + 1, protocol: "responses", cwd: `/fixture/${id}` }) as RequestRow);
+  const decodedFilter = { ...cohort, from: window.from, to: window.to, conversationId: cohort.conversationId ?? undefined };
+  expect(filterRows(rows, decodedFilter).map(row => row.id)).toEqual(["app-a", "app-b"]);
+  expect(filterRows(rows, decodedFilter)).toEqual(filterRows(rows, filter));
+  params.set("range", "7d");
+  params.delete("from");
+  params.delete("to");
+  expect(JSON.parse(params.get("selector")!).window).toEqual(window);
 });
 
 test("source-qualified session/unnamed selectors and default scope serialize without fabricated ids", () => {
