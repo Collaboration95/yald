@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useEndpoint } from "../api";
+import { filtersKey, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Card, CardHeader, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
@@ -24,7 +24,7 @@ export function UsagePage() {
   const data = query.data;
   const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
   const [minimumActivity, setMinimumActivity] = useState(0);
-  const filterKey = JSON.stringify([filters.range, filters.providers, filters.models, filters.efforts, filters.statuses, filters.metric, filters.groupBy, filters.bucket, filters.search]);
+  const filterKey = filtersKey(filters);
   useEffect(() => setMinimumActivity(0), [heatmapMetric, filterKey]);
   const [selection, setSelection] = useState<HeatmapSelection | null>(null);
   const [detailOffset, setDetailOffset] = useState(0);

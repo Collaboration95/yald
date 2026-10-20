@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
-import { DEFAULT_FILTERS, type Filters } from "../api";
+import { useLocation, useSearchParams } from "react-router-dom";
+import { canonicalSources, DEFAULT_FILTERS, filtersFromParams, type Filters } from "../api";
 
-type FilterListKey = "providers" | "models" | "efforts" | "statuses";
+type FilterListKey = "providers" | "models" | "efforts" | "statuses" | "sources" | "projects";
 
 interface FiltersContextValue {
   filters: Filters;
@@ -13,30 +13,19 @@ interface FiltersContextValue {
 
 const FiltersContext = createContext<FiltersContextValue | null>(null);
 
-function parseList(value: string | null): string[] {
-  if (!value) return [];
-  return value.split(",").map(entry => entry.trim()).filter(Boolean);
-}
-
 export function FiltersProvider({ children }: { children: ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { pathname } = useLocation();
 
-  const filters = useMemo<Filters>(() => ({
-    range: searchParams.get("range") ?? DEFAULT_FILTERS.range,
-    providers: parseList(searchParams.get("providers")),
-    models: parseList(searchParams.get("models")),
-    efforts: parseList(searchParams.get("efforts")),
-    statuses: parseList(searchParams.get("statuses")),
-    groupBy: searchParams.get("groupBy") ?? DEFAULT_FILTERS.groupBy,
-    metric: searchParams.get("metric") ?? DEFAULT_FILTERS.metric,
-    bucket: searchParams.get("bucket") ?? DEFAULT_FILTERS.bucket,
-    search: searchParams.get("search") ?? DEFAULT_FILTERS.search,
-  }), [searchParams]);
+  const filters = useMemo(() => filtersFromParams(searchParams), [searchParams]);
 
   const set = useCallback((patch: Partial<Filters>) => {
     setSearchParams(current => {
       const next = new URLSearchParams(current);
-      for (const [key, value] of Object.entries(patch)) {
+      // A preset replaces explicit bounds. Time strings otherwise go straight to the server parser.
+      if (patch.range !== undefined) for (const key of ["from", "to", "last"]) next.delete(key);
+      for (const [key, rawValue] of Object.entries(patch)) {
+        const value = key === "sources" && Array.isArray(rawValue) ? canonicalSources(rawValue) : rawValue;
         if (Array.isArray(value)) {
           if (value.length) next.set(key, value.join(","));
           else next.delete(key);
@@ -51,14 +40,24 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
   }, [setSearchParams]);
 
   const toggleIn = useCallback((key: FilterListKey, value: string) => {
+    // Empty means both sources, so toggling one off leaves just the other selected.
+    if (key === "sources" && filters.sources.length === 0) {
+      set({ sources: [value === "ocx" ? "claude-code" : "ocx"] });
+      return;
+    }
     const current = filters[key];
     const next = current.includes(value) ? current.filter(entry => entry !== value) : [...current, value];
     set({ [key]: next } as Partial<Filters>);
   }, [filters, set]);
 
   const reset = useCallback(() => {
-    setSearchParams(new URLSearchParams({ range: DEFAULT_FILTERS.range }), { replace: true });
-  }, [setSearchParams]);
+    setSearchParams(current => {
+      const next = new URLSearchParams({ range: DEFAULT_FILTERS.range });
+      // Session identity is not a cohort filter. Reset must still open the same source's session.
+      if (pathname.startsWith("/conversations/") && current.has("sessionSource")) next.set("sessionSource", current.get("sessionSource")!);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams, pathname]);
 
   const value = useMemo(() => ({ filters, set, toggleIn, reset }), [filters, set, toggleIn, reset]);
   return <FiltersContext.Provider value={value}>{children}</FiltersContext.Provider>;

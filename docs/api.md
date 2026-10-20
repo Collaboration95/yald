@@ -1,8 +1,8 @@
 # API reference
 
-All endpoints return JSON except `/api/export` and `/api/report?format=html`. Responses include an ETag derived from the dataset revision and full request URL. Analytics queries whose window can move with the clock (no `to`, or a relative time such as `now`, `today` or `-8h`) also include the current request time, so rolling windows continue advancing when source files are unchanged. Queries pinned to exact instants, metadata, health, and conversation detail can return `304 Not Modified` for an unchanged query and dataset. Each response uses one dataset snapshot and one time for its window boundaries. Analytics endpoints rebuild the dataset if a ledger file's size or modification time changed. The browser polls visible views every 30 seconds; hidden tabs pause polling. Refresh forces a dataset rebuild. Query parameters are URL encoded.
+All endpoints return JSON except `/api/export` and `/api/report?format=html`. Responses include an ETag derived from the dataset revision and full request URL. Analytics queries whose window can move with the clock (no `to`, or a relative time such as `now`, `today` or `-8h`) also include the current request time, so rolling windows continue advancing when source files are unchanged. Queries pinned to exact instants, metadata, health, and conversation detail without a window can return `304 Not Modified` for an unchanged query and dataset. Windowed conversation detail follows the analytics clock rules. Each response uses one dataset snapshot and one time for its window boundaries. Analytics endpoints rebuild the dataset if a ledger file's size or modification time changed. The browser polls visible views every 30 seconds; hidden tabs pause polling. Refresh forces a dataset rebuild. Query parameters are URL encoded.
 
-Shared analytics parameters: the time-window parameters below, comma-separated `providers`, `models`, `efforts`, and `statuses` (`ok`, `error`, `cancelled`), `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
+Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
 
 ## Time windows
 
@@ -138,15 +138,74 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/cost` | Shared | Summary, cost composition, cost series/cumulative totals, cache savings, breakdowns |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
 | `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
-| `GET /api/quota` | Window parameters | `quotaView`: current windows, selected-range burn estimates, coverage, and projections |
-| `GET /api/ledger` | Window parameters | Spend-ledger counts and selected-range buckets, send/token totals |
+| `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |
+| `GET /api/ledger` | Window parameters, `sources`; other shared filters are declared ignored | Account-wide spend-ledger counts and selected-range buckets, send/token totals, account `scope` |
 | `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Ranked conversations and aggregate totals |
-| `GET /api/conversations/:id` | — | Conversation summary, timeline, models, and requests across all time; 404 when missing |
+| `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
+| `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present) that also carries `reasons`, the same breakdown as `coverage.attribution.unattributed.reasons`. With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
 | `GET /api/export` | Shared; `dataset` (`requests`, `models`, `conversations`) | CSV attachment for the filtered rows, named for the local window, e.g. `yald-requests-2026-10-11T0900+0800--2026-10-11T1700+0800.csv` |
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
 
 `GET /api/dataset/refresh` is an operational endpoint used by local tooling. It rebuilds immediately and returns `{ok, rows, parseMs, builtAt}`. The application server serves the built web app at `/` and its client routes.
+
+### Dashboard scope and navigation
+
+The shared toolbar obtains project choices from `/api/projects` with every current
+filter except `projects`, keeping multiple choices available. A literal picker
+path is escaped for `Bun.Glob`; custom globs are passed through unchanged. Matching
+uses the same cwd/ancestor predicate as reports. Selecting a git root therefore
+also includes requests from nested git roots; it is not an exact project-group
+selector. `(unattributed)` is informational and cannot be selected. Because the
+API splits `projects` on commas, folder names and custom globs containing commas
+cannot be expressed by this picker. Missing choices and custom globs remain
+visible and removable, including when the selection matches no requests.
+
+Source/project selections preserve the existing request filters. The URL carries
+the whole cohort across navigation and reload, including optional `from`, `to`,
+`last` and `tz` strings. These go to the server parser without client date parsing.
+A range preset clears explicit `from`, `to` and `last` while keeping `tz`. Reset
+returns to the default 30-day window and clears all cohort/view filters; on a
+session route only `sessionSource` remains because it identifies the open session.
+Selecting both sources serializes as the default (no `sources` parameter).
+
+`/api/scope` gives the toolbar a consistent count and the existing project
+attribution coverage. No-match results show a reset action. Quota remains visible
+with an account-scope explanation even when no requests match; session detail
+shows its own matching and excluded counts.
+
+### Account observations
+
+Quota and send-ledger records cannot be joined to request/project cohorts.
+`/api/quota` and `/api/ledger` return `scope`; overview returns `quotaScope`:
+`{ kind: "account", source: "ocx", available, requestedSources, ignored, note }`.
+`ignored` lists active `projects`, `providers`, `models`, `efforts`, `statuses`,
+`routeKinds`, `search` and `conversationId` parameters. None narrows these account
+observations or makes them a project's quota. History/burn/buckets honor the time
+window; current quota and aggregate ledger counts are latest/all-history values.
+When sources exclude `ocx`, the payload contains no quota windows, samples, burn
+or ledger observations and `available` is false. The dashboard explains that
+Claude Code transcripts record neither. Invalid sources return 400 on these
+routes too. `/api/meta` remains explicitly global metadata for all local activity.
+
+### Conversation identity and scope
+
+Session lists, overview/cost leaders and `/api/meta.conversations` group by
+`(source, conversationId)`. Lists add `source`; links add `sessionSource` while
+preserving every cohort parameter. `sessionSource` accepts the same source names
+and aliases as `sources` and chooses identity independently of the cohort.
+If an id is held by both sources and the source selection does not identify one,
+detail returns 409 `ambiguous_session` with the possible `sources`; use
+`sessionSource` to disambiguate. It never mixes their requests.
+
+Detail honors the shared source/project/request filters and, when any `from`,
+`to`, `last` or `range` is supplied, the shared window parser. With no window
+parameter it retains the legacy all-history behavior. Its additive
+`scope: { window, matched, sessionTotal, filtersApplied, excluded: { window,
+filters } }` counts requests of that source's session. Known sessions excluded by
+the selection return 200 with empty points/requests and a zero summary; missing
+sessions still return 404. Counts reconcile: matched + outside-window + other
+filter exclusions = sessionTotal. The dashboard always sends its selected window.
 
 
 ### Source and measurement metadata

@@ -5,6 +5,7 @@ import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Legend, ProgressBar, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
+import { AccountScopeNotice } from "../components/AccountScopeNotice";
 import { lineChart, stackedBarChart } from "../components/chartOptions";
 import { formatCompact, formatCountdown, formatDateTime, formatInteger, formatRelative, shortId } from "../lib/format";
 import type { LedgerResponse, QuotaResponse } from "../types";
@@ -70,7 +71,7 @@ export function QuotaPage() {
     ], { formatter: value => formatCompact(value), showLegend: false });
   }, [ledger.data, chartTheme]);
 
-  const windowLabel = RANGE_LABELS[filters.range] ?? filters.range;
+  const windowLabel = quota?.window.label ?? RANGE_LABELS[filters.range] ?? filters.range;
   const primary = quota?.windows.find(window => window.account === "__main__") ?? quota?.windows[0];
   const primaryBurn = primary ? quota?.burn.find(entry => entry.account === primary.account && entry.window === primary.window) : undefined;
   const samplesInWindow = quota?.observed.samples ?? 0;
@@ -80,8 +81,11 @@ export function QuotaPage() {
     ? "No quota samples in " + windowLabel + " — the proxy last reported " + formatRelative(lastSample) + "."
     : "No quota samples recorded yet";
 
+  if (quota?.scope.available === false) return <AccountScopeNotice scope={quota.scope} />;
+
   return (
     <div className="space-y-3">
+      {quota?.scope ? <AccountScopeNotice scope={quota.scope} /> : null}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat
           label={primary ? primary.window + " window" : "Quota"}
@@ -235,7 +239,7 @@ export function QuotaPage() {
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Card>
-          <CardHeader title="Send accounting" subtitle={"Reserve, dispatch and settle accounting · " + windowLabel} />
+          <CardHeader title="Send accounting" subtitle="Account-wide event counts and settled tokens · all recorded history" />
           <StateBlock loading={ledger.isLoading} error={ledger.error} empty={!ledger.data}>
             <ul className="space-y-2.5 text-[11.5px]">
               {Object.entries(ledger.data?.byKind ?? {}).map(([kind, count]) => (
@@ -248,6 +252,7 @@ export function QuotaPage() {
                 <span className="text-ink-soft">settled tokens</span>
                 <span className="num font-semibold text-ink">{formatCompact(ledger.data?.settledTokens ?? 0)}</span>
               </li>
+              <li className="border-t border-line pt-2 text-[10.5px] text-muted">Selected window · {windowLabel}</li>
               <li className="flex items-center justify-between">
                 <span className="text-ink-soft">distinct sends</span>
                 <span className="num text-ink">{formatInteger(ledger.data?.distinctSends ?? 0)}</span>

@@ -118,6 +118,8 @@ export interface FixtureOptions {
    * fixtures and their expected counts stay unchanged.
    */
   reportDay?: boolean;
+  /** Scope UI regressions: colliding source ids, nested roots, glob metacharacters and a missing cwd. */
+  dashboardScope?: boolean;
 }
 
 export async function materializeFixtureHome(options: FixtureOptions = {}): Promise<string> {
@@ -192,6 +194,28 @@ export async function materializeFixtureHome(options: FixtureOptions = {}): Prom
       rows.push(usageRow(index++, now - 7 * HOUR + turn * 50 * MINUTE, haiku, viaOcx, { inboundProtocol: "anthropic-messages", routeDecision: undefined }));
     }
     rows.push(usageRow(index++, now - 90 * MINUTE, haiku, undefined, { inboundProtocol: "anthropic-messages", routeDecision: undefined }));
+  }
+
+  if (options.dashboardScope) {
+    const cases = [
+      ["shared", CONVERSATIONS[0]!, appB],
+      ["nested", "scope-nested", join(appA, "nested")],
+      ["literal", "scope-literal", join(root, "work", "literal[app]*")],
+      ["comma", "scope-comma", join(root, "work", "comma,app")],
+    ] as const;
+    for (const [name, id, cwd] of cases) {
+      await mkdir(join(cwd, ".git"), { recursive: true });
+      const dir = join(root, "claude-projects", `scope-${name}`);
+      await mkdir(dir, { recursive: true });
+      const lines = [0, 1].map(turn => claudeLine(`scope-${name}-${turn}`, id, cwd, now - 20 * MINUTE + turn * MINUTE, 900));
+      if (name === "shared") lines.push(claudeLine("scope-shared-old", id, cwd, now - 5 * DAY, 500));
+      await writeFile(join(dir, "session.jsonl"), lines.join("\n") + "\n");
+    }
+    const dir = join(root, "claude-projects", "scope-no-cwd");
+    await mkdir(dir, { recursive: true });
+    const missing = JSON.parse(claudeLine("scope-no-cwd", "scope-no-cwd", appA, now - 10 * MINUTE, 800));
+    delete missing.cwd;
+    await writeFile(join(dir, "session.jsonl"), JSON.stringify(missing) + "\n");
   }
 
   const quotaSamples = Array.from({ length: 40 }, (_, position) => ({

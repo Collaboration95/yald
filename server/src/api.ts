@@ -32,11 +32,12 @@ import {
   type Metric,
   type RowFilter,
 } from "./analytics";
-import { ALL_SOURCES, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
+import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
+import { accountScope, EMPTY_QUOTA, lookupSession, scopeSummary } from "./dashboardScope";
 import { buildReport } from "./report/build";
 import { liveReportContext } from "./report/context";
 import { renderReportHtml } from "./report/render";
@@ -222,8 +223,10 @@ api.use("/api/*", async (c, next) => {
   const now = Date.now();
   c.set("dataset", dataset);
   c.set("now", now);
+  // A conversation detail without window parameters is all-history, so only its dataset revision matters.
+  const unwindowed = !["from", "to", "last", "range"].some(key => c.req.query(key)?.trim());
   const pointInTime = c.req.path === "/api/health" || c.req.path === "/api/meta"
-    || c.req.path.startsWith("/api/conversations/");
+    || (c.req.path.startsWith("/api/conversations/") && unwindowed);
   // An unchanged ledger does not mean an unchanged rolling time window.
   const clockKey = pointInTime || clockFree(c.req.query()) ? "" : now;
   const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
@@ -289,7 +292,7 @@ api.get("/api/meta", async c => {
     modelsByProvider: Object.fromEntries([...modelsByProvider.entries()].map(([key, value]) => [key, value.sort()])),
     efforts: [...efforts].sort(),
     routeKinds: [...routeKinds].sort(),
-    conversations: new Set(dataset.rows.map(row => row.conversationId).filter(Boolean)).size,
+    conversations: new Set(dataset.rows.filter(row => row.conversationId).map(row => JSON.stringify([sourceOf(row), row.conversationId]))).size,
     ledger: { byKind: dataset.ledger.byKind, settledTokens: dataset.ledger.settledTokens, updatedAt: dataset.ledger.updatedAt },
     quota: { windows: dataset.quota.windows, updatedAt: dataset.quota.updatedAt },
     paths: PATHS,
@@ -301,6 +304,7 @@ api.get("/api/overview", async c => {
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const priorRows = filterRows(dataset.rows, previousWindow(query.filter, query.from, query.to));
+  const quotaScope = accountScope(c.req.query());
   const summary = summarize(rows);
   const prior = summarize(priorRows);
   const composition = costComposition(rows);
@@ -333,7 +337,9 @@ api.get("/api/overview", async c => {
     topConversations: conversations(rows, 8),
     heatmap: heatmap(rows, "tokens", query.tz),
     context: contextPressure(rows),
-    quota: quotaView(dataset, { from: query.from, to: query.to }),
+    // Quota is an opencodex account observation: never narrowed by, or attributed to, the selection.
+    quota: quotaView(quotaScope.available ? dataset : { quota: EMPTY_QUOTA }, { from: query.from, to: query.to }),
+    quotaScope,
     recent: [...rows].sort((a, b) => b.ts - a.ts).slice(0, 25).map(publicRow),
   });
 });
@@ -518,17 +524,20 @@ api.get("/api/quota", async c => {
   const dataset = c.get("dataset");
   const samples = dataset.quota.samples;
   const window = timeWindow(c.req.query(), samples[0]?.observedAt ?? c.get("now"), c.get("now"));
+  const scope = accountScope(c.req.query());
   return c.json({
     ok: true,
     range: c.req.query("range") ?? "30d",
-    ...quotaView(dataset, { from: window.from, to: window.to }),
+    ...quotaView(scope.available ? dataset : { quota: EMPTY_QUOTA }, { from: window.from, to: window.to }),
+    scope,
     window: windowEcho(window),
   });
 });
 
 api.get("/api/ledger", async c => {
   const dataset = c.get("dataset");
-  const events = dataset.ledger.events;
+  const scope = accountScope(c.req.query());
+  const events = scope.available ? dataset.ledger.events : [];
   const window = timeWindow(c.req.query(), events[0]?.at ?? c.get("now"), c.get("now"));
   const { from, to, tz } = window;
   const bucket: Bucket = to - from <= 48 * 3_600_000 ? "hour" : "day";
@@ -554,9 +563,10 @@ api.get("/api/ledger", async c => {
   return c.json({
     ok: true,
     window: { ...windowEcho(window), bucket },
-    byKind: dataset.ledger.byKind,
-    settledTokens: dataset.ledger.settledTokens,
-    updatedAt: dataset.ledger.updatedAt,
+    scope,
+    byKind: scope.available ? dataset.ledger.byKind : {},
+    settledTokens: scope.available ? dataset.ledger.settledTokens : 0,
+    updatedAt: scope.available ? dataset.ledger.updatedAt : null,
     buckets: [...buckets.values()].sort((a, b) => a.ts - b.ts),
     distinctSends: sendTokens.size,
     largestSend: sorted[0] ?? 0,
@@ -595,15 +605,43 @@ api.get("/api/conversations", async c => {
   });
 });
 
+/**
+ * One session under the dashboard scope. Window parameters apply only when given (a bare call is
+ * all-history, as before), and the same source/project/model/... filters as the list apply. `sessionSource`
+ * names the session's source when an id exists in both; `scope` reports what the selection left out.
+ */
 api.get("/api/conversations/:id", async c => {
   const dataset = c.get("dataset");
   const id = c.req.param("id");
-  const timeline = conversationTimeline(dataset.rows, id);
-  if (timeline.points.length === 0) return c.json({ ok: false, error: "conversation not found" }, 404);
+  const params = c.req.query();
+  const query = parseQuery(params, dataset, c.get("now"));
+  const windowed = ["from", "to", "last", "range"].some(key => params[key]?.trim());
+  const filter: RowFilter = { ...query.filter, conversationId: undefined, ...(windowed ? {} : { from: undefined, to: undefined }) };
+  const sessionSource = params.sessionSource?.trim() ? parseSource(params.sessionSource) : undefined;
+  if (sessionSource === null) {
+    throw new ReportSpecError("invalid_source", "sessionSource", `Unknown source "${params.sessionSource}". Use claude-code (or claude) and ocx (or codex).`);
+  }
+  const lookup = lookupSession(dataset.rows, id, filter, sessionSource ?? undefined);
+  if (lookup.status === "missing") return c.json({ ok: false, error: "conversation not found" }, 404);
+  if (lookup.status === "ambiguous") {
+    return c.json({ ok: false, error: { code: "ambiguous_session", param: "sessionSource", message: `Conversation id "${id}" exists in ${lookup.sources.join(" and ")}. Add sessionSource=<source>.`, sources: lookup.sources } }, 409);
+  }
+  const timeline = conversationTimeline(lookup.scoped, id);
+  const applied = ["sources", "projects", "providers", "models", "efforts", "statuses", "routeKinds", "search"].filter(key => params[key]?.split(",").some(part => part.trim()));
   return c.json({
     ok: true,
     ...timeline,
-    requests: dataset.rows.filter(row => row.conversationId === id).sort((a, b) => a.ts - b.ts).map(publicRow),
+    source: lookup.source,
+    ...coverageField(lookup.all, filter),
+    scope: {
+      window: windowed ? query.window : null,
+      filtersApplied: applied,
+      matched: lookup.scoped.length,
+      sessionTotal: lookup.all.length,
+      // Requests of this session the selection left out, by cause: outside the window, or failing another filter.
+      excluded: { window: lookup.all.length - lookup.inWindow.length, filters: lookup.inWindow.length - lookup.scoped.length },
+    },
+    requests: [...lookup.scoped].sort((a, b) => a.ts - b.ts).map(publicRow),
   });
 });
 
@@ -615,6 +653,13 @@ api.get("/api/labs/projects", async c => {
   c.header("ETag", etag);
   if (c.req.header("if-none-match") === etag) return c.body(null, 304);
   return c.json(payload);
+});
+
+/** The selection in numbers, for the toolbar: what it keeps, what the window holds, and what a project filter had to drop. */
+api.get("/api/scope", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  return c.json({ ok: true, window: query.window, ...scopeSummary(dataset.rows, query.filter), account: accountScope(c.req.query()) });
 });
 
 api.get("/api/projects", async c => {

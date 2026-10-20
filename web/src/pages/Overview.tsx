@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Activity, CircleDollarSign, Flame, Gauge, Layers, Timer, TrendingUp, Zap } from "lucide-react";
-import { useEndpoint } from "../api";
+import { conversationLink, filtersKey, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Legend, MiniSpark, ModelTag, OutcomeDot, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
+import { AccountScopeNotice } from "../components/AccountScopeNotice";
 import { barChart, donutChart, heatmapChart, stackedAreaChart } from "../components/chartOptions";
 import { COMPOSITION_COLORS } from "../lib/palette";
 import { formatCoverage, formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
@@ -19,7 +20,7 @@ export function OverviewPage() {
   const groupBy = filters.groupBy === "provider" || filters.groupBy === "effort" ? filters.groupBy : "model";
   const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
   const [minimumActivity, setMinimumActivity] = useState(0);
-  const heatmapFilterKey = JSON.stringify([filters.range, filters.providers, filters.models, filters.efforts, filters.statuses, filters.metric, filters.groupBy, filters.bucket, filters.search]);
+  const heatmapFilterKey = filtersKey(filters);
   useEffect(() => setMinimumActivity(0), [heatmapMetric, heatmapFilterKey]);
 
   const query = useEndpoint<OverviewResponse>("/api/overview", filters, { metric, groupBy });
@@ -231,8 +232,9 @@ export function OverviewPage() {
                 </div>
               </Card>
               <Card className="overview-quota overview-open-panel">
-                <CardHeader title="Quota" subtitle="Plan windows reported by the provider" action={<Link to={{ pathname: "/quota", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
-                <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.quota.windows.length === 0} emptyLabel="No quota samples recorded">
+                <CardHeader title="Quota" subtitle="Account-wide opencodex plan windows" action={<Link to={{ pathname: "/quota", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
+                {data?.quotaScope ? <AccountScopeNotice scope={data.quotaScope} /> : null}
+                {data?.quotaScope.available !== false ? <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.quota.windows.length === 0} emptyLabel="No quota samples recorded">
                   <ul className="space-y-3">
                     {data?.quota.windows.map(window => {
                       const burn = data.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
@@ -263,7 +265,7 @@ export function OverviewPage() {
                       );
                     })}
                   </ul>
-                </StateBlock>
+                </StateBlock> : null}
               </Card>
             </div>
           </div>
@@ -358,9 +360,9 @@ export function OverviewPage() {
             <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
               <ul className="space-y-2">
                 {data?.topConversations.map(conversation => (
-                  <li key={conversation.id} className="flex items-center justify-between gap-2">
-                    <Link to={{ pathname: `/conversations/${conversation.id}`, search }} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
-                      {shortId(conversation.id, 12)}
+                  <li key={JSON.stringify([conversation.source, conversation.id])} className="flex items-center justify-between gap-2">
+                    <Link to={conversationLink(conversation, search)} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
+                      {shortId(conversation.id, 12)} <span className="font-sans text-[10.5px] text-muted">{sourceLabel(conversation.source)}</span>
                     </Link>
                     <span className="num shrink-0 text-[11px] text-muted">
                       {formatCompact(conversation.tokens)} · {formatInteger(conversation.requests)} req
