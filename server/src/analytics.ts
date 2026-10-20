@@ -1,3 +1,4 @@
+import { attributionCoverage, type AttributionCoverage } from "./attribution";
 import type { Dataset, RequestRow } from "./ocx/store";
 import { projectMatcher } from "./projects";
 import { sourceOf } from "./report/source";
@@ -82,18 +83,19 @@ export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] 
 
 /**
  * With a project filter active, the rows it had to drop because their folder is unknown:
- * everything else about them matched. Null when no project filter is applied.
+ * everything else about them matched. `attribution` splits the same population into kept,
+ * elsewhere and unknown-folder rows, with the reasons behind the last. Null without a project filter.
  */
-export function projectCoverage(rows: RequestRow[], filter: RowFilter): { unattributedRows: number; unattributedTokens: number } | null {
+export function projectCoverage(rows: RequestRow[], filter: RowFilter): ProjectCoverage | null {
   if (!filter.projects?.length) return null;
-  let unattributedRows = 0;
-  let unattributedTokens = 0;
-  for (const row of filterRows(rows, { ...filter, projects: undefined })) {
-    if (row.cwd !== null) continue;
-    unattributedRows++;
-    unattributedTokens += row.totalTokens;
-  }
-  return { unattributedRows, unattributedTokens };
+  const attribution = attributionCoverage(filterRows(rows, { ...filter, projects: undefined }), projectMatcher(filter.projects));
+  return { unattributedRows: attribution.unattributed.rows, unattributedTokens: attribution.unattributed.tokens, attribution };
+}
+
+export interface ProjectCoverage {
+  unattributedRows: number;
+  unattributedTokens: number;
+  attribution: AttributionCoverage;
 }
 
 export type Outcome = "ok" | "error" | "cancelled";

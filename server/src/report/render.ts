@@ -1,6 +1,7 @@
 // Renders a ReportData payload as one self-contained HTML document: inline
 // CSS, inline SVG, the payload embedded as JSON, and no network references.
 import { readFileSync } from "node:fs";
+import type { UnattributedReason } from "../attribution";
 import type { ReportData, Source } from "./types";
 import { CLASS_COLORS, esc, inlineBar, modelColor, stackedBarChart, type Segment } from "./svg";
 
@@ -324,6 +325,31 @@ function quotaSection(data: ReportData): string {
   return card("Quota", "Measured burn per opencodex quota window during the report window.", body, "lavender");
 }
 
+const REASON_TEXT: Record<UnattributedReason, string> = {
+  noConversationId: "carry no conversation id, so no Codex rollout can supply a folder",
+  noRollout: "have a conversation id that matches no Codex session rollout yald read",
+  other: "have no recorded folder and no further cause is known (for example a Claude Code transcript line without a working directory)",
+};
+
+/** Project-filter exclusions: what the numbers left out, by reason. Falls back to the plain count for older payloads. */
+function exclusionSentences(c: ReportData["coverage"]): string[] {
+  if (c.unattributedRows === null) return ["No project filter was applied."];
+  const sentences: string[] = [];
+  const noun = (n: number) => (n === 1 ? "request" : "requests");
+  const attribution = c.attribution;
+  if (c.unattributedRows > 0) sentences.push(`${integer(c.unattributedRows)} ${noun(c.unattributedRows)} in the window ${c.unattributedRows === 1 ? "has" : "have"} no project folder and ${c.unattributedRows === 1 ? "is" : "are"} excluded.`);
+  if (!attribution) return sentences;
+  for (const r of attribution.unattributed.reasons) {
+    if (r.rows === 0) continue;
+    const models = r.models.slice(0, 3).map(m => `${m.model} (${integer(m.rows)})`).join(", ");
+    const more = r.models.length > 3 ? `, and ${integer(r.models.length - 3)} more` : "";
+    sentences.push(`${integer(r.rows)} of them (${compact(r.tokens)} tokens) ${REASON_TEXT[r.reason]}: ${models}${more}.`);
+  }
+  const out = attribution.outsideProjects;
+  if (out.rows > 0) sentences.push(`${integer(out.rows)} other ${noun(out.rows)} (${compact(out.tokens)} tokens) ran in folders outside the selected projects and ${out.rows === 1 ? "is" : "are"} excluded.`);
+  return sentences;
+}
+
 function coverageSection(data: ReportData, clock: Clock): string {
   const c = data.coverage;
   const sentences: string[] = [];
@@ -339,8 +365,7 @@ function coverageSection(data: ReportData, clock: Clock): string {
   if (finite(c.estimatedCostShare) && c.estimatedCostShare > 0) sentences.push(`${percent(c.estimatedCostShare)} of the dollar total is marked as estimated by the opencodex pricing engine.`);
   if (c.rowsWithoutConversation > 0) sentences.push(`${integer(c.rowsWithoutConversation)} ${c.rowsWithoutConversation === 1 ? "request has" : "requests have"} no conversation id and ${c.rowsWithoutConversation === 1 ? "is" : "are"} not in the conversation counts.`);
   if (finite(c.ledgerStartsAt)) sentences.push(`The opencodex spend ledger starts at ${clock.full(c.ledgerStartsAt)}, after the window begins; earlier spend-ledger events are unavailable.`);
-  if (c.unattributedRows === null) sentences.push("No project filter was applied.");
-  else if (c.unattributedRows > 0) sentences.push(`${integer(c.unattributedRows)} ${c.unattributedRows === 1 ? "request" : "requests"} in the window ${c.unattributedRows === 1 ? "has" : "have"} no project folder and ${c.unattributedRows === 1 ? "is" : "are"} excluded.`);
+  sentences.push(...exclusionSentences(c));
   sentences.push("Success rate counts opencodex requests only; Claude Code transcripts record only completed requests.");
   return card("Coverage and caveats", "", `<ul class="sentences">${sentences.map(s => `<li>${esc(s)}</li>`).join("")}</ul>`);
 }

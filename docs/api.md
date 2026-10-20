@@ -100,7 +100,7 @@ The report `yald report` produces, from the running server: KPIs, a phase table,
 | `from`, `to`, `last`, `tz`, `range` | The window, as above. With phases but no window, the window runs from the first phase's start to the last phase's end; with neither, it is the last 24 hours |
 | `phase` | Repeatable `name=start..end`, URL-encoded, as in `GET /api/window`. Errors name the parameter by its position in the URL: the first `phase` is `phase[0]` |
 | `sources` | Comma-separated `claude-code` and `ocx`, or the aliases `claude` and `codex`. Default both |
-| `projects` | Comma-separated folder globs, as for the analytics routes; sets `coverage.unattributedRows` |
+| `projects` | Comma-separated folder globs, as for the analytics routes; sets `coverage.unattributedRows`, `coverage.unattributedTokens` and the `coverage.attribution` reason breakdown (null without it); the HTML coverage note states the same numbers |
 | `top` | Conversations to list: default 10, at most 100 (larger values are capped) |
 | `redact` | `1` (default) or `0`. Redaction cuts conversation ids to 8 characters, shows the home directory as `~` and replaces account labels, because the output is meant to be shared |
 | `title` | Heading; default `yald report · <window label>` |
@@ -120,7 +120,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 
 ## Routes
 
-`projects` is a comma-separated list of URL-encoded folder globs, for example `projects=~%2Fwork%2Fapp-a*,%2Ftmp%2Fapp-a-*`. A request matches when its working directory, or any folder above it, matches a glob; `~` expands to the home directory and a trailing `/` is ignored. Requests without a known folder never match. Every analytics response filtered by `projects` (all routes taking shared parameters, except the CSV export) includes `coverage: { unattributedRows, unattributedTokens }`: the requests that matched every other filter but were dropped because their folder is unknown. Without `projects`, `coverage` is omitted. See [Project attribution](metrics.md#project-attribution).
+`projects` is a comma-separated list of URL-encoded folder globs, for example `projects=~%2Fwork%2Fapp-a*,%2Ftmp%2Fapp-a-*`. A request matches when its working directory, or any folder above it, matches a glob; `~` expands to the home directory and a trailing `/` is ignored. Requests without a known folder never match. Every analytics response filtered by `projects` (all routes taking shared parameters, except the CSV export) includes `coverage: { unattributedRows, unattributedTokens, attribution }`: the requests that matched every other filter but were dropped because their folder is unknown. `attribution` (additive) splits that same source and window population into `matched` (kept), `outsideProjects` (a known folder no glob matches) and `unattributed`, each with `rows` and `tokens`; `unattributed.reasons` always lists `noConversationId`, `noRollout` and `other` with `{ reason, rows, tokens, models: [{ model, rows, tokens }] }`, and sums to `unattributed`. Without `projects`, `coverage` is omitted. See [Project attribution](metrics.md#project-attribution).
 
 `GET /api/projects` resolves git roots for each request and hashes its payload for conditional responses. Adding or removing a git root invalidates its ETag even when ledger files are unchanged.
 
@@ -142,7 +142,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/ledger` | Window parameters | Spend-ledger counts and selected-range buckets, send/token totals |
 | `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Ranked conversations and aggregate totals |
 | `GET /api/conversations/:id` | — | Conversation summary, timeline, models, and requests across all time; 404 when missing |
-| `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present). With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
+| `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present) that also carries `reasons`, the same breakdown as `coverage.attribution.unattributed.reasons`. With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
 | `GET /api/export` | Shared; `dataset` (`requests`, `models`, `conversations`) | CSV attachment for the filtered rows, named for the local window, e.g. `yald-requests-2026-10-11T0900+0800--2026-10-11T1700+0800.csv` |
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
 

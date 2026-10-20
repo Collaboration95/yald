@@ -743,6 +743,8 @@
     "rowsWithoutConversation": 1,
     "ledgerStartsAt": null,
     "pricing": "ok",
-    "unattributedRows": null
+    "unattributedRows": null,
+    "unattributedTokens": null,
+    "attribution": null
   }
 }
