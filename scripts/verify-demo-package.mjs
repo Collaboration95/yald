@@ -9,17 +9,30 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { release, tmpdir, version } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const [cliArg, tarballArg, receiptArg, guardArg] = process.argv.slice(2);
-if (!guardArg) throw new Error("Usage: node scripts/verify-demo-package.mjs INSTALLED_CLI TARBALL RECEIPT_JSON tests/helpers/demo-guard.mjs");
+const [cliArg, tarballArg, receiptArg, guardArg, manifestArg] = process.argv.slice(2);
+if (!guardArg) throw new Error("Usage: node scripts/verify-demo-package.mjs INSTALLED_CLI TARBALL RECEIPT_JSON tests/helpers/demo-guard.mjs [MANIFEST_JSON]");
 const cli = await realpath(cliArg), root = dirname(dirname(cli)), tarball = resolve(tarballArg), out = resolve(receiptArg), guard = resolve(guardArg);
 const artifact = await mkdtemp(join(tmpdir(), "yald-installed-demo-")), sentinel = join(artifact, "caller with spaces");
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
-const receipt = { package: { path: tarball, bytes: (await stat(tarball)).size, sha256: sha(await readFile(tarball)),
-  installedRoot: root, node: process.version, platform: process.platform, arch: process.arch }, modes: [], assets: [], sentinels: {}, audit: {}, cleanup: false };
+const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+const require = createRequire(join(root, "package.json")), bunDir = dirname(require.resolve("bun/package.json"));
+const runtime = [join(bunDir, "bin/bun.exe"), join(bunDir, "bin/bun")].find(path => existsSync(path));
+assert.ok(runtime);
+const manifest = manifestArg ? JSON.parse(await readFile(manifestArg, "utf8")) : null;
+const receipt = { status: "failed", source: manifest?.source ?? null, artifactName: manifest?.artifactName ?? null,
+  producer: manifest?.producer ?? null, package: { path: tarball, version: pkg.version, bytes: (await stat(tarball)).size, sha256: sha(await readFile(tarball)),
+    installedRoot: root, node: process.version, bun: spawnSync(runtime, ["--version"], { encoding: "utf8" }).stdout.trim(),
+    npm: spawnSync("npm", ["--version"], { encoding: "utf8" }).stdout.trim(), platform: process.platform, arch: process.arch,
+    osRelease: release(), osVersion: version() }, modes: [], assets: [], sentinels: {}, audit: {}, cleanup: false };
+if (manifest) {
+  assert.equal(receipt.package.sha256, manifest.package.sha256);
+  assert.equal(receipt.package.version, manifest.package.version);
+  assert.equal(receipt.package.bytes, manifest.package.bytes);
+}
 const delay = () => new Promise(resolve => setTimeout(resolve, 20));
 async function wait(check, describe, ms = 15000) {
   const end = Date.now() + ms;
@@ -101,8 +114,12 @@ async function checkApis(base, mode) {
     assert.equal(response.status, 200, path);
     assert.ok(bytes.byteLength > 100, path);
     assert.ok(!response.headers.get("content-type").includes("text/html"), `Asset returned the SPA shell: ${path}`);
-    assert.equal(sha(Buffer.from(bytes)), sha(await readFile(join(root, "web/dist", path.slice(1)))), `Asset bytes: ${path}`);
-    receipt.assets.push({ mode, path, bytes: bytes.byteLength, type: response.headers.get("content-type") });
+    const entry = `web/dist${path}`, packed = spawnSync("tar", ["-xOzf", tarball, `package/${entry}`], { maxBuffer: 32 * 1024 * 1024 });
+    assert.equal(packed.status, 0, `Tarball asset: ${path}`);
+    const digest = sha(Buffer.from(bytes));
+    assert.equal(digest, sha(packed.stdout), `Served asset differs from candidate tarball: ${path}`);
+    if (manifest) assert.equal(digest, manifest.files.find(file => file.path === entry)?.sha256, `Manifest asset: ${path}`);
+    receipt.assets.push({ mode, path, bytes: bytes.byteLength, sha256: digest, type: response.headers.get("content-type") });
   }
   return { mode, sampleAt: meta.demo.sampleAt, now: meta.demo.now, window: overview.window,
     counts: { all: 83, current: 42, prior: 40, cacheEligible: 37, contextEligible: 40 },
@@ -137,6 +154,7 @@ try {
   for (const args of [["--version"], ["--help"], ["demo", "--help"], ["report", "--help"]]) {
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: sentinel, env, encoding: "utf8" });
     assert.equal(result.status, 0, `${args.join(" ")}: ${result.stderr}`);
+    if (args[0] === "--version") assert.equal(result.stdout.trim(), pkg.version);
   }
   for (const mode of ["fixed", "wall"]) {
     const port = await freePort(), base = `http://127.0.0.1:${port}`, started = Date.now();
@@ -162,11 +180,15 @@ try {
     await assert.rejects(fetch(`${base}/api/health`));
   }
 
-  const { generateDemo } = await import(pathToFileURL(join(root, "scripts/demo/generate.mjs")).href);
-  const emptyRoot = join(artifact, "normal-empty"), inputs = await generateDemo(emptyRoot, Date.now()), emptyPort = await freePort();
-  for (const file of ["usage.jsonl", "spend-ledger.jsonl", "codex-quota-cache.json"]) await rm(join(inputs.OCX_HOME, file));
-  await rm(inputs.CLAUDE_PROJECTS_DIR, { recursive: true });
-  await mkdir(inputs.CLAUDE_PROJECTS_DIR);
+  const emptyRoot = join(artifact, "normal-empty"), emptyPort = await freePort();
+  const inputs = { HOME: emptyRoot, USERPROFILE: emptyRoot, XDG_CONFIG_HOME: join(emptyRoot, "config"),
+    OCX_HOME: join(emptyRoot, "ocx"), CLAUDE_PROJECTS_DIR: join(emptyRoot, "claude-projects"), CODEX_HOME: join(emptyRoot, "codex"),
+    OCX_PACKAGE_DIR: join(emptyRoot, "unavailable-pricing") };
+  for (const directory of Object.values(inputs)) await mkdir(directory, { recursive: true });
+  // A discoverable package with no estimator keeps normal discovery from using a
+  // developer's global engine. It contains no prices or pricing implementation.
+  await mkdir(join(inputs.OCX_PACKAGE_DIR, "src/usage"), { recursive: true });
+  await writeFile(join(inputs.OCX_PACKAGE_DIR, "src/usage/cost.ts"), "export {}; // No pricing engine installed.\n");
   const normalEnv = { ...env, ...inputs, YALD_PORT: String(emptyPort), YALD_HOST: "127.0.0.1" };
   const normal = spawn(process.execPath, [cli], { cwd: emptyRoot, env: normalEnv, detached: true, stdio: "pipe" });
   let normalOutput = "";
@@ -178,19 +200,31 @@ try {
     assert.equal(meta.totals.requests, 0);
     assert.equal(meta.demo, undefined);
     assert.equal(meta.ocxHome, inputs.OCX_HOME);
+    assert.equal(meta.pricing.available, false);
+    assert.equal(meta.pricing.modulePath, null);
+    assert.match(meta.pricing.detail, /no usable cost module/);
+    const base = `http://127.0.0.1:${emptyPort}`;
+    assert.equal((await json(base, "/api/overview")).summary.requests, 0);
+    const radar = await json(base, "/api/labs/projects");
+    assert.equal(radar.current.totals.requests, 0);
+    assert.equal(radar.prior.totals.requests, 0);
+    assert.equal(radar.projects.length, 1);
+    assert.equal(radar.projects[0].project, "(unattributed)");
+    assert.equal(radar.projects[0].current.totals.requests, 0);
+    assert.equal(radar.projects[0].prior.totals.requests, 0);
+    assert.equal((await json(base, "/api/labs/cache")).totals.eligibleRequests, 0);
+    assert.equal((await json(base, "/api/labs/context")).sessions.length, 0);
     assert.ok(!(await (await fetch(`http://127.0.0.1:${emptyPort}`)).text()).includes('id="yald-demo"'));
     const report = spawnSync(process.execPath, [cli, "report", "--last", "1h", "--dry-run"], { cwd: emptyRoot, env: normalEnv, encoding: "utf8" });
     assert.equal(report.status, 0, report.stderr);
     assert.match(report.stdout, /\(no phases\).*0\s+0\s+0/);
     assert.match(report.stdout, /Nothing written \(--dry-run\)/);
-    receipt.normal = { emptyRequests: 0, demoMarker: false, explicitHomes: true, reportDryRun: "0 rows; nothing written" };
+    receipt.normal = { emptyRequests: 0, demoMarker: false, explicitHomes: true, pricing: meta.pricing,
+      unavailableEngine: "explicit package contains no estimator or rates; prevents global discovery", emptyInvestigations: 3, reportDryRun: "0 rows; nothing written" };
   } finally { process.kill(-normal.pid, "SIGTERM"); await normalClosed; }
   await assert.rejects(fetch(`http://127.0.0.1:${emptyPort}/api/health`));
 
   const { runDemo } = await import(pathToFileURL(join(root, "scripts/demo.mjs")).href);
-  const require = createRequire(join(root, "package.json")), bunDir = dirname(require.resolve("bun/package.json"));
-  const runtime = [join(bunDir, "bin/bun.exe"), join(bunDir, "bin/bun")].find(path => existsSync(path));
-  assert.ok(runtime);
   const auditFile = join(artifact, "audit.txt"), signals = new EventEmitter(), port = await freePort(), logs = [], errors = [];
   const done = runDemo({ port, now: Date.parse("2026-10-20T12:00:00Z"), open: false }, { root, runtime, signals,
     log: value => logs.push(value), error: value => errors.push(value), spawnServer: (rt, args, opts) => spawn(rt,
@@ -234,6 +268,10 @@ try {
   assert.deepEqual(receipt.sentinels.after, receipt.sentinels.before);
   receipt.sentinels.unreadAndUnchanged = true;
   receipt.cleanup = true;
+  receipt.status = "passed";
+} catch (error) {
+  receipt.error = String(error.stack ?? error);
+  throw error;
 } finally {
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, JSON.stringify(receipt, null, 2) + "\n");

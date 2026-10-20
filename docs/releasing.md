@@ -110,3 +110,8 @@ be considered later under the
 
 External launch posts and repository settings are separate from package
 publication; existing drafts remain in `docs/launch-drafts.md`.
+
+## Qualification evidence
+
+See [package qualification evidence](release-evidence.md) for the single-candidate
+CI artifact, platform receipts and reproducible installed-package checks.
