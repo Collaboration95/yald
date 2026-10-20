@@ -264,3 +264,17 @@ remain viewable without ranked growth. Sessions are source-qualified; window and
 cohort limits and all excluded requests are disclosed. See the
 [Context Replay contract](labs-context.md) for denominators and history coverage.
 These request observations do not infer turns, compaction, waste or answer quality.
+
+## Fixed case evidence
+
+Each Labs finding opens a [fixed case](labs-evidence.md) with the exact original
+window, cohort and source-qualified selection. Radar preserves both original
+current/prior windows; switching the inspected period does not rebase them.
+Global toolbar changes do not move an open case. Full-population totals precede
+pagination. Cache evidence applies the same monetary eligibility predicate as
+its builder and separately discloses original totals/exclusions. Context retains
+excluded rows with unavailable submitted input. Missing input, price or timing
+is never a numeric zero; observed zero remains valid. Recorded token-volume
+totals can include incomplete or attempt-summed usage and are not context medians.
+All observations use existing server builders without inferred causes or new
+pricing logic. The request list contains public metadata only.

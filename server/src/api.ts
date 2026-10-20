@@ -1,4 +1,7 @@
 import { Hono } from "hono";
+import { publicRow } from "./publicRow";
+import { EvidenceIntentError, parseCaseIntent } from "./labs/evidence-intent";
+import { buildEvidenceCase } from "./labs/evidence";
 import { buildProjectRadar } from "./labs/projects";
 import { createHash } from "node:crypto";
 import {
@@ -154,46 +157,6 @@ function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
   return rows.filter(row => row.measurements.duration).sort((a, b) => b.durationMs - a.durationMs).slice(0, limit);
 }
 
-function publicRow(row: RequestRow) {
-  return {
-    source: sourceOf(row),
-    protocol: row.protocol,
-    measurements: row.measurements,
-    usageFromAttempts: row.usageFromAttempts,
-    usageStatus: row.usageStatus,
-    cacheProvenance: row.cacheProvenance,
-    cacheWriteTokens: row.cacheWriteTokens,
-    rateIn: row.rateIn,
-    rateOut: row.rateOut,
-    rateCacheRead: row.rateCacheRead,
-    rateCacheWrite: row.rateCacheWrite,
-    sends: row.sends,
-    attemptTokens: row.attemptTokens,
-    cwd: row.cwd,
-    id: row.id,
-    ts: row.ts,
-    provider: row.provider,
-    model: row.model,
-    effort: row.effort,
-    status: row.status,
-    outcome: outcome(row),
-    durationMs: row.durationMs,
-    ttftMs: row.ttftMs,
-    inputTokens: row.inputTokens,
-    outputTokens: row.outputTokens,
-    cacheReadTokens: row.cacheReadTokens,
-    reasoningTokens: row.reasoningTokens,
-    totalTokens: row.totalTokens,
-    cost: row.cost,
-    priced: row.priced,
-    conversationId: row.conversationId,
-    errorCode: row.errorCode,
-    closeReason: row.closeReason,
-    routeKind: row.routeKind,
-    attempts: row.attempts,
-    account: row.account,
-  };
-}
 
 function toCsv(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return "";
@@ -209,7 +172,7 @@ function toCsv(rows: Record<string, unknown>[]): string {
 export const api = new Hono<{ Variables: { dataset: Dataset; now: number } }>();
 
 api.onError((error, c) => {
-  if (error instanceof WindowError || error instanceof ReportSpecError) {
+  if (error instanceof WindowError || error instanceof ReportSpecError || error instanceof EvidenceIntentError) {
     return c.json({ ok: false, error: { code: error.code, param: error.param, message: error.message } }, 400);
   }
   console.error(error);
@@ -236,7 +199,7 @@ api.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
   // a ledger revision. These routes hash the resolved payload after validation.
-  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.header("if-none-match") === etag) return c.body(null, 304);
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) return c.body(null, 304);
   await next();
 });
 
@@ -299,6 +262,16 @@ api.get("/api/meta", async c => {
     quota: { windows: dataset.quota.windows, updatedAt: dataset.quota.updatedAt },
     paths: PATHS,
   });
+});
+
+api.get("/api/labs/evidence", c => {
+  const intent = parseCaseIntent(new URL(c.req.url).searchParams);
+  const payload = buildEvidenceCase(c.get("dataset").rows, intent);
+  // Derived roots can change without a ledger revision. Validate and resolve before any 304.
+  const etag = `W/"${createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
 });
 
 api.get("/api/labs/context", c => {
