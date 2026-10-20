@@ -6,7 +6,7 @@ import { analysisScope, evidenceFor, orderedRequests, sessionKey, type AnalysisW
 const EXCLUSION_REASONS = ["attempt-summed usage", "input accounting missing", "input accounting unavailable"] as const;
 type ContextExclusion = typeof EXCLUSION_REASONS[number];
 
-function exclusionReason(row: RequestRow): ContextExclusion | null {
+export function contextExclusionReason(row: RequestRow): ContextExclusion | null {
   if (contextEligible(row)) return null;
   if (row.usageFromAttempts || row.measurements.usage === "attempt-sum") return "attempt-summed usage";
   return row.measurements.input ? "input accounting unavailable" : "input accounting missing";
@@ -18,7 +18,7 @@ function coverage(rows: RequestRow[]) {
   let attributedRequests = 0;
   let eligibleRequests = 0;
   for (const row of rows) {
-    const reason = exclusionReason(row);
+    const reason = contextExclusionReason(row);
     if (reason === null) eligibleRequests++;
     else reasons.set(reason, reasons.get(reason)! + 1);
     if (row.priced) pricedRequests++;
@@ -54,7 +54,7 @@ function observation(row: RequestRow, ordinal: number) {
     ttftMs: row.measurements.ttft ? row.ttftMs : null,
     measurements: { ...row.measurements }, usageFromAttempts: row.usageFromAttempts,
     usageStatus: row.usageStatus, cacheProvenance: row.cacheProvenance,
-    eligible, exclusionReason: exclusionReason(row),
+    eligible, exclusionReason: contextExclusionReason(row),
   };
 }
 

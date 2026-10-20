@@ -23,6 +23,7 @@ const ConversationsPage = lazy(() => import("./pages/Conversations").then(m => (
 const ConversationDetailPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationDetailPage })));
 const LabsPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsPage })));
 const LabsInvestigationPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsInvestigationPage })));
+const EvidenceCase = lazy(() => import("./pages/labs/EvidenceCase").then(m => ({ default: m.EvidenceCase })));
 
 console.info(
   "%cyald.%c\nEvery request leaves a trace. Psst: try the Konami code, or just type “yald”.",
@@ -61,6 +62,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="conversations/:id" element={<ConversationDetailPage />} />
                 <Route path="labs" element={<LabsLayout />}>
                   <Route index element={<LabsPage />} />
+                  <Route path="evidence" element={<EvidenceCase />} />
                   <Route path=":investigation" element={<LabsInvestigationPage />} />
                   <Route path="*" element={<LabsInvestigationPage />} />
                 </Route>

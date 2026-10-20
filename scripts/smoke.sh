@@ -10,6 +10,8 @@ bun="${root}/scripts/bun"
 # Each real-view fixture initializes its own isolated source homes and pricing.
 "${bun}" run "${root}/web/scripts/project-radar-smoke.tsx"
 "${bun}" run "${root}/web/scripts/cache-detective-smoke.tsx"
+# Exact case evidence uses separate synthetic homes/process so server module caches cannot cross fixtures.
+"${bun}" run "${root}/web/scripts/evidence-smoke.tsx"
 
 # `yald report --last 24h` through the npm bin, against a fixture home and the fixture
 # cost engine, so it never reads real ledgers and never opens a port.

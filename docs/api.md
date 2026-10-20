@@ -144,6 +144,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |
+| `GET /api/labs/evidence` | Fixed JSON `selector`, `investigation`, optional paired `priorSelector`/`period`, bounded `offset`/`limit` | Descriptive case, full-population totals and source-qualified request metadata; independent of toolbar mirrors |
 | `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present) that also carries `reasons`, the same breakdown as `coverage.attribution.unattributed.reasons`. With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
 | `GET /api/export` | Shared; `dataset` (`requests`, `models`, `conversations`) | CSV attachment for the filtered rows, named for the local window, e.g. `yald-requests-2026-10-11T0900+0800--2026-10-11T1700+0800.csv` |
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
@@ -243,8 +244,8 @@ priced zero; zero without any priced requests is unavailable. Blended model
 Uses the shared window and all request filters, including `sources`, `projects`,
 providers, models, efforts, outcomes, route kinds, conversation ID and search.
 The public TypeScript contract is `ProjectRadarResponse` in `web/src/types.ts`;
-`buildProjectRadar` lives in `server/src/labs/projects.ts`. No view or evidence
-endpoint is supplied by this data route.
+`buildProjectRadar` lives in `server/src/labs/projects.ts`. The separate
+`/api/labs/evidence` boundary below replays its selected case.
 
 The response is `{ ok, window, priorWindow, cohort, pricingBasis, history,
 current, prior, comparison, projects }`. Windows echo resolved epoch milliseconds,
@@ -307,12 +308,11 @@ fixed window, typed cohort arrays, selection and eligibility. It is authoritativ
 for a case file; the readable `from`/`to`/selection parameters are mirrors for
 inspection. A literal comma inside a model or project glob cannot split a list
 item, and changing the dashboard's rolling preset cannot move the embedded case
-window. The evidence endpoint must validate and decode this object rather than
-pass it through the dashboard's legacy comma-separated list parser. Project selection adds
+window. The evidence endpoint validates and decodes this object rather than
+passing it through the dashboard's legacy comma-separated list parser. Project selection adds
 `kind=project&projectKey=<exact identity>`, further intersecting the cohort;
 it is **not a project glob**. Scope selection uses `kind=scope`. Current and prior
-have separate selectors, including for empty groups. L08 supplies the bounded
-request endpoint/view. No links use unscoped conversation detail.
+have separate selectors, including for empty groups. The bounded request endpoint/view below resolves these selectors. No links use unscoped conversation detail.
 
 Like `/api/projects`, Radar validates before a conditional response and hashes
 its resolved payload, so changes in on-disk git roots invalidate a pinned ETag
@@ -410,6 +410,71 @@ rounded actual/baseline totals can differ from the displayed net by up to
 counts and `direction` before displaying a comparison. `notes` explains the basis,
 coverage, lower-bound rates and write-TTL limitation. See
 [Net cache economics](metrics.md#net-cache-economics) for interpretation.
-The evidence href is an intent for the L08 `/labs/evidence` boundary, whose replay
-must use exported `cacheEligibility` from `server/src/labs/cache.ts`. L04 does not
-implement that route; `/api/conversations/:id` is not a scoped substitute.
+The evidence href opens the `/labs/evidence` boundary, whose replay uses
+exported `cacheEligibility` from `server/src/labs/cache.ts`.
+`/api/conversations/:id` is not a substitute for case evidence.
+
+### `GET /api/labs/evidence` — fixed case evidence
+
+The sibling `/labs/evidence` page is inside the existing Labs preference gate.
+The API takes `investigation=project-radar|cache-detective|context-replay` and a
+complete `selector` JSON from a finding. The selector's `version:1`, fixed
+`window:{from,to,tz,label}`, typed `cohort` arrays, exact `selection`, and
+`eligibility` are authoritative. `selectorVersion=1`, readable `from`/`to`/`tz`,
+selection mirrors and dashboard filters cannot change that population. Arbitrary
+display labels are discarded; window labels are derived from validated bounds.
+Literal commas in models and brace globs remain inside JSON array items.
+
+Radar requires original current `selector` and original `priorSelector` for BOTH
+links, with `period=current|prior` choosing only the rows to inspect. Both windows
+must have equal elapsed length, touch at current `from`, use the same timezone,
+cohort, exact selection and `eligibility:all`. Prior inspection never rebases the
+comparison. Radar supports scope or exact project key. Cache supports scope,
+source-qualified session, or actual null-ID unnamed selection with
+`eligibility:cache`. Context uses the same selections with `eligibility:all` so
+excluded rows remain inspectable. An unnamed selection can carry an exact source.
+An unavailable exact group remains empty; it never falls back to another group.
+
+The response is `{ok:true,version:1,intent,scope,population,observation,rows,page}`.
+`observation` discriminates by investigation and uses the accepted investigation
+builder for comparisons, cache prices or context medians and loaded-history limits.
+It includes descriptive summary/state/limitations. Cache also includes full
+eligible/excluded counts, tier flags and the builder's round-once money. Context
+includes selected-session medians/history when applicable; scope/unnamed cases
+do not invent a named sequence. Radar always retains both original periods.
+
+`population.original` and `population.evidence` contain full selected request,
+recorded-token, priced/unpriced, priced-USD and unattributed totals before
+pagination. Eligible and excluded counts/reasons partition the original population.
+Cache's evidence population contains only cache-accounting eligible rows, while
+its original population discloses the exclusions. Context/Radar list all selected
+rows. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
+`actualUsd`: exact eligible pricing amounts accumulated in original dataset order,
+then rounded once to six decimal USD places with ties away from zero.
+`population.original.pricedCostUsd` independently sums all selected priced row
+costs, including comparison exclusions, in that same order and rounds once with
+the same rule. Individual public row costs are unchanged and are not rounded
+before summing. Radar/Context population costs remain unrounded priced-row sums.
+Recorded volume totals include incomplete or attempt-summed accounting;
+they are not submitted-context estimates. Partial priced subtotals are not the
+whole population's cost, and cost is always an API list-price equivalent.
+
+Pagination uses integer `offset>=0` (default 0) and `limit=1..200` (default 100).
+`page:{offset,limit,returned,total,nextOffset}` describes the bounded page;
+`nextOffset:null` ends it. Ordering is timestamp, protocol-derived source, ID,
+original dataset ordinal. Each row retains source, session/null ID, ID, timestamp,
+zero-based selected-population `ordinal`, `originalOrdinal` and a composite
+`identity` stable across pages of the same loaded dataset. Metadata is the existing
+public normalized request shape plus project identity and comparison eligibility.
+Missing/attempt-summed input, absent timing and unpriced dollars are null;
+observed zero remains zero. No prompt, response or transcript body is returned.
+
+Malformed/unsupported fields return HTTP 400 with
+`{ok:false,error:{code:"invalid_evidence",param,message}}`, including conditional
+requests. JSON selectors are limited to 24,576 characters each; lists to 64 items,
+ordinary strings to 1,024 characters, timezone to 128 and label to 512. All object
+shapes, supported enums/version, complete cohort fields, string/null identities,
+finite ordered millisecond bounds, timezone and pagination are validated. Explicit
+sources must be nonempty; blank named IDs never mean all sessions. This route
+validates/resolves before comparing its payload ETag, including derived project
+roots that can change without a ledger revision. See [case workflow](labs-evidence.md).

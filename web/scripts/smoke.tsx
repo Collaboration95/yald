@@ -24,6 +24,7 @@ import { LabsPage, LabsInvestigationPage } from "../src/pages/labs/LabsPage";
 import { LabsLayout } from "../src/pages/labs/LabsLayout";
 import { InvestigationScope } from "../src/pages/labs/InvestigationScope";
 import { InvestigationState, type InvestigationStateKind } from "../src/pages/labs/InvestigationState";
+import { EvidenceCase } from "../src/pages/labs/EvidenceCase";
 import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { OverviewPage } from "../src/pages/Overview";
@@ -425,10 +426,12 @@ async function checkLabsShell() {
   const home = renderPage(LabsPage, client, `/labs?${params}`, "/labs", true, enabledPreferences);
   check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs"].every(text => home.includes(text))
     && home.includes("Not available yet.") === LABS_INVESTIGATIONS.some(entry => !entry.Component), "enabled shell exposes the three independent component slots");
-  for (const path of [...LABS_INVESTIGATIONS.filter(entry => !entry.Component).map(entry => entry.path), "evidence", "unknown/deep"]) {
+  for (const path of [...LABS_INVESTIGATIONS.filter(entry => !entry.Component).map(entry => entry.path), "unknown/deep"]) {
     const html = renderPage(LabsInvestigationPage, client, `/labs/${path}?${params}`, "/labs/*", true, enabledPreferences);
     check(html.includes("not available yet") && html.includes("All investigations") && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
   }
+  const invalidEvidence = renderPage(EvidenceCase, client, "/labs/evidence?investigation=unknown&selector=%7B%7D", "/labs/*", false, enabledPreferences);
+  check(invalidEvidence.includes("Invalid case link") && invalidEvidence.includes("Choose an investigation"), "evidence route explains invalid intent without issuing an experiment query");
   check(!client.getQueryCache().getAll().some(query => String(query.queryKey[0]).startsWith("/api/labs/")), "disabled and enabled empty shell create no experiment queries");
   const cacheParams = filtersToParams(filters, { limit: 100 });
   client.setQueryData(["/api/labs/cache", cacheParams], await fetchJson("/api/labs/cache", cacheParams));

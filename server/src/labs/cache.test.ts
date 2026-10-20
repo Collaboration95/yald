@@ -490,7 +490,11 @@ test("round once after accumulation, reconcile at six decimals, and distinguish 
   expect(buildCacheEconomics([rows[3]!], {}, window).totals.direction).toBe("even");
   expect(buildCacheEconomics([], {}, window).totals).toMatchObject({ totalRequests: 0, eligibleRequests: 0,
     direction: "insufficient", firstTs: null, lastTs: null, actualUsd: 0, baselineUsd: 0 });
+  expect(round6(0.0000005)).toBe(0.000001);
   expect(round6(-0.0000005)).toBe(-0.000001);
+  expect(round6(0.0410025)).toBe(0.041003);
+  expect(round6(-0.0410025)).toBe(-0.041003);
+  expect(round6(0)).toBe(0);
   expect(Object.is(round6(-0.0000001), -0)).toBe(false);
 });
 
