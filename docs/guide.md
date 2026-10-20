@@ -1,9 +1,8 @@
 # Investigating usage with Yald
 
-This guide describes current `dev`, including Claude ingestion, reports, Yaldi
-and Labs planned for 0.2.0. The published v0.1.0 prerelease has the earlier
-opencodex dashboard only. See [installation](install.md) for the verified
-preview and the separate development checkout.
+This guide describes 0.2.0, including Claude ingestion, reports, Yaldi and Labs.
+The earlier v0.1.0 prerelease has the opencodex dashboard only. See
+[installation](install.md) for GitHub asset availability and source setup.
 
 All dollar figures are **API list-price equivalents**, not subscription bills
 or proof of savings. [Metrics](metrics.md) defines eligibility and denominators;
@@ -96,9 +95,9 @@ for monetary precision, limitations and recovery from an invalid case URL.
 
 ## Reports
 
-The report CLI is available in current development, not the published v0.1.0
-package. From a [development checkout](install.md#development-checkout) with
-dependencies installed, run:
+The 0.2.0 package includes `yald report`. These examples use a
+[development checkout](install.md#development-checkout) with dependencies
+installed; replace `node scripts/yald.mjs` with `yald` in an installed package:
 
 ```bash
 node scripts/yald.mjs report --last 8h --out recent.html --json

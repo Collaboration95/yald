@@ -1,8 +1,8 @@
 # Metric definitions
 
 Dollar amounts are **API list-price equivalents**, not subscription bills or
-proof of savings. This guide describes current development, including Labs;
-the published v0.1.0 preview predates Claude ingestion, reports and Labs. See
+proof of savings. This guide describes 0.2.0, including Labs;
+the earlier v0.1.0 preview predates Claude ingestion, reports and Labs. See
 [installation](install.md) for distribution status and [views and reports](guide.md)
 for the investigation workflow.
 

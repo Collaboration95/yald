@@ -1,8 +1,7 @@
 # Explore the synthetic demo
 
-The demo is available in the current development build for planned 0.2.0. It is
-absent from the published v0.1.0 preview. With an installed development package,
-run:
+The demo is included in the 0.2.0 package; see [installation](install.md) for
+GitHub asset availability. It is absent from the earlier v0.1.0 preview. Run:
 
 ```sh
 yald demo --open

@@ -4,8 +4,14 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-20 — Meet Yaldi
+
 ### Added
 
+- Optional Labs with **Project Radar**, **Cache Detective** and **Context Replay**. Findings open fixed evidence cases containing the exact source, window and cohort; Radar retains both comparison periods.
+- **Yaldi**, Yald's detective companion, with static light/dark artwork and controls to hide artwork or disable Labs.
+- Installed `yald demo --open`: isolated synthetic opencodex and Claude examples, illustrative prices, visible Demo labels, all three investigations and a fixed clock for repeatable screenshots. It removes its own temporary data after shutdown.
+- A single-package qualification process with an exact archive manifest and installed-package receipts on Linux and macOS. Release acceptance requires actual matching receipts for the selected 0.2.0 bytes; the workflow alone does not establish qualification.
 - Missing project attribution is explained ([#55](https://github.com/Collaboration95/yald/issues/55), part of [#47](https://github.com/Collaboration95/yald/issues/47)): under a project filter, `coverage.attribution` and the report's coverage note split excluded requests into no conversation id, no matching Codex rollout and other/unknown, with rows, tokens and models per reason. Existing coverage fields are unchanged and no folder is inferred.
 - Exact and relative time windows on every analytics route: `from`/`to` accept naive local times, dates, `now`, `today`, `yesterday` and offsets such as `-8h` or `+6h`; `last=8h` sets a length; `tz` reads and buckets the window in any IANA zone. Every response echoes the window it used (`tz`, `label`, `fromIso`, `toIso`, `halfOpen`). `GET /api/window` validates a window and its phases without reading data. CSV exports are named for their local window ([#33](https://github.com/Collaboration95/yald/issues/33), [#34](https://github.com/Collaboration95/yald/issues/34)).
 - Claude Code subscription usage, read from `~/.claude/projects` transcripts (`CLAUDE_PROJECTS_DIR`) and shown as provider `anthropic` in every view, priced by the opencodex cost engine ([#26](https://github.com/Collaboration95/yald/pull/26)).
