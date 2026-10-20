@@ -162,6 +162,13 @@ describe("buildReport", () => {
     expect(scoped.coverage.unattributedRows).toBe(overview.coverage.unattributedRows);
     // The Anthropic-via-opencodex rows and the orphaned Codex conversation have no folder.
     expect(scoped.coverage.unattributedRows).toBe(8);
+    const { matched, outsideProjects, unattributed } = scoped.coverage.attribution!;
+    expect(matched).toEqual({ rows: scoped.kpis.requests, tokens: scoped.kpis.tokens });
+    expect(unattributed.rows).toBe(8);
+    expect(unattributed.reasons.reduce((n, r) => n + r.rows, 0)).toBe(8);
+    expect(scoped.coverage.unattributedTokens).toBe(unattributed.tokens);
+    // Same source and window without the glob: kept + elsewhere + unknown folder is the whole population.
+    expect(matched.rows + outsideProjects.rows + unattributed.rows).toBe(report(WINDOW).kpis.requests);
     expect(scoped.meta.filters.projects).toEqual(["~/work/app-a*"]);
     expect(scoped.conversations.every(c => c.project === "~/work/app-a")).toBe(true);
     expect(report(WINDOW).coverage.unattributedRows).toBeNull();

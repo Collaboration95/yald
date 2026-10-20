@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { summarizeReasons, type ReasonSummary } from "./attribution";
 import type { RequestRow } from "./ocx/store";
 
 /** Label for rows whose working directory is unknown. */
@@ -76,6 +77,8 @@ export interface ProjectRow {
   cost: number;
   firstSeen: number | null;
   lastSeen: number | null;
+  /** Only on the `(unattributed)` row: why those requests have no folder (all reasons, summing to its requests). */
+  reasons?: ReasonSummary[];
 }
 
 /** Requests, tokens and cost per project, largest first, then an `(unattributed)` row (always present). */
@@ -98,7 +101,11 @@ export function projectBreakdown(rows: RequestRow[]): ProjectRow[] {
     entry.firstSeen = Math.min(entry.firstSeen ?? row.ts, row.ts);
     entry.lastSeen = Math.max(entry.lastSeen ?? row.ts, row.ts);
   }
+  const reasons = summarizeReasons(rows);
   return [...byProject.values()]
-    .map(({ folderSet, ...entry }) => ({ ...entry, folders: [...folderSet].sort(), cost: Math.round(entry.cost * 10_000) / 10_000 }))
+    .map(({ folderSet, ...entry }) => ({
+      ...entry, folders: [...folderSet].sort(), cost: Math.round(entry.cost * 10_000) / 10_000,
+      ...(entry.project === UNATTRIBUTED ? { reasons } : {}),
+    }))
     .sort((a, b) => Number(a.project === UNATTRIBUTED) - Number(b.project === UNATTRIBUTED) || b.tokens - a.tokens);
 }

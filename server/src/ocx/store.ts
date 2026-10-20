@@ -51,6 +51,8 @@ export interface RequestRow {
   attemptTokens: number;
   /** Working directory the request came from; null when it cannot be attributed. */
   cwd: string | null;
+  /** True when a Codex rollout index was read and held no session for this row's conversationId. */
+  rolloutMiss?: boolean;
 }
 
 export interface QuotaSample {
@@ -356,8 +358,9 @@ function codexSignature(index: CodexIndex): string {
 
 /**
  * opencodex rows carry no cwd; their conversationId is the hashed Codex session id, so the
- * rollout index supplies one. Matched rows are copied (published rows may be frozen) and
- * the array is reused untouched when nothing matches, including when ~/.codex is absent.
+ * rollout index supplies one. Rows are copied (published rows may be frozen): matched ones get
+ * the folder, unmatched ones with an id are marked `rolloutMiss`. The array is reused untouched
+ * when ~/.codex has no sessions, so no miss is claimed without an index to miss in.
  */
 function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[] {
   if (!index.size) return rows;
@@ -366,9 +369,8 @@ function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[]
     const row = rows[i]!;
     if (row.cwd !== null || row.protocol === "claude-code" || !row.conversationId) continue;
     const session = index.get(row.conversationId);
-    if (!session) continue;
     attributed ??= rows.slice();
-    attributed[i] = { ...row, cwd: session.cwd };
+    attributed[i] = session ? { ...row, cwd: session.cwd } : { ...row, rolloutMiss: true };
   }
   return attributed ?? rows;
 }

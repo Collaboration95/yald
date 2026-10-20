@@ -46,9 +46,9 @@ test("project filters drop rows without a cwd and coverage counts them", () => {
   const rows = [row("a", `${home}/work/app-a/server`, 10), row("b", `${home}/work/app-b`, 20), row("x", null, 30), row("y", null, 40)];
   const filter = { projects: ["~/work/app-a"] };
   expect(filterRows(rows, filter).map(r => r.id)).toEqual(["a"]);
-  expect(projectCoverage(rows, filter)).toEqual({ unattributedRows: 2, unattributedTokens: 70 });
+  expect(projectCoverage(rows, filter)).toMatchObject({ unattributedRows: 2, unattributedTokens: 70 });
   // Other filters still apply to the rows being counted.
-  expect(projectCoverage(rows, { ...filter, search: "nothing-matches" })).toEqual({ unattributedRows: 0, unattributedTokens: 0 });
+  expect(projectCoverage(rows, { ...filter, search: "nothing-matches" })).toMatchObject({ unattributedRows: 0, unattributedTokens: 0 });
   expect(projectCoverage(rows, {})).toBeNull();
   expect(filterRows(rows, { projects: [] })).toHaveLength(4);
 });

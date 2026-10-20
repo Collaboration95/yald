@@ -31,6 +31,14 @@ Each request carries the working directory (`cwd`) it was made from, or none whe
 
 A project filter (`projects`) is a list of folder globs. A request matches when its `cwd`, or any folder above it, matches a glob, so `~/work/app-a` covers `~/work/app-a/server` and `~/work/app-a*` also covers `~/work/app-a-api`. `~` is the home directory and a trailing `/` is ignored. On macOS, `/tmp/...` and `/private/tmp/...` (and `/var/...` and `/private/var/...`) are treated as the same folder, so `/tmp/app-a-*` and `/private/var/folders/**/T/app-a-*` match Codex SDK runs started in temp folders. Unattributed requests never match a project filter: they are excluded and reported as `coverage.unattributedRows` and `coverage.unattributedTokens`, so a filtered total can be read as a lower bound.
 
+`coverage.attribution` explains the exclusions for the same source and window. Rows are split into `matched` (kept), `outsideProjects` (a known folder that no glob matches) and `unattributed`, and these add up to every row that matched the other filters. Unattributed rows are broken down by reason, each with rows, tokens and the models involved (the report's coverage note prints the same numbers):
+
+- `noConversationId`: an opencodex row without a conversation id (for example image generation or realtime calls). No rollout can match it.
+- `noRollout`: an opencodex row with a conversation id that matched no session in the Codex rollout index yald read. The row does not say why (pruned rollout, a client other than Codex, a side call); yald does not guess.
+- `other`: no folder and neither reason is evidenced. This includes Claude Code transcript lines without a `cwd`, and opencodex rows with an id when no Codex rollouts could be read at all.
+
+No time-based or overlap inference is applied: a reason never assigns a folder, and token-less rows are not priced.
+
 The projects list rolls each folder up to the nearest enclosing git root (a folder holding a `.git` directory or file, checked on disk once per folder while yald runs), and lists unattributed requests as `(unattributed)`. Folders that no longer exist keep their own path.
 
 Limits:

@@ -54,13 +54,17 @@ test("projects=~/work/app-a* keeps only app A's Claude and Codex rows and counts
   // 49 Codex rows (root session, subagent traffic included) + 2 Claude rows from app-a/server.
   expect(body.summary.requests).toBe(51);
   expect(body.topProviders.map((row: { key: string }) => row.key).sort()).toEqual(["anthropic", "deepseek", "openai"]);
-  expect(body.coverage).toEqual({ unattributedRows: 1, unattributedTokens: 22_400 });
+  expect(body.coverage).toMatchObject({ unattributedRows: 1, unattributedTokens: 22_400 });
   // Ancestor matching: the plain folder covers its server subfolder; a trailing slash is ignored.
   expect((await get(`/api/overview?${q("~/work/app-a/")}`)).summary.requests).toBe(51);
   expect((await get(`/api/overview?${q("~/work/app-b,~/work/app-a")}`)).summary.requests).toBe(53);
   // Every analytics route reports coverage under a project filter.
   for (const route of ["usage", "cost", "models", "performance", "reliability", "conversations", "timeseries", "filters"]) {
-    expect((await get(`/api/${route}?${q("~/work/app-a*")}`)).coverage).toEqual({ unattributedRows: 1, unattributedTokens: 22_400 });
+    const { coverage } = await get(`/api/${route}?${q("~/work/app-a*")}`);
+    expect(coverage).toMatchObject({ unattributedRows: 1, unattributedTokens: 22_400 });
+    // The one folderless row has a conversation id that matches no rollout in the fixture's Codex index.
+    expect(coverage.attribution.unattributed.reasons.map((r: { reason: string; rows: number }) => [r.reason, r.rows])).toEqual([["noConversationId", 0], ["noRollout", 1], ["other", 0]]);
+    expect(coverage.attribution.matched.rows + coverage.attribution.outsideProjects.rows + coverage.attribution.unattributed.rows).toBeGreaterThan(coverage.attribution.matched.rows);
   }
 });
 
@@ -85,7 +89,8 @@ test("GET /api/projects rolls subfolders up to the git root and lists (unattribu
   expect(body.projects.reduce((sum: number, row: { requests: number }) => sum + row.requests, 0)).toBe(103);
   const scoped = await get(`/api/projects?${q("~/work/app-a*")}`);
   expect(scoped.projects.map((row: { project: string }) => row.project)).toEqual([join(home, "work", "app-a"), "(unattributed)"]);
-  expect(scoped.coverage).toEqual({ unattributedRows: 1, unattributedTokens: 22_400 });
+  expect(scoped.coverage).toMatchObject({ unattributedRows: 1, unattributedTokens: 22_400 });
+  expect(byProject["(unattributed)"].reasons).toEqual(scoped.projects.at(-1).reasons);
 });
 
 test("project and report ETags reflect git-root changes without ledger edits", async () => {

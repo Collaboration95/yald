@@ -223,7 +223,7 @@ describe("renderReportHtml", () => {
     data.conversations = [];
     data.cache = { hitRate: null, savingsUsd: 0, costByClass: { freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0 } };
     data.quota.windows = [];
-    data.coverage = { sourcesRead: [], unpriced: [], estimatedCostShare: 0, rowsWithoutConversation: 0, ledgerStartsAt: null, pricing: "ok", unattributedRows: null };
+    data.coverage = { sourcesRead: [], unpriced: [], estimatedCostShare: 0, rowsWithoutConversation: 0, ledgerStartsAt: null, pricing: "ok", unattributedRows: null, unattributedTokens: null, attribution: null };
     const html = renderReportHtml(data);
     expect(html).toContain("No requests in this window");
     expect(embedded(html)).toEqual(data);
