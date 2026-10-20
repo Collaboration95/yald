@@ -52,7 +52,10 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
 
   const reset = useCallback(() => {
     setSearchParams(current => {
-      const next = new URLSearchParams({ range: DEFAULT_FILTERS.range });
+      const next = new URLSearchParams(current);
+      // Reset dashboard filters only; preserve case intent, including paired selectors.
+      for (const key of Object.keys(DEFAULT_FILTERS)) next.delete(key);
+      next.set("range", DEFAULT_FILTERS.range);
       // Session identity is not a cohort filter. Reset must still open the same source's session.
       if (pathname.startsWith("/conversations/") && current.has("sessionSource")) next.set("sessionSource", current.get("sessionSource")!);
       return next;
