@@ -68,9 +68,9 @@ with authenticated `gh`, for example:
 gh run download SELECTED_RUN_ID --repo Collaboration95/yald \
   --name yald-candidate-SELECTED_RUN_ID-PRODUCER_ATTEMPT --dir /tmp/selected-candidate
 gh run download SELECTED_RUN_ID --repo Collaboration95/yald \
-  --name yald-receipt-SELECTED_RUN_ID-VERIFY_ATTEMPT-Linux --dir /tmp/selected-linux
+  --name yald-receipt-SELECTED_RUN_ID-VERIFY_ATTEMPT-ubuntu-latest --dir /tmp/selected-linux
 gh run download SELECTED_RUN_ID --repo Collaboration95/yald \
-  --name yald-receipt-SELECTED_RUN_ID-VERIFY_ATTEMPT-macOS --dir /tmp/selected-macos
+  --name yald-receipt-SELECTED_RUN_ID-VERIFY_ATTEMPT-macos-latest --dir /tmp/selected-macos
 ```
 
 Replace placeholders with actual artifact names (verifier attempts can differ).
