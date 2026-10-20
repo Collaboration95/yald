@@ -18,6 +18,8 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ### Changed
 
+- Source capabilities and per-request measurement presence now distinguish unavailable data from observed zero. Claude transcript outcomes are `unobserved`; reliability uses eligible requests and returns `successRate: null` without observed outcomes. API responses include measurement coverage and price-presence counts. Existing live Claude records are appended once to Yald's own archive to retain new presence flags; older archive-only records keep unavailable presence until matching live evidence exists.
+
 - **Time windows are half-open, `[from, to)`.** `to` used to be inclusive; a request recorded exactly at `to` now belongs to the next window, so contiguous windows add up exactly. Queries with an explicit `to` no longer count requests recorded exactly at that instant, and the prior period is now `[from − span, from)` ([#34](https://github.com/Collaboration95/yald/issues/34)).
 - Hour, day and week buckets, the heatmap and labels follow the request `tz` (default `YALD_TZ`, then the system zone) instead of the server process's timezone.
 - Window parameters are strict: an unknown `range`, a `to` without `from`, `last` or `range`, or an empty window returns HTTP 400 instead of falling back to the last 30 days.

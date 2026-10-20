@@ -101,7 +101,7 @@ export function OverviewPage() {
         />
         <Stat
           label="Estimated cost"
-          value={summary ? formatUsd(summary.cost) : "—"}
+          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cost) : "—"}
           hint={summary ? `${formatInteger(summary.pricedRequests)} priced · ${formatInteger(summary.unpricedRequests)} unpriced` : undefined}
           delta={data?.deltas.cost}
           deltaTone="none"
@@ -128,7 +128,7 @@ export function OverviewPage() {
         />
         <Stat
           label="Cache savings"
-          value={summary ? formatUsd(summary.cache.savingsUsd) : "—"}
+          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cache.savingsUsd) : "—"}
           hint={summary ? `${formatPercent(summary.cache.hitRate)} of eligible input · ${formatCoverage(summary.measurementCoverage.cache)}` : undefined}
           delta={data?.deltas.cacheHitRate}
           deltaTone="none"
@@ -189,7 +189,7 @@ export function OverviewPage() {
                         <ModelTag model={model.key} className="leaderboard-model" />
                         <div className="leaderboard-totals">
                           <span className="leaderboard-volume">{formatCompact(model.tokens)} <span>tokens</span></span>
-                          <span className="leaderboard-cost">{formatUsd(model.cost)}</span>
+                          <span className="leaderboard-cost">{model.pricedRequests > 0 ? formatUsd(model.cost) : "unpriced"}</span>
                         </div>
                       </div>
                       <ProgressBar value={model.share} max={data.topModels[0]?.share ?? 1} className="leaderboard-bar" />

@@ -8,7 +8,7 @@
  *
  * Run with: ./scripts/smoke.sh  (add --fixtures to force the synthetic ledger)
  */
-import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -37,6 +37,8 @@ const useFixtures = process.argv.includes("--fixtures") || !existsSync(join(ocxH
 let fixturePricing = "";
 if (useFixtures) {
   fixturePricing = await materializeFixturePricing();
+  const pricePath = join(fixturePricing, "src/usage/cost.ts");
+  await writeFile(pricePath, (await readFile(pricePath, "utf8")).replace("const RATES = {", 'const RATES = { "f01-free": [0, 0, 0, 0],'));
   process.env.OCX_PACKAGE_DIR = fixturePricing;
   process.env.OCX_HOME = await materializeFixtureHome();
   process.env.CLAUDE_PROJECTS_DIR = join(process.env.OCX_HOME, "claude-projects");
@@ -47,6 +49,8 @@ if (useFixtures) {
     { ...common, requestId: "f01-failure", status: 502, errorCode: "synthetic_failure", usage: { inputTokens: 10, outputTokens: 1, cacheReadInputTokens: 0 } },
     { ...common, requestId: "f01-input-missing", model: "f01-presence", usage: { outputTokens: 1 } },
     { ...common, requestId: "f01-input-zero", model: "f01-presence", usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 } },
+    ...["free", "unpriced"].map(kind => ({ ...common, requestId: `f01-${kind}`, model: `f01-${kind}`, conversationId: `f01-${kind}-session`,
+      usage: { inputTokens: 100, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } })),
   ];
   await appendFile(join(process.env.OCX_HOME, "usage.jsonl"), synthetic.map(row => JSON.stringify(row)).join("\n") + "\n");
   const folder = join(process.env.CLAUDE_PROJECTS_DIR, "f01");
@@ -294,6 +298,26 @@ async function checkMeasurementCohorts() {
   // Ensure mixed production data retains unobserved volume while rates stay eligible.
   const full = await fetchJson<any>("/api/reliability", params);
   check(full.outcomes.reduce((n: number, x: any) => n + x.value, 0) === full.measurementCoverage.totalRequests, "outcome totals reconcile");
+
+  const priceFilters = { ...DEFAULT_FILTERS, models: ["f01-free", "f01-unpriced"] };
+  const priceParams = filtersToParams(priceFilters);
+  for (const [path, route, Component, extra] of [
+    ["/api/overview", "/", OverviewPage, {}],
+    ["/api/usage", "/usage", UsagePage, {}],
+    ["/api/cost", "/cost", CostPage, {}],
+    ["/api/conversations", "/conversations", ConversationsPage, { sort: "tokens", limit: 200 }],
+  ] as const) {
+    const queryParams = filtersToParams(priceFilters, extra);
+    const payload = await fetchJson<any>(path, queryParams);
+    const priceClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+    priceClient.setQueryData([path, queryParams], payload);
+    const rendered = renderPage(Component, priceClient, `${route}?${priceParams}`, route);
+    const entries = rendered.match(path === "/api/overview" ? /<li class="leaderboard-row"[\s\S]*?<\/li>/g : /<tr\b[\s\S]*?<\/tr>/g) ?? [];
+    const free = entries.find(entry => entry.replace(/<[^>]*>/g, "").includes("f01-free"));
+    const unknown = entries.find(entry => entry.replace(/<[^>]*>/g, "").includes("f01-unpriced"));
+    check(Boolean(free?.includes("$0.00") && unknown?.includes("unpriced") && !unknown.includes("$0.00")), `${path} priced zero versus unavailable`);
+    priceClient.clear();
+  }
 }
 if (useFixtures) await checkMeasurementCohorts();
 if (useFixtures) await Promise.all([process.env.OCX_HOME!, fixturePricing].map(path => rm(path, { recursive: true, force: true })));

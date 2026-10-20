@@ -82,7 +82,7 @@ export function ConversationsPage() {
                   </Td>
                   <Td align="right">{formatInteger(conversation.requests)}</Td>
                   <Td align="right">{formatCompact(conversation.tokens)}</Td>
-                  <Td align="right">{conversation.cost > 0 ? "$" + conversation.cost.toFixed(2) : "—"}</Td>
+                  <Td align="right">{conversation.pricedRequests > 0 ? "$" + conversation.cost.toFixed(2) : "unpriced"}</Td>
                   <Td align="right">{formatDuration(conversation.spanMs)}</Td>
                   <Td align="right">{formatCompact(conversation.intensity)}</Td>
                   <Td align="right" className={conversation.errors > 0 ? "text-bad" : undefined}>{conversation.errors || "—"}</Td>

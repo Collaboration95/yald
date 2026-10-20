@@ -490,8 +490,8 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
       successRate: summary.successRate,
       cacheHitRate: summary.cache.hitRate,
       outputTokensPerSecond: percentile(throughputs, 0.5),
-      costPer1kTokens: summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1000, 4) : null,
-      costPer1MTokens: summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1_000_000, 2) : null,
+      costPer1kTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1000, 4) : null,
+      costPer1MTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1_000_000, 2) : null,
       firstSeen: summary.firstRequestAt ?? 0,
       lastSeen: summary.lastRequestAt ?? 0,
       unpricedRequests: summary.unpricedRequests,
@@ -719,6 +719,8 @@ export interface ConversationRow {
   requests: number;
   tokens: number;
   cost: number;
+  pricedRequests: number;
+  unpricedRequests: number;
   models: string[];
   providers: string[];
   startedAt: number;
@@ -745,6 +747,7 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
     const providers = new Set<string>();
     let tokens = 0;
     let cost = 0;
+    let pricedRequests = 0;
     let errors = 0;
     let cacheRead = 0;
     let output = 0;
@@ -756,6 +759,7 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
       providers.add(row.provider);
       tokens += row.totalTokens;
       cost += row.cost;
+      if (row.priced) pricedRequests++;
       if (outcome(row) === "error") errors++;
       cacheRead += row.cacheReadTokens;
       output += row.outputTokens;
@@ -769,6 +773,8 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
       requests: list.length,
       tokens,
       cost: round(cost, 4),
+      pricedRequests,
+      unpricedRequests: list.length - pricedRequests,
       models: [...models],
       providers: [...providers],
       startedAt: started,

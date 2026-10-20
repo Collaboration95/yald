@@ -288,7 +288,7 @@ export function UsagePage() {
   );
 }
 
-function BreakdownTable({ rows, dimension }: { rows: { key: string; requests: number; tokens: number; cost: number; share: number; p50DurationMs: number | null; successRate: number | null }[]; dimension: string }) {
+function BreakdownTable({ rows, dimension }: { rows: { key: string; requests: number; tokens: number; cost: number; pricedRequests: number; share: number; p50DurationMs: number | null; successRate: number | null }[]; dimension: string }) {
   return (
     <TableShell className="max-h-[300px] overflow-y-auto">
       <thead>
@@ -308,7 +308,7 @@ function BreakdownTable({ rows, dimension }: { rows: { key: string; requests: nu
             <Td align="right">{row.requests.toLocaleString()}</Td>
             <Td align="right">{formatCompact(row.tokens)}</Td>
             <Td align="right">{formatPercent(row.share)}</Td>
-            <Td align="right">{row.cost > 0 ? `$${row.cost.toFixed(2)}` : "—"}</Td>
+            <Td align="right">{row.pricedRequests > 0 ? `$${row.cost.toFixed(2)}` : "unpriced"}</Td>
             <Td align="right">{formatDuration(row.p50DurationMs)}</Td>
           </tr>
         ))}

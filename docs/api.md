@@ -172,3 +172,8 @@ is distinct from project-attribution `coverage`. Cache points and context pressu
 add eligible and total counts; conversation context points add `contextEligible`.
 See [metric definitions](metrics.md#source-capabilities-and-measurement-coverage)
 for denominator, zero-versus-missing and attempt-sum rules.
+
+Aggregate price presence: model breakdowns and conversation summaries expose
+`pricedRequests` and `unpricedRequests`. A zero cost with priced requests is a
+priced zero; zero without any priced requests is unavailable. Blended model
+`costPer1kTokens`/`costPer1MTokens` are null when every request is unpriced.

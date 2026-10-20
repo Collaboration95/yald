@@ -164,6 +164,8 @@ export interface ConversationRow {
   requests: number;
   tokens: number;
   cost: number;
+  pricedRequests: number;
+  unpricedRequests: number;
   models: string[];
   providers: string[];
   startedAt: number;

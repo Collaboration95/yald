@@ -25,6 +25,19 @@ function row(overrides: Partial<RequestRow> = {}): RequestRow {
 
 const rows = [row(), row({ id: "r2", ts: now + 60_000, model: "other", status: 502, ok: false, errorCode: "upstream", conversationId: "c1", usageStatus: "unreported", cacheProvenance: "synthesized", cacheReadTokens: 80, retried: true, totalTokens: 80, attemptTokens: 130, cost: 0.02 })];
 
+test("aggregate price presence separates unpriced models and sessions from a priced zero", () => {
+  const samples = [
+    row({ id: "free", model: "free", conversationId: "free", cost: 0, priced: true }),
+    row({ id: "unknown", model: "unknown", conversationId: "unknown", cost: 0, priced: false }),
+  ];
+  const models = analytics.breakdown(samples, r => r.model);
+  expect(models.find(r => r.key === "free")).toMatchObject({ cost: 0, pricedRequests: 1, costPer1MTokens: 0 });
+  expect(models.find(r => r.key === "unknown")).toMatchObject({ cost: 0, pricedRequests: 0, costPer1MTokens: null });
+  const sessions = analytics.conversations(samples);
+  expect(sessions.find(r => r.id === "free")).toMatchObject({ cost: 0, pricedRequests: 1, unpricedRequests: 0 });
+  expect(sessions.find(r => r.id === "unknown")).toMatchObject({ cost: 0, pricedRequests: 0, unpricedRequests: 1 });
+});
+
 test("7d uses exactly 168 hours across DST and ignores future-dated source rows", () => {
   const window = parseWindow({ range: "7d", tz }, { now, first: now - 30 * 86_400_000 });
   expect(window.to).toBe(now);
