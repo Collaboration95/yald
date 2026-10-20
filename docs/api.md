@@ -143,6 +143,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Ranked conversations and aggregate totals |
 | `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
+| `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |
 | `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present) that also carries `reasons`, the same breakdown as `coverage.attribution.unattributed.reasons`. With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
 | `GET /api/export` | Shared; `dataset` (`requests`, `models`, `conversations`) | CSV attachment for the filtered rows, named for the local window, e.g. `yald-requests-2026-10-11T0900+0800--2026-10-11T1700+0800.csv` |
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
@@ -324,3 +325,91 @@ coverage, source-qualified sessions, observed request sequences, median-based
 growth and exact evidence selectors. Missing input and unpriced cost remain null.
 See the [Context Replay response contract](labs-context.md) for fields, units,
 sorting, history truncation and eligibility rules.
+
+### `GET /api/labs/cache`
+
+Returns `CacheEconomicsResponse` ([web types](../web/src/types.ts)), with
+`ok: true`, `analysis: "cache-economics"`, `version: 1`, `precisionDp: 6`,
+`currency: "USD"` and `basis: "api-list-price-equivalent"`. It uses the standard
+window parser and filters, including `sources`, `projects`, `providers`, `models`,
+`efforts`, `statuses`, `routeKinds`, `conversationId` and `search`. The top-level
+`window` contains the resolved `[from,to)`, `tz`, labels, ISO bounds and input echo;
+`scope` repeats the resolved window and every cohort dimension. Invalid windows
+or sources return the standard HTTP 400 error. With `projects`, `coverage` is the
+standard attribution breakdown over the same cohort before the project filter.
+
+`totals` covers every selected row. `sessions` contains one group per
+`(source, conversationId)`, keyed by `JSON.stringify([source, conversationId])`.
+`unnamed` covers rows without a conversation id; those rows also remain in
+`totals` and never form a session. Unnamed sessions and missing project attribution
+are independent: a row can have a known folder and no conversation id.
+
+Every totals object (scope, each session, and unnamed) contains:
+
+| Fields | Meaning |
+| --- | --- |
+| `totalRequests`, `eligibleRequests`, `excluded` | All selected rows and the partition of money-comparison coverage; every exclusion key is present, including zeros |
+| `readTokens`, `writeTokens` | Engine-priced cache tokens from eligible rows only |
+| `readDiscountUsd`, `writePremiumUsd`, `netUsd` | Eligible USD equivalents; net is the rounded read discount minus the rounded write premium |
+| `actualUsd`, `baselineUsd` | Eligible engine totals with recorded cache accounting and with the identical workload priced uncached |
+| `direction` | `benefit`, `cost`, or `even` by the rounded net's sign; `insufficient` when there are no eligible rows |
+| `longContextRequests`, `priorityRequests`, `lowerBoundRequests` | Eligible rows with a long-context band, a non-unit priority multiplier, or the engine's lower-bound flag |
+| `confirmedTierRequests`, `requestedTierOnlyRequests` | Eligible rows with a response tier in the evaluated tier record, or only a requested/configured tier. A confirmed tier need not be priority |
+| `derivedRateRequests`, `explicitFreeRequests` | Eligible rows using a derived rate, or an explicit user-overlay zero input/cache rate used in the comparison |
+| `firstTs`, `lastTs` | Epoch milliseconds of the first/last selected row, including exclusions; null for an empty group |
+| `evidence` | `{ selector, href }` for this exact window, cohort and group, with `eligibility: "cache"` |
+
+Exclusions use the first matching reason, in this order, so
+`eligibleRequests + sum(excluded) == totalRequests` in every group:
+
+1. `unpriced`: no actual engine estimate.
+2. `attempt-sum`: recovered attempt usage or a non-logical usage measurement.
+3. `usage-estimated`: usage status is not exactly `reported`.
+4. `input-missing`: inclusive input was not measured.
+5. `cache-unmeasured`: either cache counter was absent; observed zero is present.
+6. `cache-synthesized`: cache provenance is synthesized.
+7. `cache-unknown`: cache provenance is anything other than observed.
+8. `economics-unavailable`: no valid actual/baseline pair or incomplete engine metadata.
+9. `accounting-mismatch`: engine-priced inclusive input/read/write differs from the row's counters.
+10. `rate-unavailable`: a used input/cache rate is zero without an explicit user overlay. With no cache tokens, no hypothetical input rate is required.
+
+Excluded rows contribute no money or cache tokens to the comparison. Outcomes do
+not gate eligibility: reported usage can be charged on failed/cancelled requests,
+and Claude's unobserved outcome does not invalidate measured cache counters.
+
+The backend computes the pair during normalization while raw tier/routing
+provenance is available. Both calls reuse one evaluation of price options and
+the exact same service-tier record. Baseline input/output are unchanged; only
+cache counters are zeroed, preserving the engine's raw-input long-context test.
+Rows without engine-priced cache tokens reuse the actual estimate. An older or
+partial engine without normalized token splits, price source/status or finite
+cost classes yields `economics-unavailable`; it never falls back to base `rate*`.
+Internal unavailable reasons are `engine-incomplete`, `baseline-unpriced`,
+`baseline-mismatch`, `tier-mismatch` and `tier-context-unavailable`. The last
+reason applies when the engine omits `serviceTierContext` but the entry records
+a response, requested or configured tier, or a `tierOutcome`. The comparison is
+excluded even if its cost/token results are complete; existing actual pricing
+is unchanged and no tier is reconstructed. Changed token accounting, tier flags,
+price provenance, effective input rates or output costs also invalidate the pair.
+Only bounded economics and tier metadata is retained; no prompt/response content.
+
+Sessions sort by `abs(netUsd)` descending, then source and conversation id.
+`limit` is floored and clamped to 0–1000; invalid/non-finite input uses the default
+100. `sessionCount` counts all named groups before the limit;
+`sessionsTruncated` indicates omitted groups. Limiting sessions never limits
+scope/unnamed totals or their evidence selectors.
+
+Accumulate unrounded engine amounts, then round USD values to six decimals
+(ties away from zero). Set `netUsd = round6(readDiscountUsd - writePremiumUsd)`;
+zero never serializes as negative zero. The unrounded engine identity is
+`baselineUsd - actualUsd == readDiscountUsd - writePremiumUsd`. Independently
+rounded actual/baseline totals can differ from the displayed net by up to
+0.000002 USD; independently rounded groups need not sum to a rounded scope total.
+
+`pricing.available` describes engine loading, not row eligibility; consult the
+counts and `direction` before displaying a comparison. `notes` explains the basis,
+coverage, lower-bound rates and write-TTL limitation. See
+[Net cache economics](metrics.md#net-cache-economics) for interpretation.
+The evidence href is an intent for the L08 `/labs/evidence` boundary, whose replay
+must use exported `cacheEligibility` from `server/src/labs/cache.ts`. L04 does not
+implement that route; `/api/conversations/:id` is not a scoped substitute.

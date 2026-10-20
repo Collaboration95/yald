@@ -257,23 +257,42 @@ export async function materializeFixturePricing(): Promise<string> {
   "gpt-6-luna": [1.25, 10, 0.125, 0], "gpt-6-sol": [2.5, 15, 0.25, 0], "gpt-6-astra": [5, 40, 0.5, 0],
   "claude-fixture-opus": [5, 25, 0.5, 6.25], "claude-fixture-haiku": [1, 5, 0.1, 1.25],
 };
+export function serviceTierContext(entry) {
+  return { responseServiceTier: entry.responseServiceTier, requestedServiceTier: entry.requestedServiceTier, configuredServiceTier: entry.configuredServiceTier };
+}
 export function estimateRequestCost(input) {
   const rate = RATES[input.model];
   if (!rate) return null;
   const u = input.usage ?? {};
-  const cacheRead = u.cacheReadInputTokens ?? u.cachedInputTokens ?? 0;
-  const cacheWrite = u.cacheCreationInputTokens ?? u.cacheWriteInputTokens ?? 0;
+  // Preserve the fixture's historical zero estimate for absent usage. Raw
+  // presence flags still exclude that row from Labs money comparisons.
+  const inputTokens = u.inputTokens ?? 0, outputTokens = u.outputTokens ?? 0;
+  let cacheRead = u.cacheReadInputTokens ?? u.cachedInputTokens ?? 0;
+  const cacheWrite = u.cacheCreationInputTokens ?? 0;
+  // Mirror the real engine's canonical fields and its legacy combined-cache recovery.
+  if (typeof u.cacheReadInputTokens !== "number" && typeof u.cachedInputTokens === "number"
+    && typeof u.cacheCreationInputTokens === "number" && cacheRead + cacheWrite > inputTokens) {
+    cacheRead = Math.max(0, u.cachedInputTokens - cacheWrite);
+  }
+  if (![inputTokens, outputTokens, cacheRead, cacheWrite].every(v => typeof v === "number" && Number.isFinite(v) && v >= 0)
+    || cacheRead + cacheWrite > inputTokens) return null;
   const [inRate, outRate, readRate, writeRate] = rate;
+  // Engine-normalized split, as opencodex returns it: input excludes cache read and write.
+  const tokens = { input: inputTokens - cacheRead - cacheWrite, output: outputTokens, cacheRead, cacheWrite };
   const cost = {
-    input: Math.max(0, (u.inputTokens ?? 0) - cacheRead - cacheWrite) * inRate / 1e6,
-    output: (u.outputTokens ?? 0) * outRate / 1e6,
+    input: tokens.input * inRate / 1e6,
+    output: tokens.output * outRate / 1e6,
     cacheRead: cacheRead * readRate / 1e6,
     cacheWrite: cacheWrite * writeRate / 1e6,
   };
   return {
+    tokens,
     cost: { ...cost, total: cost.input + cost.output + cost.cacheRead + cost.cacheWrite },
     estimated: input.model === "gpt-6-astra",
-    price: { cost4: { input: inRate, output: outRate, cacheRead: readRate, cacheWrite: writeRate } },
+    price: {
+      provider: input.provider, modelId: input.model, cost4: { input: inRate, output: outRate, cacheRead: readRate, cacheWrite: writeRate },
+      source: rate.every(value => value === 0) ? "user" : "jawcode", status: input.model === "gpt-6-astra" ? "verified-derived" : "verified",
+    },
   };
 }
 `, "utf8");

@@ -18,6 +18,77 @@ Metering coverage is the share of requests with reported or otherwise recoverabl
 
 Cost is estimated by the opencodex pricing engine used by `ocx usage`. It applies the jawcode price table, expected-price overlay, user overlays, long-context bands, and priority multiplier. If that engine is unavailable, yald marks pricing unavailable instead of presenting a second price table.
 
+## Net cache economics
+
+Labs Cache Detective (`GET /api/labs/cache`) compares the **identical recorded
+workload** with its observed cache accounting against that input priced entirely
+uncached. Input includes reads and writes; the baseline keeps raw input, output,
+provider, model, routing price options and the evaluated service-tier record.
+Only the cache counters change. Price options and tier provenance are evaluated
+once and reused by both engine calls. Long-context thresholds therefore use the
+same raw input on both sides, and a requested priority tier is never promoted to
+response-confirmed priority by Yald. Current engine/overlay rates apply; this is
+not a historical pricing snapshot.
+
+Using the baseline's effective input cost per token after tiers and priority:
+
+```text
+read discount = read tokens × effective input cost − actual cache-read cost
+write premium = actual cache-write cost − write tokens × effective input cost
+net benefit  = read discount − write premium = baseline total − actual total
+```
+
+Positive net means a lower list-price equivalent with the recorded cache use;
+negative means write premiums exceed read discounts; observed zero is even.
+This is a fixed-workload counterfactual, not a subscription bill, realized savings,
+alternate request-cadence estimate, cache-prefix survival measurement or an
+explanation of cache misses. No quality, productivity or compaction claim follows.
+
+Only reported, logical usage with measured inclusive input, both measured cache
+counters, exact `observed` provenance and adequate prices supports this comparison.
+Missing fields differ from observed zeros. Attempt-summed usage, synthesized or
+unknown cache accounting, unavailable engine results, mismatched accounting and
+missing rates are excluded with first-match reasons and counts. Exclusions
+partition every selected request without contributing dollars. Outcomes do not
+gate eligibility. Derived rates remain eligible with a count; explicit user-overlay
+zero rates are free, while used zero catalog/expected rates are conservatively
+unavailable. An engine missing normalized tokens, source/status or finite cost
+classes exposes `economics-unavailable`, with no fallback to the row's base rates.
+An engine without `serviceTierContext` also excludes entries with recorded
+response/requested/configured tiers or `tierOutcome` (`tier-context-unavailable`);
+complete costs alone do not establish that tier provenance was preserved.
+Existing actual pricing is unchanged. Entries without tier provenance can still
+support the comparison if every other eligibility check passes.
+
+Scope totals include named and unnamed rows. Sessions use
+`(source, conversationId)`; unnamed rows have their own totals and no fabricated
+conversation. Every group carries total/eligible counts and an exact evidence
+selector with fixed `[from,to)`, timezone, every cohort filter and
+`eligibility: "cache"`. No eligible rows means `insufficient`, not an observed zero.
+The [API contract](api.md#get-apilabscache) lists exclusions, units and sorting.
+
+Amounts accumulate unrounded. At the response boundary read discount and write
+premium round to six decimal USD places, then net is their rounded difference.
+Actual/baseline totals round independently and can differ from that net by up to
+two millionths of a dollar. Rounding sessions independently can likewise leave
+small differences from rounded scope totals.
+
+Tier flags count long-context, confirmed/requested-only, priority and lower-bound
+rows. The tier summary comes from the engine's evaluated provenance record,
+including authoritative attempt outcomes. A lower-bound price flags incomplete
+Fast/tier pricing on both sides; it does not guarantee the net is a savings floor.
+Claude writes use the engine's single write rate. The transcript conversion does
+not preserve separate write TTL accounting, so 1-hour writes can have an
+understated premium. TTL reconstruction is outside this comparison.
+
+Existing `summary.cache.savingsUsd`, cache timeline `savingsUsd` and cost
+composition `cacheSavingsUsd` keep their original meaning: **gross cache-read
+discount at base list rate**, before write premiums and tier adjustments. Their
+price/provenance coverage differs from Labs. The normalized `rateIn`, `rateOut`,
+`rateCacheRead` and `rateCacheWrite` are base engine rates, not effective post-tier
+rates, and are never a fallback for Labs net economics. Gross values are not net
+savings and should not be compared as if they had the same eligible population.
+
 ## Reliability and retries
 
 Success rate uses observed logical request outcomes, not physical sends or Claude transcript compatibility statuses. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.

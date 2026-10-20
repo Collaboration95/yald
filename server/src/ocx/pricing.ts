@@ -34,6 +34,9 @@ export interface CostEstimateLike {
   price?: PriceLike;
   contextTier?: "long";
   priorityMultiplier?: number;
+  /** The engine's normalized split: input excludes cache read and write. */
+  tokens?: Cost4;
+  priorityLowerBound?: boolean;
 }
 
 type EstimateFn = (input: Record<string, unknown>) => CostEstimateLike | null;
@@ -197,23 +200,170 @@ export function pricingGeneration(): string | null {
   return engine?.generation?.() ?? null;
 }
 
+function estimateWith(input: Record<string, unknown>, usage: unknown): CostEstimateLike | null {
+  return engine!.estimate({ ...input, usage });
+}
+
 /** Price one persisted usage row exactly the way `ocx usage` does. */
 export function priceEntry(entry: Record<string, unknown>): CostEstimateLike | null {
-  if (!engine) return null;
+  return priceWithCacheCounterfactual(entry, false).estimate;
+}
+
+export type CacheEconomicsUnavailable = "engine-incomplete" | "tier-context-unavailable" | "baseline-unpriced" | "baseline-mismatch" | "tier-mismatch";
+
+/** One row priced with and without its cache counters; bounded numbers and tier provenance, never content. */
+export type CacheEconomics =
+  | {
+    available: true;
+    /** Engine-priced inclusive input, i.e. the baseline's uncached input. */
+    inputTokens: number;
+    readTokens: number;
+    writeTokens: number;
+    actualUsd: number;
+    baselineUsd: number;
+    readDiscountUsd: number;
+    writePremiumUsd: number;
+    /** Effective USD per 1M tokens after context tier and priority; null when the class priced no tokens. */
+    rates: { input: number | null; cacheRead: number | null; cacheWrite: number | null };
+    /** Tokens priced at zero by a non-user price: an unpublished rate, not a free one. */
+    zeroRate: { input: boolean; cacheRead: boolean; cacheWrite: boolean };
+    rateSource: string;
+    rateStatus: string;
+    derivedRate: boolean;
+    explicitFree: boolean;
+    contextTier: "long" | null;
+    priorityMultiplier: number | null;
+    priorityLowerBound: boolean;
+    serviceTier: { response: string | null; requested: string | null; configured: string | null };
+  }
+  | { available: false; reason: CacheEconomicsUnavailable };
+
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const nonnegative = (value: unknown): value is number => finite(value) && value >= 0;
+const text = (value: unknown): string | null => typeof value === "string" && value.length > 0 ? value : null;
+const tokensOf = (estimate: CostEstimateLike): Cost4 | null => {
+  const t = estimate.tokens;
+  return t && [t.input, t.output, t.cacheRead, t.cacheWrite].every(nonnegative) ? t : null;
+};
+const costOf = (estimate: CostEstimateLike): CostBreakdown | null => {
+  const c = estimate.cost;
+  return c && [c.input, c.output, c.cacheRead, c.cacheWrite, c.total].every(nonnegative) ? c : null;
+};
+const completeTier = (estimate: CostEstimateLike): boolean =>
+  (estimate.contextTier == null || estimate.contextTier === "long")
+  && (estimate.priorityMultiplier == null || (nonnegative(estimate.priorityMultiplier) && estimate.priorityMultiplier > 0))
+  && (estimate.priorityLowerBound == null || typeof estimate.priorityLowerBound === "boolean");
+const perMillion = (cost: number, tokens: number): number | null => tokens > 0 ? cost / tokens * 1e6 : null;
+// Effective rates of the two calls agree up to float noise, not bit for bit.
+const sameRate = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+const sameCost = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-10 * Math.max(1, Math.abs(a), Math.abs(b));
+
+/**
+ * Prices the row as recorded, then the identical workload with only its cache
+ * counters zeroed. Raw inputTokens and the service-tier record are untouched,
+ * so the engine makes the same long-context and priority decisions for both.
+ */
+export function priceWithCacheCounterfactual(entry: Record<string, unknown>, withCache = true): { estimate: CostEstimateLike | null; cache: CacheEconomics | null } {
+  if (!engine) return { estimate: null, cache: null };
+  let input: Record<string, unknown>;
+  let actual: CostEstimateLike | null;
   try {
+    // Evaluate routing price options and tier provenance once. Both calls reuse
+    // these exact values, including nested objects and the tierOutcome record.
     const extra = engine.priceOptions ? engine.priceOptions(entry, entry) : {};
     const serviceTier = engine.tierContext ? engine.tierContext(entry) : undefined;
-    return engine.estimate({
-      ...extra,
-      provider: entry.provider,
-      model: entry.model,
-      usage: entry.usage,
-      usageStatus: entry.usageStatus,
-      serviceTier,
-    });
+    input = { ...extra, provider: entry.provider, model: entry.model, usageStatus: entry.usageStatus, serviceTier };
+    actual = estimateWith(input, entry.usage);
   } catch {
-    return null;
+    return { estimate: null, cache: null };
   }
+  if (!actual || !withCache) return { estimate: actual, cache: null };
+  const unavailable = (reason: CacheEconomicsUnavailable) => ({ estimate: actual, cache: { available: false as const, reason } });
+  const tokens = tokensOf(actual);
+  const price = actual.price;
+  const cost = costOf(actual);
+  if (!tokens || !price || !text(price.source) || !text(price.status)
+    || !cost || !completeTier(actual)) return unavailable("engine-incomplete");
+
+  // Actual pricing still supports engines without this optional helper. A
+  // comparison cannot silently discard the entry's recorded tier provenance.
+  if (!engine.tierContext && [entry.responseServiceTier, entry.requestedServiceTier,
+    entry.configuredServiceTier, entry.tierOutcome].some(value => value != null)) return unavailable("tier-context-unavailable");
+
+  let baseline: CostEstimateLike | null = actual;
+  if (tokens.cacheRead + tokens.cacheWrite > 0) {
+    // Numeric zeros, not deletions: `??` would otherwise fall through to legacy fields.
+    const usage: Record<string, unknown> = { ...(entry.usage as Record<string, unknown>), cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
+    delete usage.cachedInputTokens;
+    try {
+      baseline = estimateWith(input, usage);
+    } catch {
+      baseline = null;
+    }
+    if (!baseline) return unavailable("baseline-unpriced");
+    const base = tokensOf(baseline);
+    const baseCost = costOf(baseline);
+    if (!base || !baseCost || !text(baseline.price?.source) || !text(baseline.price?.status)
+      || !completeTier(baseline)) return unavailable("engine-incomplete");
+    if (base.input !== tokens.input + tokens.cacheRead + tokens.cacheWrite || base.output !== tokens.output
+      || base.cacheRead !== 0 || base.cacheWrite !== 0) return unavailable("baseline-mismatch");
+    if ((baseline.contextTier ?? null) !== (actual.contextTier ?? null)
+      || (baseline.priorityMultiplier ?? null) !== (actual.priorityMultiplier ?? null)
+      || (baseline.priorityLowerBound === true) !== (actual.priorityLowerBound === true)
+      || baseline.price!.source !== price.source || baseline.price!.status !== price.status
+      || (tokens.input > 0 && !sameRate(cost.input / tokens.input * 1e6, baseCost.input / base.input * 1e6))) return unavailable("tier-mismatch");
+  }
+  const inputTokens = tokens.input + tokens.cacheRead + tokens.cacheWrite;
+  const baselineInputCost = baseline === actual ? cost.input : baseline.cost.input;
+  const perToken = inputTokens > 0 && baseline !== actual ? baselineInputCost / inputTokens
+    : tokens.input > 0 ? cost.input / tokens.input : 0;
+  const readDiscountUsd = tokens.cacheRead * perToken - cost.cacheRead;
+  const writePremiumUsd = cost.cacheWrite - tokens.cacheWrite * perToken;
+  const rates = {
+    input: perMillion(baselineInputCost, baseline === actual ? tokens.input : inputTokens),
+    cacheRead: perMillion(cost.cacheRead, tokens.cacheRead),
+    cacheWrite: perMillion(cost.cacheWrite, tokens.cacheWrite),
+  };
+  if (![inputTokens, readDiscountUsd, writePremiumUsd].every(finite)
+    || Object.values(rates).some(rate => rate !== null && !nonnegative(rate))) return unavailable("engine-incomplete");
+  // Identical output must cancel, and both engine totals must match their cost
+  // classes. Fail closed if a changed/partial engine violates the comparison.
+  if (!sameCost(cost.total, cost.input + cost.output + cost.cacheRead + cost.cacheWrite)
+    || !sameCost(baseline.cost.total, baseline.cost.input + baseline.cost.output + baseline.cost.cacheRead + baseline.cost.cacheWrite)
+    || !sameCost(baseline.cost.total, baseline.cost.input + baseline.cost.output)
+    || !sameCost(cost.output, baseline.cost.output)
+    || !sameCost(baseline.cost.total - cost.total, readDiscountUsd - writePremiumUsd)) return unavailable("baseline-mismatch");
+  const explicit = price.source === "user";
+  const tier = typeof input.serviceTier === "object" && input.serviceTier !== null
+    ? input.serviceTier as Record<string, unknown> : {};
+  return {
+    estimate: actual,
+    cache: {
+      available: true,
+      inputTokens,
+      readTokens: tokens.cacheRead,
+      writeTokens: tokens.cacheWrite,
+      actualUsd: cost.total,
+      baselineUsd: baseline.cost.total,
+      readDiscountUsd,
+      writePremiumUsd,
+      rates,
+      zeroRate: {
+        input: !explicit && inputTokens > 0 && baselineInputCost === 0,
+        cacheRead: !explicit && tokens.cacheRead > 0 && cost.cacheRead === 0,
+        cacheWrite: !explicit && tokens.cacheWrite > 0 && cost.cacheWrite === 0,
+      },
+      rateSource: price.source,
+      rateStatus: price.status,
+      derivedRate: price.status === "verified-derived",
+      explicitFree: explicit && ((inputTokens > 0 && baselineInputCost === 0)
+        || (tokens.cacheRead > 0 && cost.cacheRead === 0) || (tokens.cacheWrite > 0 && cost.cacheWrite === 0)),
+      contextTier: actual.contextTier ?? null,
+      priorityMultiplier: finite(actual.priorityMultiplier) ? actual.priorityMultiplier : null,
+      priorityLowerBound: actual.priorityLowerBound === true,
+      serviceTier: { response: text(tier.responseServiceTier), requested: text(tier.requestedServiceTier), configured: text(tier.configuredServiceTier) },
+    },
+  };
 }
 
 export function outputTokensPerSecond(outputTokens: number, durationMs: number): number | null {
