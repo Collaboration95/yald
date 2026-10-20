@@ -14,6 +14,7 @@ export type CaseObservation =
 
 export interface EvidenceTotals {
   requests: number; tokens: number; pricedRequests: number; unpricedRequests: number;
+  /** Cache: server round-once six-decimal subtotal; Radar/Context: unrounded priced-row sum. */
   pricedCostUsd: number; unattributedRequests: number;
 }
 export type EvidenceRow = Omit<RequestRow, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "reasoningTokens" | "cost" | "durationMs"> & {

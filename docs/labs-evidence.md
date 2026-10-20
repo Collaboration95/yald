@@ -15,9 +15,13 @@ create an earlier baseline.
 
 Cache evidence lists the exact cache-accounting eligible population used for
 fixed-workload read discount, write premium and net. Original request totals and
-exclusions are separately disclosed. The eligible gross request-price subtotal
-and the case's actual/baseline comparison amounts have their stated populations;
-they are not subscription bills or realized savings. Eligible zero is valid;
+exclusions are separately disclosed. The eligible priced subtotal equals the
+case's actual fixed-workload price; both use the accepted server aggregation,
+rounded once to six decimal USD places with ties away from zero. The original
+priced subtotal independently includes priced comparison exclusions and follows
+the same rounding rule. Individual request costs remain unrounded; displayed
+request prices need not sum to the full subtotal. These are API equivalents,
+not subscription bills or realized savings. Eligible zero is valid;
 unavailable accounting has no monetary comparison. Context evidence retains all
 selected requests, including missing input and attempt sums. These are gaps for
 context comparisons; observed input zero is valid. Cache is within input and

@@ -448,7 +448,14 @@ recorded-token, priced/unpriced, priced-USD and unattributed totals before
 pagination. Eligible and excluded counts/reasons partition the original population.
 Cache's evidence population contains only cache-accounting eligible rows, while
 its original population discloses the exclusions. Context/Radar list all selected
-rows. Recorded volume totals include incomplete or attempt-summed accounting;
+rows. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
+`actualUsd`: exact eligible pricing amounts accumulated in original dataset order,
+then rounded once to six decimal USD places with ties away from zero.
+`population.original.pricedCostUsd` independently sums all selected priced row
+costs, including comparison exclusions, in that same order and rounds once with
+the same rule. Individual public row costs are unchanged and are not rounded
+before summing. Radar/Context population costs remain unrounded priced-row sums.
+Recorded volume totals include incomplete or attempt-summed accounting;
 they are not submitted-context estimates. Partial priced subtotals are not the
 whole population's cost, and cost is always an API list-price equivalent.
 

@@ -107,7 +107,10 @@ test("Cache scope, exact cross-source sessions and null-ID buckets replay the ac
     const eligible = original.filter(row => cache.cacheEligibility(row).eligible);
     expect(body.population.original.tokens).toBe(original.reduce((sum, row) => sum + row.totalTokens, 0));
     expect(body.population.evidence.tokens).toBe(eligible.reduce((sum, row) => sum + row.totalTokens, 0));
-    expect(cache.round6(body.population.evidence.pricedCostUsd)).toBe(body.observation.totals.actualUsd);
+    expect(body.population.evidence.pricedCostUsd).toBe(body.observation.totals.actualUsd);
+    const selectedRows = new Set(original);
+    expect(body.population.original.pricedCostUsd).toBe(cache.round6(dataset.rows.reduce((sum, row) =>
+      sum + (selectedRows.has(row) && row.priced ? row.cost : 0), 0)));
     expect(ids(body.rows)).toEqual(ids(eligible.slice(0, 200).map(row => ({ ...row, source: source.sourceOf(row) }))));
     expect(body.rows.map(row => row.ordinal)).toEqual(eligible.slice(0, 200).map(row => original.indexOf(row)));
     expect(body.rows.every(row => row.eligible)).toBe(true);
@@ -199,7 +202,91 @@ test("cache case uses builder round-once values rather than summed rounded reque
   expect(body.observation).toMatchObject({ totals: { totalRequests: 2, eligibleRequests: 2,
     readDiscountUsd: 0, writePremiumUsd: 0.000005, netUsd: -0.000005, direction: "cost" } });
   expect(body.population.original.requests).toBe(2);
+  expect(finding.totals.actualUsd).toBe(0.082005);
+  expect(body.population.original.pricedCostUsd).toBe(0.082005);
+  expect(body.population.evidence.pricedCostUsd).toBe(0.082005);
+  expect(cache.round6(body.rows[0]!.cost!) * 2).toBe(0.082006);
   expect(body.page).toMatchObject({ total: 2, returned: 1, nextOffset: 1 });
+});
+
+test("single half-micro Cache actual and both full-population subtotals reconcile before pagination", async () => {
+  const query = new URLSearchParams(EVIDENCE_PARAMS); query.set("search", "l08-round-first");
+  const finding = (await request(`/api/labs/cache?${query}`)).body;
+  const trusted = cache.buildCacheEconomics(dataset.rows, helpers.caseFilter(finding.totals.evidence.selector), finding.scope.window);
+  expect(finding.totals).toEqual(trusted.totals);
+  expect(trusted.totals).toMatchObject({ totalRequests: 1, eligibleRequests: 1, actualUsd: 0.041003,
+    readDiscountUsd: 0, writePremiumUsd: 0.000003, netUsd: -0.000003 });
+  const q = params(finding.totals.evidence, "cache-detective", { limit: "1" });
+  const first = await evidence(q);
+  expect(first.rows.map(row => [row.source, row.id, row.cost])).toEqual([["ocx", "l08-round-first", 0.0410025]]);
+  expect(first.population.original).toMatchObject({ requests: 1, pricedRequests: 1, pricedCostUsd: 0.041003 });
+  expect(first.population.evidence).toEqual(first.population.original);
+  expect(first.population).toMatchObject({ eligibleRequests: 1, excludedRequests: 0, exclusions: [] });
+  expect(first.observation).toMatchObject({ totals: stripEvidence(trusted.totals) });
+  for (const offset of [1, 200]) {
+    q.set("offset", String(offset));
+    const beyond = await evidence(q);
+    expect(beyond.rows).toEqual([]);
+    expect(beyond.population).toEqual(first.population);
+    expect(beyond.observation).toEqual(first.observation);
+  }
+});
+
+test("Cache original money includes priced exclusions while eligible zero and missing price remain distinct", async () => {
+  const finding = (await request(`/api/labs/cache?${EVIDENCE_PARAMS}`)).body;
+  const full = await evidence(params(finding.totals.evidence, "cache-detective"));
+  expect(full.population.original.requests).toBeGreaterThan(full.population.evidence.requests);
+  expect(full.population.original.pricedCostUsd).toBeGreaterThan(full.population.evidence.pricedCostUsd);
+  for (const [search, pricedRequests, state] of [["l08-zero", 2, "observed"], ["l08-unpriced", 0, "insufficient"]] as const) {
+    const query = new URLSearchParams(EVIDENCE_PARAMS); query.set("search", search);
+    const selected = (await request(`/api/labs/cache?${query}`)).body;
+    const body = await evidence(params(selected.totals.evidence, "cache-detective"));
+    expect(body.observation.state).toBe(state);
+    expect(body.population.original).toMatchObject({ pricedRequests, pricedCostUsd: 0 });
+    expect(body.population.evidence.pricedCostUsd).toBe(0);
+    expect(Object.is(body.population.original.pricedCostUsd, -0)).toBe(false);
+    expect(Object.is(body.population.evidence.pricedCostUsd, -0)).toBe(false);
+    expect(body.population.evidence.requests).toBe(pricedRequests);
+  }
+});
+
+test("Cache subtotals preserve dataset accumulation order while evidence rows retain timestamp order", () => {
+  const template = dataset.rows.find(row => row.id === "l08-round-first")!;
+  const economics = template.cacheEconomics;
+  if (!economics?.available) throw new Error("fixture requires exact cache prices");
+  // Synthetic resolved prices: reversing their sum crosses the six-decimal tie.
+  const rows = [0.01, 0.02, 0.0000025].map((cost, index) => ({ ...template,
+    id: `l08-order-${index}`, ts: EVIDENCE_FROM + (3 - index) * 1000, cost,
+    inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+    cacheEconomics: { ...economics, inputTokens: 0, readTokens: 0, writeTokens: 0,
+      actualUsd: cost, baselineUsd: cost, readDiscountUsd: 0, writePremiumUsd: 0 },
+  }));
+  const filter = { from: EVIDENCE_FROM, to: EVIDENCE_TO };
+  const window = { ...filter, tz: "Asia/Singapore", label: "Synthetic accumulation order" };
+  const trusted = cache.buildCacheEconomics(rows, filter, window);
+  expect(trusted.totals.actualUsd).toBe(0.030002);
+  expect(cache.buildCacheEconomics([...rows].reverse(), filter, window).totals.actualUsd).toBe(0.030003);
+  const body = helpers.buildEvidenceCase(rows, { investigation: "cache-detective", selector: trusted.totals.evidence.selector,
+    period: "current", offset: 0, limit: 1 });
+  expect(body.rows.map(row => row.id)).toEqual(["l08-order-2"]);
+  expect(body.population.original.pricedCostUsd).toBe(0.030002);
+  expect(body.population.evidence.pricedCostUsd).toBe(0.030002);
+  expect(body.observation).toMatchObject({ totals: { actualUsd: 0.030002 } });
+});
+
+test("Radar and Context retain unrounded reported costs at the Cache half-micro tie", async () => {
+  const query = new URLSearchParams(EVIDENCE_PARAMS); query.set("search", "l08-round-first");
+  const radar = (await request(`/api/labs/projects?${query}`)).body;
+  const context = (await request(`/api/labs/context?${query}`)).body;
+  for (const q of [
+    params(radar.current.evidence, "project-radar", { priorSelector: JSON.stringify(radar.prior.evidence.selector) }),
+    params(context.coverage.evidence, "context-replay"),
+  ]) {
+    const body = await evidence(q);
+    expect(body.population.original).toMatchObject({ requests: 1, pricedCostUsd: 0.0410025 });
+    expect(body.population.evidence).toEqual(body.population.original);
+    expect(body.rows[0]!.cost).toBe(0.0410025);
+  }
 });
 
 test("unavailable engine and missing tier support stay excluded through the real API in isolated processes", async () => {

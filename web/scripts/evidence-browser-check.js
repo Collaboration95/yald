@@ -42,6 +42,14 @@ async function checkEvidenceBrowser() {
   }
   check(root.querySelector("[data-case-sample]").textContent.includes(`${body.population.eligibleRequests.toLocaleString("en-US")} of ${body.population.original.requests.toLocaleString("en-US")}`), "full sample denominator");
   check(root.querySelector("[data-evidence-page]").textContent.includes(`of ${body.page.total.toLocaleString("en-US")} evidence requests`), "full pagination denominator");
+  const money = totals => totals.pricedRequests ? `$${totals.pricedCostUsd.toFixed(6)}` : "Unavailable";
+  check(root.querySelector("[data-evidence-totals]").textContent.includes(`priced subtotal ${money(body.population.evidence)} (`), "full evidence priced subtotal");
+  check(root.textContent.includes(`Priced subtotal: ${money(body.population.original)} (`), "original priced subtotal includes exclusions");
+  if (body.observation.investigation === "cache-detective") {
+    const actual = [...root.querySelectorAll("dt")].find(dt => dt.textContent === "Actual fixed-workload price")?.nextElementSibling?.textContent;
+    check(actual === (body.observation.totals.eligibleRequests ? `$${body.observation.totals.actualUsd.toFixed(6)}` : "Unavailable"), "accepted Cache actual price");
+    check(body.population.evidence.pricedCostUsd === body.observation.totals.actualUsd, "Cache eligible subtotal equals accepted actual");
+  }
   check(document.documentElement.scrollWidth <= innerWidth, "no document horizontal overflow");
   return { assertions, failures, investigation: body.intent.investigation, period: body.intent.period, selection: body.intent.selector.selection,
     rows: body.rows.length, original: body.population.original.requests, eligible: body.population.eligibleRequests,

@@ -36,14 +36,32 @@ const renderView = (data: EvidenceCaseResponse, href: string, dark = false, hide
 try {
   const { api } = await import("../../server/src/api");
   const { getDataset } = await import("../../server/src/ocx/store");
-  const { selectCaseRows } = await import("../../server/src/labs/evidence");
-  const { cacheEligibility } = await import("../../server/src/labs/cache");
+  const { caseFilter, selectCaseRows } = await import("../../server/src/labs/evidence");
+  const { buildCacheEconomics, cacheEligibility } = await import("../../server/src/labs/cache");
   const { sourceOf } = await import("../../server/src/report/source");
   const { fetchJson } = await import("../src/api");
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => api.fetch(new Request(new URL(String(input), "http://localhost"), init))) as typeof fetch;
   const dataset = await getDataset();
   const radar = await fetchJson<ProjectRadarResponse>("/api/labs/projects", EVIDENCE_PARAMS);
   const cache = await fetchJson<CacheEconomicsResponse>("/api/labs/cache", EVIDENCE_PARAMS);
+  const roundingQuery = new URLSearchParams(EVIDENCE_PARAMS); roundingQuery.set("search", "l08-round-first");
+  const roundingFinding = await fetchJson<CacheEconomicsResponse>("/api/labs/cache", roundingQuery.toString());
+  const roundingHref = cacheEvidenceHref(roundingFinding.totals.evidence);
+  const roundingCase = await fetchJson<EvidenceCaseResponse>("/api/labs/evidence", caseQuery(parseCaseIntent(new URL(roundingHref, "http://localhost").searchParams)));
+  check(() => {
+    assert.equal(roundingFinding.totals.actualUsd, 0.041003);
+    assert.deepEqual(roundingCase.rows.map(row => [row.source, row.id, row.cost]), [["ocx", "l08-round-first", 0.0410025]]);
+    assert.equal(roundingCase.population.evidence.pricedCostUsd, roundingFinding.totals.actualUsd);
+    assert.equal(roundingCase.population.original.pricedCostUsd, roundingFinding.totals.actualUsd);
+    for (const dark of [false, true]) for (const hidden of [false, true]) {
+      const html = renderView(roundingCase, roundingHref, dark, hidden);
+      assert.match(html, /Actual fixed-workload price<\/dt><dd[^>]*>\$0\.041003<\/dd>/);
+      assert.match(html, /Cache-write premium<\/dt><dd[^>]*>\$0\.000003<\/dd>/);
+      assert.match(html, /Net API-equivalent benefit<\/dt><dd[^>]*>\$-0\.000003<\/dd>/);
+      assert.match(html, /data-evidence-totals[^>]*>Full evidence population: 1,100 recorded tokens; priced subtotal \$0\.041003 \(1 priced \/ 0 unpriced requests\)/);
+      assert.match(html, /selected original population: 1,100\. Priced subtotal: \$0\.041003 \(1 priced requests\)/);
+    }
+  }, "single half-micro Cache finding and rendered original/evidence subtotals are $0.041003 in both themes, with or without artwork");
   const contextQuery = new URLSearchParams(EVIDENCE_PARAMS); contextQuery.set("search", "l07-"); contextQuery.set("efforts", "high");
   const context = await fetchJson<ContextReplayResponse>("/api/labs/context", contextQuery.toString());
   const hrefs = [
@@ -65,7 +83,9 @@ try {
       assert.equal(body.population.evidence.requests, expected.length);
       assert.equal(body.population.eligibleRequests + body.population.excludedRequests, selected.length);
       assert.equal(body.population.evidence.tokens, expected.reduce((n, row) => n + row.totalTokens, 0));
-      assert.equal(body.population.evidence.pricedCostUsd, expected.reduce((n, row) => n + (row.priced ? row.cost : 0), 0));
+      assert.equal(body.population.evidence.pricedCostUsd, intent.investigation === "cache-detective"
+        ? buildCacheEconomics(dataset.rows.filter(row => expected.includes(row)), caseFilter(selector), selector.window).totals.actualUsd
+        : expected.reduce((n, row) => n + (row.priced ? row.cost : 0), 0));
       assert.deepEqual(body.rows.map(row => [row.source, row.id, row.ordinal, row.originalOrdinal]), expected.slice(0, 100).map(row => [sourceOf(row), row.id, selected.indexOf(row), dataset.rows.indexOf(row)]));
     }, `${intent.investigation}/${intent.period}/${JSON.stringify(intent.selector.selection)} actual rows and full totals`);
     for (const dark of [false, true]) {

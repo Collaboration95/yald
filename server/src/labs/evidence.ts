@@ -3,7 +3,7 @@ import type { RequestRow } from "../ocx/store";
 import { createProjectIdentity } from "../projects";
 import { publicRow } from "../publicRow";
 import { contextEligible, sourceOf } from "../report/source";
-import { buildCacheEconomics, cacheEligibility } from "./cache";
+import { buildCacheEconomics, cacheEligibility, round6 } from "./cache";
 import { buildContextReplay, contextExclusionReason } from "./context";
 import { buildProjectRadar } from "./projects";
 import { analysisScope, evidenceFor, orderedRequests, sessionKey } from "./scope";
@@ -25,12 +25,12 @@ export function selectCaseRows(datasetRows: RequestRow[], selector: CaseSelector
     || (selection.kind === "unnamed" && row.conversationId === null && (!selection.source || sourceOf(row) === selection.source))));
 }
 
-function rowTotals(rows: RequestRow[]) {
+function rowTotals(rows: RequestRow[], pricedCostUsd?: number) {
   return {
     requests: rows.length, tokens: rows.reduce((n, row) => n + row.totalTokens, 0),
     pricedRequests: rows.filter(row => row.priced).length,
     unpricedRequests: rows.filter(row => !row.priced).length,
-    pricedCostUsd: rows.reduce((n, row) => n + (row.priced ? row.cost : 0), 0),
+    pricedCostUsd: pricedCostUsd ?? rows.reduce((n, row) => n + (row.priced ? row.cost : 0), 0),
     unattributedRequests: rows.filter(row => row.cwd === null).length,
   };
 }
@@ -125,17 +125,25 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent)
   const ordinals = new Map(selected.map((row, ordinal) => [row, ordinal]));
   const originalOrdinals = new Map(datasetRows.map((row, ordinal) => [row, ordinal]));
   const identity = createProjectIdentity();
+  const observation = intent.investigation === "project-radar" ? radarObservation(datasetRows, intent)
+    : intent.investigation === "cache-detective" ? cacheObservation(datasetRows, selected, selectedSelector)
+    : contextObservation(datasetRows, selected, selectedSelector);
+  // Cache evidence reuses the builder's exact pricing-pair sum, already rounded
+  // once. The original subtotal also includes priced exclusions: sum their raw
+  // row costs in dataset order, then apply the same server rounding rule once.
+  // Radar/Context retain their unrounded reported-cost semantics.
+  const originalCost = observation.investigation === "cache-detective"
+    ? round6(datasetRows.reduce((sum, row) => sum + (ordinals.has(row) && row.priced ? row.cost : 0), 0)) : undefined;
   const population = {
-    original: rowTotals(selected), evidence: rowTotals(selectedEvidence), eligibleRequests: selected.filter(eligible).length,
+    original: rowTotals(selected, originalCost),
+    evidence: rowTotals(selectedEvidence, observation.investigation === "cache-detective" ? observation.totals.actualUsd : undefined),
+    eligibleRequests: selected.filter(eligible).length,
     excludedRequests: selected.filter(row => !eligible(row)).length,
     exclusions: [...exclusions].map(([reason, requests]) => ({ reason, requests })),
     measurements: measurementCoverage(selected),
     // Keep all group identities in the hash even when this page is empty or beyond the last row.
     projects: [...new Map(selected.map(row => { const project = identity(row.cwd); return [JSON.stringify(project), project]; })).values()],
   };
-  const observation = intent.investigation === "project-radar" ? radarObservation(datasetRows, intent)
-    : intent.investigation === "cache-detective" ? cacheObservation(datasetRows, selected, selectedSelector)
-    : contextObservation(datasetRows, selected, selectedSelector);
   const rows = selectedEvidence.slice(intent.offset, intent.offset + intent.limit).map(row => {
     const originalOrdinal = originalOrdinals.get(row)!;
     return {
