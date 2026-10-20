@@ -1,7 +1,7 @@
 {
   "name": "yald-dashboard",
   "version": "0.1.0",
-  "description": "Read-only analytics dashboard for opencodex usage, cost, and quota",
+  "description": "Local, read-only analytics for opencodex and Claude Code usage, with Yaldi as Yald's detective companion",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/Collaboration95/yald.git" },
   "homepage": "https://github.com/Collaboration95/yald#readme",

@@ -15,6 +15,7 @@ essential text, and an error is never shown with the cheerful clue-found art.
 - [Production asset and integration contracts](../../planning/epics/03-yaldi-identity.md) (B01 assets, B02 integration)
 - [Release plan](../../planning/yaldi-release-plan.md)
 - [`manifest.json`](manifest.json): every asset with its path, intrinsic size, theme, alt text and use
+- [Application integration](integration.md): component props, hide-artwork setting, actual finding guards and local-asset verification
 
 ## Shipped versus reference-only
 

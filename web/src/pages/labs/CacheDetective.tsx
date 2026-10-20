@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { filtersKey, sourceLabel, useEndpoint } from "../../api";
+import { YaldiFindingArtwork } from "../../components/YaldiArtwork";
 import { formatInteger } from "../../lib/format";
 import { useFilters } from "../../lib/useFilters";
 import type { AnalysisWindow, CacheEconomicsResponse, CacheEconomicsTotals, CacheExclusion } from "../../types";
@@ -29,7 +30,7 @@ const money = (value: number, supported: boolean, signed = false) => supported
 const signLabel = (totals: CacheEconomicsTotals) => !available(totals) ? "Unavailable"
   : totals.direction === "benefit" ? "Positive" : totals.direction === "cost" ? "Negative" : "Even";
 
-/** Semantic finding for later decorative artwork; all meaning remains in text. */
+/** Semantic finding; all meaning remains in text with artwork hidden. */
 export function cacheFinding(totals: CacheEconomicsTotals) {
   if (totals.totalRequests === 0) return { state: "empty" as const, summary: "No requests in this selection." };
   if (!available(totals)) return { state: "insufficient" as const, summary: "No eligible cache comparison. Observed cache accounting and a valid actual/baseline price pair are required." };
@@ -48,11 +49,11 @@ export function CacheDetective() {
   }
   return <>
     {query.isError ? <InvestigationState kind="error" title="Cache comparison could not refresh" detail="The last loaded fixed window is shown below." onRetry={() => { void query.refetch(); }} /> : null}
-    <CacheResults key={filtersKey(filters)} data={query.data} />
+    <CacheResults key={filtersKey(filters)} data={query.data} findingFresh={!query.isError} />
   </>;
 }
 
-function CacheResults({ data }: { data: CacheEconomicsResponse }) {
+function CacheResults({ data, findingFresh }: { data: CacheEconomicsResponse; findingFresh: boolean }) {
   const [selection, setSelection] = useState<string | null>(null);
   const detailId = useId();
   const selectedSession = data.sessions.find(session => session.key === selection) ?? data.sessions[0];
@@ -66,14 +67,17 @@ function CacheResults({ data }: { data: CacheEconomicsResponse }) {
       <FixedWindow window={data.scope.window} />
     </header>
 
-    <section className="card space-y-4 p-4" aria-label="Scope cache comparison" data-finding={finding.state}>
+    <section className="card space-y-4 p-4" aria-label="Scope cache comparison" data-finding-summary="cache-detective" data-finding={finding.state}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold text-ink">Selected scope · named and unnamed requests</h3>
         <EvidenceLink evidence={data.totals.evidence} label="Open scope evidence" />
       </div>
       {finding.state === "empty" ? <InvestigationState kind="empty" />
         : finding.state === "insufficient" ? <InvestigationState kind="insufficient" title="Cache comparison unavailable" detail={finding.summary} />
-        : <p role="status" aria-label="Cache finding" className="text-sm font-medium text-ink">{finding.summary}</p>}
+        : <div className="flex items-start gap-4">
+          <YaldiFindingArtwork evidenceSufficient={findingFresh && available(data.totals)} />
+          <p role="status" aria-label="Cache finding" className="min-w-0 flex-1 text-sm font-medium text-ink">{finding.summary}</p>
+        </div>}
       <Comparison totals={data.totals} />
       <Coverage totals={data.totals} />
       <p className="border-t border-line pt-3 text-[12px] leading-5 text-ink-soft">The dashboard’s older gross cache-read discount uses base list rates before write premiums and tier adjustments. This net comparison uses effective tier rates and its own eligible requests; the two metrics have different coverage.</p>

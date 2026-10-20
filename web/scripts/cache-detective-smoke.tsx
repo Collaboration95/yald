@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DEFAULT_FILTERS, filtersToParams, type Filters } from "../src/api";
 import { FiltersProvider } from "../src/lib/useFilters";
-import { PreferencesProvider } from "../src/lib/preferences";
+import { YaldiSmokeProviders } from "./yaldi-smoke";
 import { LabsLayout } from "../src/pages/labs/LabsLayout";
 import { LabsInvestigationPage } from "../src/pages/labs/LabsPage";
 import type { CacheEconomicsResponse, CacheEconomicsTotals } from "../src/types";
@@ -23,15 +23,15 @@ try {
     assert.equal(response.status, 200);
     return await response.json() as CacheEconomicsResponse;
   };
-  const render = (filters: Filters, data?: CacheEconomicsResponse, state?: "error" | "disabled") => {
+  const render = (filters: Filters, data?: CacheEconomicsResponse, state?: "error" | "disabled", theme: "light" | "dark" = "light", hideArtwork = true) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } } });
     const key = ["/api/labs/cache", filtersToParams(filters, { limit: 100 })];
     if (data) client.setQueryData(key, data);
     if (state === "error") client.getQueryCache().build(client, { queryKey: key }).setState({ status: "error", error: new Error("Synthetic cache API failure"), fetchStatus: "idle" });
     const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/labs/cache-detective?${filtersToParams(filters)}`]}>
-      <FiltersProvider><PreferencesProvider storage={{ getItem: () => JSON.stringify({ version: 1, labsEnabled: state !== "disabled", hideArtwork: true }), setItem: () => {} }}>
+      <FiltersProvider><YaldiSmokeProviders theme={theme} hideArtwork={hideArtwork} labsEnabled={state !== "disabled"}>
         <Routes><Route path="/labs" element={<LabsLayout />}><Route path=":investigation" element={<LabsInvestigationPage />} /></Route></Routes>
-      </PreferencesProvider></FiltersProvider>
+      </YaldiSmokeProviders></FiltersProvider>
     </MemoryRouter></QueryClientProvider>);
     if (state === "disabled") assert.equal(client.getQueryCache().getAll().length, 0);
     client.clear();
@@ -221,6 +221,29 @@ try {
     assert(render(partialFilters, { ...partial, pricing: { available: false, detail: "Synthetic metadata-only loading change" } }).includes("+$0.515000"));
     assert(render(zeroFilters, { ...zero, pricing: { available: false, detail: "Synthetic metadata-only loading change" } }).includes("$0.000000"));
   });
+  for (const theme of ["light", "dark"] as const) {
+    for (const [search, supported] of [["case-positive", true], ["case-negative", true], ["case-even", true], ["case-zero", true],
+      ["case-free", true], ["case-partial-unpriced", false], ["case-unmeasured", false], ["does-not-match", false]] as const) {
+      const filters = { ...base, search };
+      const data = await payload(filters);
+      check(`B02 ${theme} ${search}: evidence-backed artwork and unchanged hidden text/links`, () => {
+        const shown = render(filters, data, undefined, theme, false);
+        const hidden = render(filters, data, undefined, theme, true);
+        assert.equal(shown.includes(`/yaldi/state-clue-found${theme === "dark" ? "-dark" : ""}.svg`), supported);
+        assert.equal(shown.replace(/<img[^>]*>/g, ""), hidden);
+        assert(!hidden.includes("<img"));
+        exactEvidence(shown, data.sessions.length ? [data.totals, data.sessions[0]!] : [data.totals]);
+      });
+    }
+    check(`B02 ${theme}: retained eligible data on failed refresh has error art and no clue`, () => {
+      const error = render(partialFilters, partial, "error", theme, false);
+      assert(error.includes("Cache comparison could not refresh") && error.includes("state-error") && error.includes("+$0.515000"));
+      assert(!error.includes("clue-found"));
+      exactEvidence(error, [partial.totals, partial.sessions[0]!]);
+      const engineLoading = render(zeroFilters, { ...zero, pricing: { available: false, detail: "Synthetic metadata-only loading change" } }, undefined, theme, false);
+      assert(engineLoading.includes("state-clue-found"));
+    });
+  }
   console.log(`L05: ${checks} focused synthetic API/SSR checks passed.`);
 } finally {
   Date.now = originalNow;

@@ -127,71 +127,29 @@
 }
 
 :root .relay-brand {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
   flex: 0 0 auto;
   color: var(--text);
   text-decoration: none;
   border-radius: 3px;
 }
 
+:root .relay-brand-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  height: 40px;
+}
+
 :root .relay-wordmark {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 36px;
-}
-
-:root .relay-wordmark-short,
-:root .relay-wordmark-full {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-}
-
-:root .relay-wordmark-short {
   font-size: 31px;
   font-weight: 800;
   letter-spacing: -.075em;
   line-height: 1;
-  transform-origin: 28px 70%;
-  animation: relay-wordmark-nudge 14s ease-in-out 1.8s infinite;
-  transition: opacity 160ms, transform 280ms, filter 280ms;
 }
-
-/* A brief invitation to hover, followed by a long quiet pause. */
-@keyframes relay-wordmark-nudge {
-  0%, 3.5%, 100% { transform: none; }
-  .7% { transform: rotate(-5deg); }
-  1.4% { transform: rotate(4deg); }
-  2.1% { transform: rotate(-3deg); }
-  2.8% { transform: rotate(1.5deg); }
-}
-
-:root .relay-wordmark-full {
-  opacity: 0;
-  font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: -.035em;
-  transition: opacity 140ms;
-}
-
-:root .relay-wordmark-full > span {
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 220ms, transform 360ms cubic-bezier(.2, .7, .2, 1), filter 360ms;
-}
-
-:root .relay-brand[data-morph="1"] .relay-wordmark-full > span { transform: translateX(9px); }
-:root .relay-brand[data-morph="2"] .relay-wordmark-full > span { transform: scale(.86); filter: blur(4px); }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-short { animation: none; opacity: 0; transform: translateY(-6px); filter: blur(3px); }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full { opacity: 1; }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span { opacity: 1; transform: none; filter: none; }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(2) { transition-delay: 25ms; }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(3) { transition-delay: 50ms; }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(4) { transition-delay: 75ms; }
-:root .relay-brand:is(:hover, :focus-visible) .relay-wordmark-full > span:nth-child(5) { transition-delay: 100ms; }
 
 :root :is(.relay-brand-stop, .relay-title-stop) { color: var(--relay-coral); }
 
