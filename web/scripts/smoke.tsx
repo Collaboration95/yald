@@ -34,6 +34,9 @@ import { ModelsPage } from "../src/pages/Models";
 import { QuotaPage } from "../src/pages/Quota";
 import { ConversationDetailPage, ConversationsPage } from "../src/pages/Conversations";
 import { materializeFixtureHome, materializeFixturePricing } from "./fixtureHome";
+import { addContextReplayFixtures } from "./context-replay-fixtures";
+import { checkContextReplaySmoke } from "./context-replay-smoke";
+import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
 
 type AnyComponent = () => React.ReactElement | null;
 
@@ -62,7 +65,7 @@ if (useFixtures) {
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, "f01.jsonl"), JSON.stringify({ type: "assistant", requestId: "f01-transcript", sessionId: "f01-session", timestamp: new Date(ts).toISOString(),
     message: { model: "f01-transcript", usage: { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }) + "\n");
-
+  await addContextReplayFixtures(process.env.OCX_HOME, fixturePricing);
 }
 console.log(useFixtures ? "source: synthetic fixtures" : `source: ${join(ocxHome, "usage.jsonl")}`);
 
@@ -410,7 +413,7 @@ async function checkLabsShell() {
   client.setQueryData(["/api/scope", filtersToParams(filters)], await fetchJson("/api/scope", filtersToParams(filters)));
   client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
   const disabledChild = () => { throw new Error("Disabled Labs mounted an investigation"); };
-  for (const path of ["/labs", "/labs/project-radar", "/labs/cache-detective", "/labs/evidence", "/labs/unknown/deep"]) {
+  for (const path of ["/labs", "/labs/project-radar", "/labs/cache-detective", "/labs/context-replay", "/labs/evidence", "/labs/unknown/deep"]) {
     const html = renderPage(disabledChild, client, `${path}?${params}`, "/labs/*", true);
     const links = [...html.matchAll(/href="([^"]+)"/g)].map(match => match[1]!.replace(/&amp;/g, "&")).filter(link => link.startsWith("/"));
     check(html.includes("Labs is off") && html.includes("Enable Labs") && html.includes("Return to Overview") && !html.includes("No requests match these filters"), `${path} recovers even when the cohort is empty; child never mounts`);
@@ -418,8 +421,9 @@ async function checkLabsShell() {
   }
   const enabledPreferences = { labsEnabled: true, hideArtwork: true };
   const home = renderPage(LabsPage, client, `/labs?${params}`, "/labs", true, enabledPreferences);
-  check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs", "Not available yet."].every(text => home.includes(text)), "enabled shell exposes the three independent component slots");
-  for (const path of ["project-radar", "context-replay", "evidence", "unknown/deep"]) {
+  check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs"].every(text => home.includes(text))
+    && home.includes("Not available yet.") === LABS_INVESTIGATIONS.some(entry => !entry.Component), "enabled shell exposes the three independent component slots");
+  for (const path of [...LABS_INVESTIGATIONS.filter(entry => !entry.Component).map(entry => entry.path), "evidence", "unknown/deep"]) {
     const html = renderPage(LabsInvestigationPage, client, `/labs/${path}?${params}`, "/labs/*", true, enabledPreferences);
     check(html.includes("not available yet") && html.includes("All investigations") && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
   }
@@ -448,6 +452,7 @@ async function checkLabsShell() {
   client.clear();
 }
 await checkLabsShell();
+if (useFixtures) await checkContextReplaySmoke();
 if (useFixtures) await Promise.all([process.env.OCX_HOME!, fixturePricing].map(path => rm(path, { recursive: true, force: true })));
 
 globalThis.fetch = realFetch;
