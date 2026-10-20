@@ -177,3 +177,76 @@ Aggregate price presence: model breakdowns and conversation summaries expose
 `pricedRequests` and `unpricedRequests`. A zero cost with priced requests is a
 priced zero; zero without any priced requests is unavailable. Blended model
 `costPer1kTokens`/`costPer1MTokens` are null when every request is unpriced.
+
+### `GET /api/labs/projects` — Project Radar
+
+Uses the shared window and all request filters, including `sources`, `projects`,
+providers, models, efforts, outcomes, route kinds, conversation ID and search.
+The public TypeScript contract is `ProjectRadarResponse` in `web/src/types.ts`;
+`buildProjectRadar` lives in `server/src/labs/projects.ts`. No view or evidence
+endpoint is supplied by this data route.
+
+The response is `{ ok, window, priorWindow, cohort, pricingBasis, history,
+current, prior, comparison, projects }`. Windows echo resolved epoch milliseconds,
+ISO bounds, `tz`, label and `halfOpen: true`; they omit rolling presets and raw
+`input`. `priorWindow` is exactly `[from − (to − from), from)`, including across
+DST; it keeps the timezone and every non-time filter. `cohort` carries sources
+(canonical `claude-code`/`ocx`), project globs, providers, models, efforts,
+statuses, route kinds, nullable conversation ID and search. Empty lists mean no
+restriction except sources, which explicitly defaults to both.
+
+Each scope/project `current` and `prior` period contains:
+
+| Field | Contract |
+| --- | --- |
+| `totals` | `{ requests, tokens, pricedCostUsd, pricedRequests, unpricedRequests }`. Requests are logical rows, tokens are normalized total tokens, cost is an **unrounded USD sum of priced rows only**. Zero cost without priced requests is unavailable. Round only for display; reconciliation allows floating-point tolerance |
+| `coverage` | Total/eligible request counts (all scoped rows eligible for activity); independent `pricing` and `attribution` samples as `{eligibleRequests,totalRequests}`; F01 `measurements`; F03 `unattributedReasons` |
+| `coverage.projectExclusions` | At scope level only, the existing F03 `{unattributedRows,unattributedTokens,attribution}` for rows matching every filter except project. Null without a project filter and in exact project periods. Excluded unknown/outside-project rows **never enter** strict Radar totals |
+| `daily` | Occupied local days only, ascending `ts` (local midnight, epoch ms), with local `date`, clipped `[from,to)` bucket bounds and the same totals. Unoccupied days are omitted; a view must not infer complete zero-usage history from gaps |
+| `activeDays` | Number of occupied local days, including partial edge days |
+| `sources` | `{source,...totals}` rows, request count descending, tokens descending, source ascending |
+| `models` | `{source,provider,model,...totals}` rows, request count descending, tokens descending, then source/provider/model ascending; equal model names from different sources/providers remain separate |
+| `evidence` | `{selector,href}` from shared `evidenceFor`; scope or exact project selection, with `eligibility: "all"` |
+
+`projects` includes the union of both periods' exact project identities and an
+always-present `(unattributed)` group (zero when a project filter excluded it).
+Each group has `{project,gitRoot,folders,current,prior,comparison}`; folders are
+the sorted union of recorded working directories in both periods. Grouping uses
+`createProjectIdentity()` from `server/src/projects.ts`, also used by the existing
+project breakdown: nearest enclosing `.git` directory/file, otherwise the cwd
+itself, or `(unattributed)` for no cwd. Groups sort named first, current priced
+USD descending, current tokens descending, then exact project string ascending;
+unattributed comes last. Prior-only groups remain inspectable.
+
+Each scope/project `comparison` gives `requests`, `tokens`, `pricedCostUsd` as
+`{state,absoluteChange,relativeChange}`. `relativeChange` is a fraction
+(`-0.5` = 50% lower), only when the baseline is positive. A zero baseline and
+positive current value yields `new` with a null ratio; two zero values are
+`insufficient`. No loaded history before the current start yields `insufficient`
+with null changes. An all-unpriced nonempty period also makes the money change
+insufficient, while activity comparisons remain available. Partial priced sums
+can be compared, with their coverage visible. `new` describes a metric's observed
+baseline, not project creation or delivered value.
+
+`history` discloses `firstLoadedAt` across all loaded rows, `basis:
+"earliest-loaded-request"`, `completeness: "unknown"`, a limitation note and per
+period `{startsBeforeLoadedHistory,hasLoadedHistory}` flags. The first flag means
+the window starts before any loaded row (also true with no data); the second
+means some loaded history predates its end and the window has positive length.
+These are history signals, not proof of continuous collection or retention.
+Partial prior history permits a comparison but must remain disclosed.
+`pricingBasis: "currently-loaded-api-list-price-equivalents"` means both periods
+use the same normalized dataset's loaded prices, not historical prices or bills.
+The existing dataset refresh policy applies to pricing-only changes.
+
+Every evidence selector has `{version:1,window,cohort,selection,eligibility}`.
+Its fixed window and every cohort dimension serialize into `/labs/evidence` query
+parameters; there is no moving `range`. Project selection adds
+`kind=project&projectKey=<exact identity>`, further intersecting the cohort;
+it is **not a project glob**. Scope selection uses `kind=scope`. Current and prior
+have separate selectors, including for empty groups. L08 supplies the bounded
+request endpoint/view. No links use unscoped conversation detail.
+
+Like `/api/projects`, Radar validates before a conditional response and hashes
+its resolved payload, so changes in on-disk git roots invalidate a pinned ETag
+without a ledger edit.

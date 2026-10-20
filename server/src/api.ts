@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { buildProjectRadar } from "./labs/projects";
 import { createHash } from "node:crypto";
 import {
   breakdown,
@@ -230,7 +231,7 @@ api.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
   // a ledger revision. These routes hash the resolved payload after validation.
-  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.header("if-none-match") === etag) return c.body(null, 304);
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.header("if-none-match") === etag) return c.body(null, 304);
   await next();
 });
 
@@ -604,6 +605,16 @@ api.get("/api/conversations/:id", async c => {
     ...timeline,
     requests: dataset.rows.filter(row => row.conversationId === id).sort((a, b) => a.ts - b.ts).map(publicRow),
   });
+});
+
+api.get("/api/labs/projects", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const payload = buildProjectRadar(dataset.rows, query.filter, query.window);
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
 });
 
 api.get("/api/projects", async c => {

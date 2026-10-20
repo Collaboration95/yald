@@ -119,3 +119,49 @@ from those records alone. Their input/cache presence remains unavailable until a
 live copy with the same usage supplies evidence. Yald never changes source logs;
 its own append-only Claude usage archive under the opencodex home persists usage
 after source transcripts are deleted and has no automatic retention expiry.
+
+## Project Radar (Labs)
+
+Radar groups normalized requests by the same nearest git root as the project
+list, with cwd fallback for non-repositories/deleted folders and an explicit
+`(unattributed)` group for missing cwd. Nested repositories/worktrees retain their
+nearest identity. Both current and prior groups use one per-analysis root cache.
+No attribution is inferred from timing or neighboring requests.
+
+Named groups plus unattributed reconcile to strict scoped logical requests,
+normalized total tokens and **priced** USD sums, with floating-point tolerance.
+Under a project filter, unattributed rows are excluded from these totals and the
+unattributed group is zero; F03 exclusions/reasons remain separate at
+`current.coverage.projectExclusions` and `prior.coverage.projectExclusions`.
+Attribution coverage counts known cwd, pricing coverage counts `priced` rows,
+and F01 measurement coverage keeps observed/synthesized/missing accounting
+visible. These populations are independent; unknown attribution can be priced,
+and named projects can have price gaps. All scoped rows remain eligible for
+activity/evidence, regardless of cache/input provenance.
+
+`pricedCostUsd` is an unrounded API list-price equivalent under the dataset's
+currently loaded engine. Unpriced rows contribute requests/tokens and price-gap
+counts, never guessed money. A priced zero is valid; an all-unpriced sum of zero
+is unavailable. Mixed price coverage produces a partial money sum, not a
+full-population cost estimate. Both windows use the same loaded assumptions;
+there is no historical-price snapshot or subscription-cost claim.
+
+The preceding window has exactly the current window's elapsed duration and
+preserves all other filters and timezone. Per-metric absolute change is current
+minus prior; relative change divides by a positive prior value (fraction, not
+percent). A positive current value over zero is `new` without a ratio; two zeros
+are `insufficient`. No history before the current start is `insufficient` with
+null changes, as is a money comparison with an all-unpriced nonempty period.
+Prior-only projects can show a decrease to zero. Volume does not indicate
+completion, productivity, quality or delivered value.
+
+History starts at the earliest **loaded** request across sources. Flags disclose
+when either window begins earlier or has no earlier loaded history; completeness
+is always unknown because retention and collection gaps cannot be proven from
+requests alone. Partial prior history remains comparable with that limitation.
+A `new` state is newly observed activity/value in these windows, not a project
+creation date. Daily trends use occupied local calendar days and clip edge-day
+bounds to the exact half-open scope. Active days count days with requests, even
+when tokens or prices are zero; missing days are not evidence of known zero use.
+Model mix is source/provider qualified. The API reference documents sorting,
+units and the exact fixed-window selectors for both periods and each group.

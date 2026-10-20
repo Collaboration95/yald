@@ -433,3 +433,110 @@ export interface CostResponse {
   topConversations: ConversationRow[];
   daily: CumulativePoint[];
 }
+
+/** Project Radar (L02). Fixed windows and server-resolved group identities also scope evidence. */
+export interface RadarWindow {
+  from: number;
+  to: number;
+  tz: string;
+  label: string;
+}
+export interface RadarCohort {
+  sources: Source[];
+  projects: string[];
+  providers: string[];
+  models: string[];
+  efforts: string[];
+  statuses: ("ok" | "error" | "cancelled" | "unobserved")[];
+  routeKinds: string[];
+  conversationId: string | null;
+  search: string;
+}
+export interface RadarEvidence {
+  selector: {
+    version: 1;
+    window: RadarWindow;
+    cohort: RadarCohort;
+    selection: { kind: "scope" } | { kind: "project"; project: string }
+      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source };
+    eligibility: "all" | "cache" | "context";
+  };
+  href: string;
+}
+export interface RadarTotals {
+  requests: number;
+  tokens: number;
+  /** USD, unrounded priced-row sum. Zero without priced requests is unavailable. */
+  pricedCostUsd: number;
+  pricedRequests: number;
+  unpricedRequests: number;
+}
+export interface RadarReason {
+  reason: "noConversationId" | "noRollout" | "other";
+  rows: number;
+  tokens: number;
+  models: { model: string; rows: number; tokens: number }[];
+}
+export interface RadarPeriod {
+  totals: RadarTotals;
+  coverage: {
+    totalRequests: number;
+    eligibleRequests: number;
+    pricing: MeasurementSample;
+    attribution: MeasurementSample;
+    measurements: MeasurementCoverage;
+    unattributedReasons: RadarReason[];
+    /** Scope-level F03 exclusions only; null in exact project periods. Outside strict totals. */
+    projectExclusions: {
+      unattributedRows: number;
+      unattributedTokens: number;
+      attribution: {
+        matched: { rows: number; tokens: number };
+        outsideProjects: { rows: number; tokens: number };
+        unattributed: { rows: number; tokens: number; reasons: RadarReason[] };
+      };
+    } | null;
+  };
+  daily: (RadarTotals & { ts: number; date: string; from: number; to: number })[];
+  activeDays: number;
+  sources: (RadarTotals & { source: Source })[];
+  models: (RadarTotals & { source: Source; provider: string; model: string })[];
+  evidence: RadarEvidence;
+}
+export interface RadarChange {
+  state: "compared" | "new" | "insufficient";
+  absoluteChange: number | null;
+  /** Fraction; -0.5 = 50% lower. Never infinite. */
+  relativeChange: number | null;
+}
+export interface RadarComparison {
+  requests: RadarChange;
+  tokens: RadarChange;
+  pricedCostUsd: RadarChange;
+}
+export interface ProjectRadarResponse {
+  ok: true;
+  window: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
+  priorWindow: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
+  cohort: RadarCohort;
+  pricingBasis: "currently-loaded-api-list-price-equivalents";
+  history: {
+    basis: "earliest-loaded-request";
+    firstLoadedAt: number | null;
+    completeness: "unknown";
+    current: { startsBeforeLoadedHistory: boolean; hasLoadedHistory: boolean };
+    prior: { startsBeforeLoadedHistory: boolean; hasLoadedHistory: boolean };
+    note: string;
+  };
+  current: RadarPeriod;
+  prior: RadarPeriod;
+  comparison: RadarComparison;
+  projects: {
+    project: string;
+    gitRoot: boolean;
+    folders: string[];
+    current: RadarPeriod;
+    prior: RadarPeriod;
+    comparison: RadarComparison;
+  }[];
+}
