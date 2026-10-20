@@ -3,7 +3,7 @@ import { readClaudeEntries } from "../claude/transcripts";
 import { readCodexSessionIndex, type CodexSession } from "../codex/sessions";
 import { SOURCE_CAPABILITIES, sourceOf, type Measurements } from "../report/source";
 import { PATHS } from "../env";
-import { loadPricing, priceEntry, pricingGeneration } from "./pricing";
+import { loadPricing, priceWithCacheCounterfactual, pricingGeneration, type CacheEconomics } from "./pricing";
 
 export interface RequestRow {
   measurements: Measurements;
@@ -55,6 +55,11 @@ export interface RequestRow {
   cwd: string | null;
   /** True when a Codex rollout index was read and held no session for this row's conversationId. */
   rolloutMiss?: boolean;
+  /**
+   * The same recorded workload priced with and without its cache counters, under the
+   * engine's own tier/service decisions (L04). Null/absent: unpriced or not computed.
+   */
+  cacheEconomics?: CacheEconomics | null;
 }
 
 export interface QuotaSample {
@@ -174,7 +179,8 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     ? num(storedTotal)
     : Math.max(storedTotal ?? 0, inputTokens + outputTokens);
 
-  const estimate = priceEntry({ ...entry, usage });
+  // Attempt-summed usage is not one priced request; it never gets a counterfactual.
+  const { estimate, cache: cacheEconomics } = priceWithCacheCounterfactual({ ...entry, usage }, !usageFromAttempts);
   const routedKind = str(entry.routeDecision?.routeKind);
   const attempts = Array.isArray(entry.attempts) ? entry.attempts.length : 1;
   const spend = entry.spend ?? {};
@@ -226,13 +232,13 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     cacheWriteTokens,
     reasoningTokens,
     totalTokens,
-    cost: estimate?.cost.total ?? 0,
+    cost: estimate?.cost?.total ?? 0,
     priced: estimate !== null,
     estimated: estimate?.estimated ?? false,
-    rateIn: estimate?.price?.cost4.input ?? null,
-    rateOut: estimate?.price?.cost4.output ?? null,
-    rateCacheRead: estimate?.price?.cost4.cacheRead ?? null,
-    rateCacheWrite: estimate?.price?.cost4.cacheWrite ?? null,
+    rateIn: estimate?.price?.cost4?.input ?? null,
+    rateOut: estimate?.price?.cost4?.output ?? null,
+    rateCacheRead: estimate?.price?.cost4?.cacheRead ?? null,
+    rateCacheWrite: estimate?.price?.cost4?.cacheWrite ?? null,
     conversationId: str(entry.conversationId),
     errorCode: str(entry.errorCode),
     closeReason: str(entry.closeReason),
@@ -251,6 +257,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     usageStatus: String(entry.usageStatus ?? "unknown"),
     attemptTokens: attemptTokens || totalTokens,
     cwd: str(entry.cwd),
+    cacheEconomics,
   };
 }
 

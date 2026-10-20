@@ -35,6 +35,7 @@ import {
 import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
+import { buildCacheEconomics } from "./labs/cache";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
@@ -667,6 +668,18 @@ api.get("/api/scope", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   return c.json({ ok: true, window: query.window, ...scopeSummary(dataset.rows, query.filter), account: accountScope(c.req.query()) });
+});
+
+// L04: net cache economics over the resolved window and cohort (docs/api.md).
+api.get("/api/labs/cache", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const pricing = pricingStatus();
+  return c.json({
+    window: query.window,
+    pricing: { available: pricing.available, detail: pricing.detail },
+    ...buildCacheEconomics(dataset.rows, query.filter, query.window, { limit: numberParam(c.req.query("limit")) }),
+  });
 });
 
 api.get("/api/projects", async c => {

@@ -374,7 +374,7 @@ export interface ProjectCoverage {
   attribution: {
     matched: { rows: number; tokens: number };
     outsideProjects: { rows: number; tokens: number };
-    unattributed: { rows: number; tokens: number; reasons: { reason: "noConversationId" | "noRollout" | "other"; rows: number; tokens: number }[] };
+    unattributed: { rows: number; tokens: number; reasons: { reason: "noConversationId" | "noRollout" | "other"; rows: number; tokens: number; models: { model: string; rows: number; tokens: number }[] }[] };
   };
 }
 
@@ -606,3 +606,103 @@ export interface ProjectRadarResponse {
 }
 
 export type { ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
+
+/** Resolved bounds carried by Labs findings and their evidence intents (epoch milliseconds). */
+export interface AnalysisWindow {
+  from: number;
+  to: number;
+  tz: string;
+  label: string;
+}
+
+export interface WindowEcho extends AnalysisWindow {
+  fromIso: string;
+  toIso: string;
+  halfOpen: true;
+  input: { from?: string; to?: string; last?: string; range?: string };
+}
+
+export interface AnalysisCohort {
+  sources: Source[];
+  projects: string[];
+  providers: string[];
+  models: string[];
+  efforts: string[];
+  statuses: RequestRow["outcome"][];
+  routeKinds: string[];
+  conversationId: string | null;
+  search: string;
+}
+
+export type EvidenceSelection =
+  | { kind: "scope" }
+  | { kind: "project"; project: string }
+  | { kind: "session"; source: Source; conversationId: string }
+  | { kind: "unnamed"; source?: Source };
+
+export interface EvidenceSelector {
+  version: 1;
+  window: AnalysisWindow;
+  cohort: AnalysisCohort;
+  selection: EvidenceSelection;
+  eligibility: "all" | "cache" | "context";
+}
+
+export type CacheExclusion =
+  | "unpriced" | "attempt-sum" | "usage-estimated" | "input-missing" | "cache-unmeasured"
+  | "cache-synthesized" | "cache-unknown" | "economics-unavailable" | "accounting-mismatch" | "rate-unavailable";
+
+/** Money and token fields include eligible rows only; request counts include all selected rows. */
+export interface CacheEconomicsTotals {
+  totalRequests: number;
+  eligibleRequests: number;
+  excluded: Record<CacheExclusion, number>;
+  readTokens: number;
+  writeTokens: number;
+  /** USD rounded to six decimals; net = round6(readDiscountUsd - writePremiumUsd). */
+  readDiscountUsd: number;
+  writePremiumUsd: number;
+  netUsd: number;
+  actualUsd: number;
+  baselineUsd: number;
+  direction: "benefit" | "cost" | "even" | "insufficient";
+  longContextRequests: number;
+  confirmedTierRequests: number;
+  requestedTierOnlyRequests: number;
+  priorityRequests: number;
+  lowerBoundRequests: number;
+  derivedRateRequests: number;
+  explicitFreeRequests: number;
+  /** First/last selected row, including excluded rows; null for an empty group. */
+  firstTs: number | null;
+  lastTs: number | null;
+  evidence: { selector: EvidenceSelector; href: string };
+}
+
+export interface CacheEconomicsSession extends CacheEconomicsTotals {
+  /** JSON.stringify([source, conversationId]); never an id for an unnamed row. */
+  key: string;
+  source: Source;
+  conversationId: string;
+}
+
+export interface CacheEconomicsResponse {
+  ok: true;
+  analysis: "cache-economics";
+  version: 1;
+  window: WindowEcho;
+  scope: { window: Omit<WindowEcho, "input">; cohort: AnalysisCohort };
+  coverage?: ProjectCoverage;
+  precisionDp: 6;
+  currency: "USD";
+  basis: "api-list-price-equivalent";
+  /** Engine availability; eligibleRequests still determines whether a comparison is supported. */
+  pricing: { available: boolean; detail: string };
+  totals: CacheEconomicsTotals;
+  /** Sorted by absolute net descending, then source and conversationId. */
+  sessions: CacheEconomicsSession[];
+  sessionCount: number;
+  sessionsTruncated: boolean;
+  unnamed: CacheEconomicsTotals;
+  notes: string[];
+}
