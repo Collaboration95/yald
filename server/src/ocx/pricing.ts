@@ -179,7 +179,8 @@ export async function loadPricing(): Promise<PricingStatus> {
             ? await overlayGeneration(candidate, auditedSources)
             : null,
         };
-        status = { available: true, modulePath: candidate, packageDir: dir, detail: "reusing opencodex cost engine" };
+        status = { available: true, modulePath: candidate, packageDir: dir,
+          detail: process.env.YALD_DEMO === "1" ? "illustrative demo prices (not live rates)" : "reusing opencodex cost engine" };
         return status;
       } catch (error) {
         status = { available: false, modulePath: candidate, packageDir: dir, detail: `failed to import ${candidate}: ${String(error)}` };

@@ -1,1 +1,4 @@
 *.test.ts
+__fixtures__/
+__snapshots__/
+report/sample.ts

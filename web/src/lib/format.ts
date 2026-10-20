@@ -1,3 +1,5 @@
+import { displayNow } from "./demo";
+
 const LOCALE = "en-US";
 
 export function formatCompact(value: number | null | undefined, digits = 1): string {
@@ -80,7 +82,7 @@ export function formatTime(ts: number | null | undefined): string {
 
 export function formatRelative(ts: number | null | undefined): string {
   if (ts === null || ts === undefined || !Number.isFinite(ts)) return "—";
-  const diff = Date.now() - ts;
+  const diff = displayNow() - ts;
   if (diff < 5_000) return "just now";
   if (diff < 60_000) return `${Math.round(diff / 1000)}s ago`;
   if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
@@ -90,7 +92,7 @@ export function formatRelative(ts: number | null | undefined): string {
 
 export function formatCountdown(ts: number | null | undefined): string {
   if (ts === null || ts === undefined || !Number.isFinite(ts)) return "—";
-  const diff = ts - Date.now();
+  const diff = ts - displayNow();
   if (diff <= 0) return "reset reached";
   const days = Math.floor(diff / 86_400_000);
   const hours = Math.floor((diff % 86_400_000) / 3_600_000);

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { DEMO } from "./demo";
 
-export const PREFERENCES_STORAGE_KEY = "yald.preferences";
+export const PREFERENCES_STORAGE_KEY = DEMO ? "yald.demo.preferences" : "yald.preferences";
 /** Shared with B02. Add preference fields here and in decodePreferences. */
 export interface Preferences {
   labsEnabled: boolean;
@@ -34,7 +35,10 @@ function browserStorage(): PreferencesStorage | null {
 }
 
 function readPreferences(storage: PreferencesStorage | null): Preferences {
-  try { return decodePreferences(storage?.getItem(PREFERENCES_STORAGE_KEY) ?? null); } catch { return { ...DEFAULT_PREFERENCES }; }
+  try {
+    const raw = storage?.getItem(PREFERENCES_STORAGE_KEY) ?? null;
+    return DEMO && raw === null ? { ...DEFAULT_PREFERENCES, labsEnabled: true } : decodePreferences(raw);
+  } catch { return { ...DEFAULT_PREFERENCES }; }
 }
 
 /** SSR uses defaults. Inject storage (or null for memory only) for isolated tests. */
