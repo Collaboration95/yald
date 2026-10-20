@@ -1,0 +1,263 @@
+{
+  "generatedBy": "docs/brand/yaldi/build-assets.mjs",
+  "palette": {
+    "paper": "#fbf6eb",
+    "paperShade": "#ebe1cd",
+    "ink": "#202021",
+    "coral": "#d34d43",
+    "coralShade": "#b23d35",
+    "glow": "#f28b7e",
+    "cape": "#8e837b",
+    "capeShade": "#6f655e",
+    "glass": "#dfe6e6",
+    "halo": "#fbf6eb"
+  },
+  "stateCanvas": {
+    "width": 160,
+    "height": 160,
+    "baselineY": 150,
+    "centreX": 80
+  },
+  "runtimeBase": "/yaldi/ (served from web/public/yaldi via Vite publicDir)",
+  "assets": [
+    {
+      "file": "web/public/favicon.svg",
+      "width": 16,
+      "height": 16,
+      "theme": "both",
+      "shipped": true,
+      "use": "Browser tab favicon. 16-grid simplified silhouette."
+    },
+    {
+      "file": "web/public/yaldi/mark.svg",
+      "width": 128,
+      "height": 128,
+      "theme": "light",
+      "shipped": true,
+      "use": "Full mark on light surfaces, 40 px and larger."
+    },
+    {
+      "file": "web/public/yaldi/mark-dark.svg",
+      "width": 128,
+      "height": 128,
+      "theme": "dark",
+      "shipped": true,
+      "use": "Full mark on dark surfaces, 40 px and larger (paper keyline)."
+    },
+    {
+      "file": "web/public/yaldi/mark-small.svg",
+      "width": 32,
+      "height": 32,
+      "theme": "light",
+      "shipped": true,
+      "use": "Small mark on light surfaces, 24–40 px (e.g. next to the wordmark)."
+    },
+    {
+      "file": "web/public/yaldi/mark-small-dark.svg",
+      "width": 32,
+      "height": 32,
+      "theme": "dark",
+      "shipped": true,
+      "use": "Small mark on dark surfaces, 24–40 px."
+    },
+    {
+      "file": "web/public/yaldi/state-investigating.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "investigating",
+      "alt": "Yaldi looking through a magnifying glass",
+      "use": "Loading or searching: Yald is reading logs or computing an investigation."
+    },
+    {
+      "file": "web/public/yaldi/state-investigating-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "investigating",
+      "alt": "Yaldi looking through a magnifying glass",
+      "use": "Loading or searching: Yald is reading logs or computing an investigation."
+    },
+    {
+      "file": "web/public/yaldi/state-analysing.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "analysing",
+      "alt": "Yaldi reading a small bar chart in a notebook",
+      "use": "Analysis in progress or a computed comparison being explained."
+    },
+    {
+      "file": "web/public/yaldi/state-analysing-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "analysing",
+      "alt": "Yaldi reading a small bar chart in a notebook",
+      "use": "Analysis in progress or a computed comparison being explained."
+    },
+    {
+      "file": "web/public/yaldi/state-clue-found.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "clue-found",
+      "alt": "Yaldi surprised at a discovered clue",
+      "use": "An evidence-backed finding. Never use for errors or unverified claims."
+    },
+    {
+      "file": "web/public/yaldi/state-clue-found-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "clue-found",
+      "alt": "Yaldi surprised at a discovered clue",
+      "use": "An evidence-backed finding. Never use for errors or unverified claims."
+    },
+    {
+      "file": "web/public/yaldi/state-resting.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "resting",
+      "alt": "Yaldi asleep with the cap tilted",
+      "use": "Idle or nothing to report yet (for example Labs before a scope is chosen)."
+    },
+    {
+      "file": "web/public/yaldi/state-resting-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "resting",
+      "alt": "Yaldi asleep with the cap tilted",
+      "use": "Idle or nothing to report yet (for example Labs before a scope is chosen)."
+    },
+    {
+      "file": "web/public/yaldi/state-empty.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "empty",
+      "alt": "Yaldi holding an empty case file",
+      "use": "No data in the selected scope. Pair with text that says what is missing."
+    },
+    {
+      "file": "web/public/yaldi/state-empty-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "empty",
+      "alt": "Yaldi holding an empty case file",
+      "use": "No data in the selected scope. Pair with text that says what is missing."
+    },
+    {
+      "file": "web/public/yaldi/state-insufficient.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "insufficient",
+      "alt": "Yaldi checking a notebook with too few bars",
+      "use": "Too little evidence for a finding. Pair with the coverage or threshold text."
+    },
+    {
+      "file": "web/public/yaldi/state-insufficient-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "insufficient",
+      "alt": "Yaldi checking a notebook with too few bars",
+      "use": "Too little evidence for a finding. Pair with the coverage or threshold text."
+    },
+    {
+      "file": "web/public/yaldi/state-error.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "error",
+      "alt": "Yaldi looking worried at a cracked magnifying glass",
+      "use": "A load or read failure. Always alongside the error text; never cheerful."
+    },
+    {
+      "file": "web/public/yaldi/state-error-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "error",
+      "alt": "Yaldi looking worried at a cracked magnifying glass",
+      "use": "A load or read failure. Always alongside the error text; never cheerful."
+    },
+    {
+      "file": "web/public/yaldi/state-demo.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "light",
+      "shipped": true,
+      "state": "demo",
+      "alt": "Yaldi waving while holding a striped sample case file",
+      "use": "Synthetic sample data is shown. Pair with a visible “sample data” label."
+    },
+    {
+      "file": "web/public/yaldi/state-demo-dark.svg",
+      "width": 160,
+      "height": 160,
+      "theme": "dark",
+      "shipped": true,
+      "state": "demo",
+      "alt": "Yaldi waving while holding a striped sample case file",
+      "use": "Synthetic sample data is shown. Pair with a visible “sample data” label."
+    },
+    {
+      "file": "web/public/favicon.ico",
+      "sizes": [
+        16,
+        32,
+        48
+      ],
+      "theme": "both",
+      "shipped": true,
+      "use": "Legacy favicon: 16 px simplified, 32 px small mark, 48 px full mark."
+    },
+    {
+      "file": "web/public/apple-touch-icon.png",
+      "width": 180,
+      "height": 180,
+      "theme": "both",
+      "shipped": true,
+      "use": "Home-screen icon. Opaque paper tile by platform convention."
+    },
+    {
+      "file": "docs/brand/yaldi/logo-concept.svg",
+      "shipped": false,
+      "use": "Approved editable logo concept (original, unchanged)."
+    },
+    {
+      "file": "docs/brand/yaldi/mascot-concept.png",
+      "shipped": false,
+      "use": "Approved four-pose concept sheet (original, unchanged). Not animation frames."
+    },
+    {
+      "file": "docs/brand/yaldi/generation-prompt.txt",
+      "shipped": false,
+      "use": "Exact image-generation prompt and provenance for mascot-concept.png."
+    },
+    {
+      "file": "docs/brand/yaldi/qa/",
+      "shipped": false,
+      "use": "Rendered QA sheets (light and dark surfaces, real sizes). Regenerate with --raster."
+    }
+  ]
+}
