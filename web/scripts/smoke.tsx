@@ -411,7 +411,7 @@ async function checkLabsShell() {
   client.setQueryData(["/api/scope", filtersToParams(filters)], await fetchJson("/api/scope", filtersToParams(filters)));
   client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
   const disabledChild = () => { throw new Error("Disabled Labs mounted an investigation"); };
-  for (const path of ["/labs", "/labs/project-radar", "/labs/evidence", "/labs/unknown/deep"]) {
+  for (const path of ["/labs", "/labs/project-radar", "/labs/cache-detective", "/labs/evidence", "/labs/unknown/deep"]) {
     const html = renderPage(disabledChild, client, `${path}?${params}`, "/labs/*", true);
     const links = [...html.matchAll(/href="([^"]+)"/g)].map(match => match[1]!.replace(/&amp;/g, "&")).filter(link => link.startsWith("/"));
     check(html.includes("Labs is off") && html.includes("Enable Labs") && html.includes("Return to Overview") && !html.includes("No requests match these filters"), `${path} recovers even when the cohort is empty; child never mounts`);
@@ -427,6 +427,10 @@ async function checkLabsShell() {
     check(html.includes("not available yet") && html.includes("All investigations") && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
   }
   check(!client.getQueryCache().getAll().some(query => String(query.queryKey[0]).startsWith("/api/labs/")), "disabled and enabled empty shell create no experiment queries");
+  const cacheParams = filtersToParams(filters, { limit: 100 });
+  client.setQueryData(["/api/labs/cache", cacheParams], await fetchJson("/api/labs/cache", cacheParams));
+  const cache = renderPage(LabsInvestigationPage, client, `/labs/cache-detective?${params}`, "/labs/*", true, enabledPreferences);
+  check(["Cache Detective", "No requests to investigate", "Read discount", "Write premium", "Net · Unavailable", "Unnamed requests", "Investigation scope"].every(text => cache.includes(text)), "registered Cache Detective renders the real empty API payload without treating missing money as zero");
   for (const kind of ["loading", "error", "empty", "insufficient"] as InvestigationStateKind[]) {
     const html = renderToString(<InvestigationState kind={kind} onRetry={() => {}} />);
     check(html.includes(`role="${kind === "error" ? "alert" : "status"}"`) && html.includes("aria-describedby") && !html.includes("<img")
