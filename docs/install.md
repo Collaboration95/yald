@@ -1,33 +1,165 @@
-# Installation
+# Installation and local data
 
-## GitHub preview (Node.js 18+ and npm)
+## Published GitHub preview
 
-Download the prebuilt package from the `v0.1.0` release:
+The verified distribution channel is the
+[v0.1.0 GitHub prerelease](https://github.com/Collaboration95/yald/releases/tag/v0.1.0),
+with `yald-dashboard-0.1.0.tgz` and `SHA256SUMS`. npm registry and Homebrew
+publication are unverified. Use the release tarball, rather than a registry
+package with a similar name. The executable is `yald`; the package name is
+`yald-dashboard`.
+
+Prerequisites: macOS or Linux, Node.js 18+, npm, an authenticated GitHub CLI
+(`gh`) and `shasum`. The tarball contains the built UI and server. npm installs
+the Bun runtime dependency; its installation scripts must be allowed. A source
+checkout, Make and a separate global Bun installation are unnecessary.
 
 ```bash
-gh release download v0.1.0 --repo Collaboration95/yald --pattern 'yald-dashboard-0.1.0.tgz'
-npm install -g ./yald-dashboard-0.1.0.tgz
+release_dir="$(mktemp -d)"
+yald_prefix="$HOME/.local"
+gh release download v0.1.0 --repo Collaboration95/yald \
+  --pattern 'yald-dashboard-0.1.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
+(cd "$release_dir" && shasum -a 256 -c SHA256SUMS) && \
+npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.1.0.tgz"
+export PATH="$yald_prefix/bin:$PATH"
 yald --version
-yald --open
+yald --help
+yald
 ```
 
-## npm registry (after publication)
+Continue only if checksum verification says `OK`; the installed version should
+be `0.1.0`. Open **http://127.0.0.1:4318** and stop with Ctrl+C. `yald --open`
+also opens the dashboard in your default browser. Add the chosen prefix's `bin`
+directory to your shell's `PATH` for later sessions. If the runtime is missing,
+check npm's install-script policy and reinstall the same verified tarball.
+
+This published package is the **opencodex-only preview**. It predates Claude
+ingestion, source/project controls, standalone reports, Yaldi and Labs. Those
+features exist on `dev` for planned 0.2.0; no 0.2.0 download is published yet.
+The sections below describe current development unless explicitly stated.
+
+## Data locations and local archive
+
+Yald reads existing files; it makes no model calls and does not modify source
+ledgers, transcripts or Codex rollouts. It can read recorded usage with the
+proxy stopped. Pricing is an **API list-price equivalent**, not a subscription
+bill or proof of savings.
+
+| Path | Purpose |
+| --- | --- |
+| `$OCX_HOME/usage.jsonl` | Logical opencodex requests and recorded usage, attempts, outcomes and timing |
+| `$OCX_HOME/spend-ledger.jsonl` | Account-wide physical sends: reserve, dispatch, settle and lost records |
+| `$OCX_HOME/codex-quota-cache.json` | Latest recorded account quota windows and captured sample history |
+| `$OCX_HOME/routing-history.sqlite` | Upstream indexed mirror; Yald does not read it by default |
+| `$CLAUDE_PROJECTS_DIR/**/*.jsonl` | Claude Code transcripts, including nested subagent files |
+| `$CODEX_HOME/sessions/**/rollout-*.jsonl` and `$CODEX_HOME/archived_sessions/rollout-*.jsonl` | First-line Codex session metadata for opencodex project attribution |
+| `$OCX_HOME/yald-claude-usage.jsonl` | **Yald-owned archive, written locally** from Claude usage metadata |
+
+Defaults are `OCX_HOME=~/.opencodex`,
+`CLAUDE_PROJECTS_DIR=~/.claude/projects` and `CODEX_HOME=~/.codex`.
+Claude transcripts do not supply measured failures, retries, timing or quota.
+See [source coverage](metrics.md#source-capabilities-and-measurement-coverage).
+
+The Claude archive is append-only, deduplicated on read and has **no automatic
+retention expiry**. It retains normalized usage metadata (including IDs and cwd),
+not prompt/response bodies. More complete live records can fill gaps in older
+entries. Usage remains after transcripts are deleted or `CLAUDE_PROJECTS_DIR`
+is changed to an empty directory. Source filtering changes the displayed
+population; it neither deletes this archive nor stops ingestion from the
+configured transcript directory.
+
+To run without previously archived Claude usage, choose a **new, separate
+`OCX_HOME`** as well as an empty transcript directory. This also selects a
+separate opencodex ledger location; it is not a filter for an existing home.
+There is no archive-retention or deletion command. The published v0.1.0 package
+does not ingest or archive Claude transcripts.
+
+## Pricing discovery
+
+Yald reuses the installed `@bitkyc08/opencodex` cost module, including its loaded
+user overlays (`ocx models set-price`), long-context rates and tier rules. It
+does not bundle a second
+price table. This engine is needed for prices even when only Claude is selected.
+Usage views still work without it; prices remain unavailable.
+
+Discovery checks `OCX_PACKAGE_DIR` first, then `ocx` symlinks in common system
+locations, `npm root -g`, common global npm directories and Bun's global package
+directory. A candidate needs `src/usage/cost.ts` or `dist/usage/cost.js`; Yald
+loads the first usable cost module in the selected package. Set an explicit
+absolute `OCX_PACKAGE_DIR` if automatic discovery misses an installation. The
+dashboard pricing status and `/api/meta` expose the loaded path/status.
+
+The engine can depend on an existing `CODEX_HOME`; create that directory before
+using a custom one. Package/catalog changes need a process restart. Rates are
+the currently loaded assumptions, not historical snapshots. Missing prices
+are unavailable, never evidence of a free route. Price coverage and project
+attribution coverage remain independent. See [cost](metrics.md#metering-and-cost),
+[cache comparisons](metrics.md#net-cache-economics) and
+[project limits](metrics.md#project-attribution).
+
+## Listener defaults and options
+
+| Entry point | Default address | Configuration |
+| --- | --- | --- |
+| Installed `yald` or `node scripts/yald.mjs` | `127.0.0.1:4318` | `--port` / `YALD_PORT`, `--host` / `YALD_HOST` |
+| `make run` / `scripts/serve.sh` | `127.0.0.1:4318` | Builds UI; sets `PORT=4318` when `PORT` is absent; server env precedence still applies |
+| `make dev` / `scripts/dev.sh` | API `127.0.0.1:4318`, Vite `localhost:5317` | `YALD_API_PORT` selects the API port; use Vite's printed URL if it selects another free port |
+| Direct `scripts/bun run server/src/index.ts` or `npm start` | `127.0.0.1:4317` | No launcher port override |
+| Report CLI | No listener | Writes local output files |
+
+The direct server resolves port as `YALD_PORT`, then `OCX_OBSERVATORY_PORT`, then
+`PORT`, then `4317`. The packaged launcher explicitly supplies `YALD_PORT=4318`
+when it is unset, so `PORT` and the legacy port variable do not override its
+default. Pass `--port` or set `YALD_PORT` to choose consistently across entry points.
+For the host, the direct server uses `YALD_HOST`, then `HOST`, then `127.0.0.1`;
+the launcher's `--open` URL uses `YALD_HOST` or loopback, so use `--host` /
+`YALD_HOST` for that entry point.
+
+| Variable | Default / use |
+| --- | --- |
+| `OCX_HOME` | `~/.opencodex`; launcher/report `--ocx-home` overrides it |
+| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects`; report also accepts `--claude-projects` |
+| `CODEX_HOME` | `~/.codex`; current launcher/report also accept `--codex-home` |
+| `OCX_PACKAGE_DIR` | Auto-discovered pricing package; use an absolute path |
+| `YALD_TZ` | System timezone; legacy `OCX_OBSERVATORY_TZ` is the fallback; report `--tz` overrides both |
+| `YALD_PORT`, `YALD_HOST` | Listener settings above |
+| `YALD_API_PORT` | Development script's API port; legacy `OCX_OBSERVATORY_API_PORT` is its fallback |
+| `BUN_BIN` | Checkout runtime override after a package-local Bun runtime |
+
+## Development checkout
+
+Use this path to work with the implemented Claude, report and Labs features
+before 0.2.0 publication. It is a source build, separate from the published
+preview installation above. Install Bun 1.1+ (or supply a compatible runtime
+through `BUN_BIN`), Git, Node.js and npm; then:
 
 ```bash
-npx -p yald-dashboard yald --port 4318 --host 127.0.0.1 --ocx-home ~/.opencodex --open
-```
-
-The package is named `yald-dashboard` because `yald` is already claimed on npm by an unrelated package. It installs Bun, includes the prebuilt UI, and exposes the `yald` command. `--open` opens the local dashboard in the system browser. npm publication and a Homebrew tap are separate steps described in [the distribution guide](releasing.md).
-
-## Clone
-
-Install Bun 1.1 or newer, clone the repository, then run:
-
-```bash
-bun install
+gh repo clone Collaboration95/yald yald -- --branch dev
+cd yald
+scripts/bun install --frozen-lockfile
 ./scripts/serve.sh
 ```
 
-## Data location and options
+Open **http://127.0.0.1:4318**. After dependencies are installed, the checkout
+launcher also works: `node scripts/yald.mjs`. For HMR use `make dev` and the
+Vite URL above. To build without starting a listener use `make build`.
 
-The default ledger directory is `~/.opencodex`. Use `--ocx-home` or `OCX_HOME` to select another directory. `--port`/`YALD_PORT` and `--host`/`YALD_HOST` configure the listener. `YALD_TZ` sets the calendar-bucketing timezone. Claude Code usage is read from `~/.claude/projects`; set `CLAUDE_PROJECTS_DIR` to another directory, or to an empty one to leave Claude out. Codex rollouts in `~/.codex` attribute opencodex requests to project folders; use `--codex-home` or `CODEX_HOME` to select another Codex home. The opencodex cost engine reads the same variable and refuses a path that does not exist. Legacy `OCX_OBSERVATORY_TZ` and `OCX_OBSERVATORY_PORT` remain accepted.
+The checkout runtime helper tries package-local Bun, `BUN_BIN`, Bun on `PATH`,
+a cached runtime path, then installed opencodex Bun locations. `make install`
+also installs Git hooks; [Contributing](../CONTRIBUTORS.md) lists all checks.
+For reports, replace installed `yald report` with
+`node scripts/yald.mjs report`; see [views and reports](guide.md).
+
+An isolated empty-data run, from a checkout with dependencies installed:
+
+```bash
+scratch="$(mktemp -d)"
+mkdir -p "$scratch/ocx" "$scratch/claude" "$scratch/codex"
+OCX_HOME="$scratch/ocx" CLAUDE_PROJECTS_DIR="$scratch/claude" \
+  CODEX_HOME="$scratch/codex" YALD_PORT=4318 ./scripts/serve.sh
+```
+
+This selects a fresh archive as well as empty sources. Add an explicit
+`OCX_PACKAGE_DIR` to control pricing. Stop the process before removing your
+scratch directory. [Architecture](architecture.md) explains the data flow;
+[release procedure](releasing.md) covers distribution qualification.
