@@ -106,8 +106,9 @@ boundary before claiming shared filtering. Do not quietly drop parameters.
 
 Key: `agent-orchestration:issue-key=yaldi-attribution-reasons`.
 Initial status: **Ready**. Priority: P0. Size: M. Risk: Medium.
-Dependencies: none. Existing tracker:
-[#47](https://github.com/Collaboration95/yald/issues/47), explanation slice only.
+Dependencies: none. Related broader tracker:
+[#47](https://github.com/Collaboration95/yald/issues/47). This release gets a focused,
+independently closable F03 issue for the explanation slice.
 
 **Objective:** explain what a project-filtered total leaves out.
 
@@ -129,8 +130,9 @@ pricing, or upstream changes. Those remain in #47's broader proposal.
 - The report JSON and rendered coverage note agree; existing coverage totals
   remain available to consumers.
 - No new attribution is inferred and no unmetered image is given an invented price.
-- When the backlog is applied, #47 is reused and the completed slice is identified;
-  the issue is not closed while inference/pricing acceptance items remain unfinished.
+- The focused F03 issue links to #47 and identifies the completed explanation
+  slice. F03 can close when this contract passes; the broader #47 remains open
+  while inference/pricing acceptance items remain unfinished.
 
 **Boundaries:** `server/src/ocx/store.ts`, `server/src/codex/sessions.ts`,
 `server/src/projects.ts`, `server/src/api.ts`, `server/src/report/types.ts`,

@@ -1,8 +1,10 @@
 # Yald: the Yaldi release
 
-Status: proposed execution plan, 2026-10-20. Product direction and the Yaldi name
-were accepted by the maintainer. This packet defines the release and local issue
-contracts; it does not claim implementation or create remote backlog objects.
+Status: GitHub execution backlog initialized on 2026-10-20. Product direction
+and the Yaldi name were accepted by the maintainer. Start with
+[Read me before you start — Meet Yaldi](https://github.com/Collaboration95/yald/issues/48) and the
+[Yald delivery Project](https://github.com/users/Collaboration95/projects/16). GitHub holds current execution
+state; these documents preserve the release charter and issue contracts.
 
 Planning branch: `plan/yaldi-labs-release`, from `dev` at `c851ef6`.
 Proposed release: **v0.2.0 — Meet Yaldi**. The version and publication date remain
@@ -78,14 +80,14 @@ evidence named in E5. A screenshot or a passing unit test alone is not release a
 
 The stable issue key in each contract is the identity to use when materializing
 GitHub issues. Search by key and existing URL before creating an issue. Initial
-statuses here are planning state; they are not claims about GitHub metadata.
+statuses here record initialization; the GitHub Project holds current progress.
 
 ## Delivery sequence and gates
 
 | Order | Work package | Initial state | Prerequisites |
 | --- | --- | --- | --- |
 | 1 | F01 — source capabilities and coverage | Ready | None |
-| 2 | F03 — explain attribution gaps | Ready | None; reuse the reason-breakdown slice of #47 |
+| 2 | F03 — explain attribution gaps | Ready | None; reason-breakdown slice linked to #47 |
 | 3 | F02 — source/project filters | Blocked | F01 |
 | 4 | B01 — finalize the Yaldi asset set | Ready | Accepted name and visual direction |
 | 5 | L01 — optional Labs shell | Blocked | F02 |
@@ -135,35 +137,41 @@ Do not start by drawing the Labs page: its labels and denominators depend on thi
 
 - [#47: missing project attribution](https://github.com/Collaboration95/yald/issues/47)
   already includes the reason breakdown, inference and image pricing. F03 is the
-  explanation slice only. Reuse that issue for the slice; link this plan when
-  applying the backlog. The broader issue stays open while its other acceptance
-  items remain. Do not make inferred attribution or image-price guesses a Labs prerequisite.
+  explanation slice only. Give F03 a focused, independently closable release issue
+  linked to #47, and retain #47 as the broader tracker. This keeps native epic
+  progress accurate without closing unfinished inference/pricing work. Do not make
+  inferred attribution or image-price guesses a Labs prerequisite.
 - [#7: first public launch](https://github.com/Collaboration95/yald/issues/7) still
   tracks v0.1.0 launch work. The v0.1.0 release exists. R02 should reconcile the
   checklist with evidence and distinguish remaining launch chores from this
   release's new work. This planning packet does not close or rewrite that issue.
-- No open PRs were returned by discovery on 2026-10-20. No matching Yald Project
-  was returned by the owner-project listing. Remote discovery is a dated observation.
+- [The applied GitHub backlog](github-backlog.md) maps every epic and work package
+  to its live issue, saved views and release milestone.
 
-## Proposed GitHub execution board
+## GitHub execution board
 
-This is a proposal for a later explicit backlog-apply action. No Project, issue,
-label, milestone, dependency or status was changed during planning.
+The [public Project](https://github.com/users/Collaboration95/projects/16) is linked to this repository. The
+[start-here issue](https://github.com/Collaboration95/yald/issues/48) contains the release purpose,
+working rules, epic map, execution queue and release gates. Five native epic
+sub-issues contain eighteen native implementation sub-issues. All implementation
+dependencies are represented by native blocked-by relationships.
 
-Use one Project, **Yald — Product delivery**, linked to this repository. Before
-creation, inspect all pages and existing repository links again; reuse a matching
-Project. Use milestone **v0.2.0 — Meet Yaldi** for this release. Do not assign
-calendar iterations until there is an agreed schedule.
+Milestone: [v0.2.0 — Meet Yaldi](https://github.com/Collaboration95/yald/milestone/1). It is a planning
+target, not a published tag. No dates or calendar iterations are assigned.
 
-Fields: Status (Backlog, Ready, In progress, Review, Blocked, Done), Priority
-(P0–P2), Size (S/M), Risk (Low/Medium/High), Area, Sequence and an optional Iteration.
-Views: Epics, Ready queue, Current iteration when scheduled, Review and Blocked.
-Use native parent and blocked-by relationships where supported; F03 reuses #47
-and needs a clear partial-scope note rather than a duplicate issue.
+The built-in **Status** field uses Backlog, Ready, In progress, Review, Blocked
+and Done. Additional fields are Priority, Size, Risk, Area, Kind and Sequence;
+native Parent issue and Sub-issues progress expose the hierarchy. Only F01,
+F03 and B01 begin Ready. Epics and the guide remain aggregate/reference items.
 
-Reuse existing `enhancement`, `bug`, `documentation` and `accessibility` labels;
-propose only `epic`, `labs`, `branding` and `release` if they improve filtering.
-Do not invent assignees or mark dependency-held work Ready.
+Saved views cover All work, Start here, Epics, Ready queue, Workflow, Review,
+Blocked and Release gates. See [live issue/view links](github-backlog.md).
+No assignees are invented and dependency-held items are not marked Ready.
+
+The existing enhancement, documentation, bug and accessibility labels remain;
+epic, labs, branding and release labels support this backlog. F03 is a focused
+release issue linked to the broader #47, which retains its unfinished scope.
+No legacy issue was closed and no product implementation was claimed.
 
 ## Follow-up roadmap
 
