@@ -161,6 +161,8 @@ export interface CostComposition {
 
 export interface ConversationRow {
   id: string;
+  /** Conversation ids are unique only within a source. */
+  source: Source;
   requests: number;
   tokens: number;
   cost: number;
@@ -211,9 +213,22 @@ export interface QuotaView {
   observed: { samples: number; first: number | null; last: number | null };
 }
 
+/** How a source/project selection applies to quota and the send ledger, which are opencodex account observations. */
+export interface AccountScope {
+  kind: "account";
+  source: Source;
+  available: boolean;
+  requestedSources: Source[];
+  /** Active filters (URL parameter names) this account-wide observation does not honour. */
+  ignored: string[];
+  note: string;
+}
+
 export interface QuotaResponse extends QuotaView {
   ok: boolean;
   range: string;
+  scope: AccountScope;
+  window: QuotaView["window"] & { label: string };
 }
 
 export interface MetaResponse {
@@ -256,6 +271,7 @@ export interface OverviewResponse {
   heatmap: { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number };
   context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
   quota: QuotaView;
+  quotaScope: AccountScope;
   recent: RequestRow[];
 }
 
@@ -333,6 +349,7 @@ export interface ModelsResponse {
 
 export interface LedgerResponse {
   ok: boolean;
+  scope: AccountScope;
   window: { from: number; to: number; bucket: string };
   byKind: Record<string, number>;
   settledTokens: number;
@@ -350,9 +367,56 @@ export interface ConversationsResponse {
   totals: { conversations: number; requests: number; unattributed: number; medianRequests: number | null; medianTokens: number | null };
 }
 
+/** Requests the project filter had to drop because their folder is unknown (the server's `coverage`). */
+export interface ProjectCoverage {
+  unattributedRows: number;
+  unattributedTokens: number;
+  attribution: {
+    matched: { rows: number; tokens: number };
+    outsideProjects: { rows: number; tokens: number };
+    unattributed: { rows: number; tokens: number; reasons: { reason: "noConversationId" | "noRollout" | "other"; rows: number; tokens: number }[] };
+  };
+}
+
+export interface ProjectChoice {
+  project: string;
+  gitRoot: boolean;
+  folders: string[];
+  requests: number;
+  tokens: number;
+  cost: number;
+  firstSeen: number | null;
+  lastSeen: number | null;
+}
+
+export interface ProjectsResponse {
+  ok: boolean;
+  coverage?: ProjectCoverage;
+  projects: ProjectChoice[];
+}
+
+export interface ScopeResponse {
+  ok: boolean;
+  window: { from: number; to: number; label: string };
+  matched: { requests: number; tokens: number };
+  windowTotal: { requests: number; tokens: number };
+  sources: { source: Source; requests: number; tokens: number }[];
+  coverage?: ProjectCoverage;
+  account: AccountScope;
+}
+
 export interface ConversationDetailResponse {
   ok: boolean;
   id: string;
+  source: Source;
+  coverage?: ProjectCoverage;
+  scope: {
+    window: { label: string } | null;
+    filtersApplied: string[];
+    matched: number;
+    sessionTotal: number;
+    excluded: { window: number; filters: number };
+  };
   points: { ts: number; tokens: number; cumulative: number; model: string; outcome: string; cost: number; durationMs: number; ttftMs: number | null; contextTokens: number; contextEligible: boolean }[];
   summary: Summary;
   models: { name: string; value: number }[];

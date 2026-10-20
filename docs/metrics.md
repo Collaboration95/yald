@@ -41,6 +41,16 @@ No time-based or overlap inference is applied: a reason never assigns a folder, 
 
 The projects list rolls each folder up to the nearest enclosing git root (a folder holding a `.git` directory or file, checked on disk once per folder while yald runs), and lists unattributed requests as `(unattributed)`. Folders that no longer exist keep their own path.
 
+The dashboard's Source and Project controls apply the same scope to request-based
+views and exports. Project choices use that existing aggregation, but selection
+uses the report's folder/ancestor glob rule: a selected root includes nested
+projects too. An unattributed row is not a project choice. The selection status
+states how many otherwise-matching requests and tokens had no folder and were
+excluded; a zero match offers a reset instead of assigning that usage elsewhere.
+URL filters survive navigation/reload, and session links retain the cohort plus
+the source-qualified `(source, conversationId)` identity. Session detail reports
+how much history was excluded by the window and the other filters.
+
 Limits:
 
 - Codex sessions run without opencodex do not appear in the opencodex ledger, so yald sees neither their usage nor their folder.
@@ -50,6 +60,13 @@ Limits:
 - Absolute paths appear only in the local API. Shareable outputs redact the home directory to `~`.
 
 ## Time series and quota
+
+Quota and send accounting are global opencodex account observations. They carry no
+project/model/outcome identity, so those filters cannot narrow them. The dashboard
+labels the account scope and declares ignored filters, and a Claude-only selection
+shows them as unavailable. Their history uses the selected window; current quota
+and aggregate ledger counts remain the latest available account observations.
+They must never be read as a selected project's quota or spend allowance.
 
 Calendar buckets use the request's `tz` (default: the configured local timezone), never the server process's zone. Weeks begin Monday. Quota burn is measured from observed samples inside the selected time range; current utilization remains the latest point-in-time value. The history chart may include the sample immediately before the range as a visual baseline, but it does not count toward the two in-range samples required for a burn estimate. With insufficient samples, the dashboard reports that state instead of extrapolating. Projections compare the measured burn against the provider's reset time and may be null when a reset or a positive burn rate is unavailable.
 

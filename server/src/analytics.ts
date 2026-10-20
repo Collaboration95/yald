@@ -716,6 +716,8 @@ export function reliability(rows: RequestRow[], tz: string): {
 
 export interface ConversationRow {
   id: string;
+  /** A conversation id is only unique within its source, so sessions group by `(source, id)`. */
+  source: Source;
   requests: number;
   tokens: number;
   cost: number;
@@ -737,12 +739,14 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
   const map = new Map<string, RequestRow[]>();
   for (const row of rows) {
     if (!row.conversationId) continue;
-    const list = map.get(row.conversationId);
+    const key = JSON.stringify([sourceOf(row), row.conversationId]);
+    const list = map.get(key);
     if (list) list.push(row);
-    else map.set(row.conversationId, [row]);
+    else map.set(key, [row]);
   }
   const result: ConversationRow[] = [];
-  for (const [id, list] of map) {
+  for (const list of map.values()) {
+    const id = list[0]!.conversationId!;
     const models = new Set<string>();
     const providers = new Set<string>();
     let tokens = 0;
@@ -770,6 +774,7 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
     const spanMs = Math.max(1, ended - started);
     result.push({
       id,
+      source: sourceOf(list[0]!),
       requests: list.length,
       tokens,
       cost: round(cost, 4),
@@ -787,7 +792,7 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
       intensity: round(tokens / (spanMs / 3_600_000), 1),
     });
   }
-  return result.sort((a, b) => b.tokens - a.tokens).slice(0, limit);
+  return result.sort((a, b) => b.tokens - a.tokens || a.source.localeCompare(b.source) || a.id.localeCompare(b.id)).slice(0, limit);
 }
 
 export function conversationTimeline(rows: RequestRow[], id: string): {

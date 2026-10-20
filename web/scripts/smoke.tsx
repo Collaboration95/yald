@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { renderToString } from "react-dom/server";
-import { DEFAULT_FILTERS, fetchJson, filtersToParams } from "../src/api";
+import { conversationLink, DEFAULT_FILTERS, escapeGlob, fetchJson, filtersFromParams, filtersToParams } from "../src/api";
 import { OutcomeDot } from "../src/components/ui";
 import { Layout } from "../src/components/Layout";
 import { ThemeProvider } from "../src/lib/theme";
@@ -40,7 +40,7 @@ if (useFixtures) {
   const pricePath = join(fixturePricing, "src/usage/cost.ts");
   await writeFile(pricePath, (await readFile(pricePath, "utf8")).replace("const RATES = {", 'const RATES = { "f01-free": [0, 0, 0, 0],'));
   process.env.OCX_PACKAGE_DIR = fixturePricing;
-  process.env.OCX_HOME = await materializeFixtureHome();
+  process.env.OCX_HOME = await materializeFixtureHome({ dashboardScope: true });
   process.env.CLAUDE_PROJECTS_DIR = join(process.env.OCX_HOME, "claude-projects");
   process.env.CODEX_HOME = join(process.env.OCX_HOME, "codex");
   const ts = Date.now() - 60_000;
@@ -90,11 +90,12 @@ interface PageSpec {
 }
 
 const detailFilters = { ...DEFAULT_FILTERS, range: "all" };
-const conversationsSeed = await fetchJson<{ conversations: { id: string }[] }>(
+const conversationsSeed = await fetchJson<{ conversations: { id: string; source: "ocx" | "claude-code" }[] }>(
   "/api/conversations",
   filtersToParams(DEFAULT_FILTERS, { sort: "tokens", limit: 5 }),
 );
 const sampleConversation = conversationsSeed.conversations[0]?.id ?? "";
+const sampleSource = conversationsSeed.conversations[0]?.source;
 const shorten = (value: string) => (value.length <= 14 ? value : value.slice(0, 14));
 
 const PAGES: PageSpec[] = [
@@ -167,10 +168,10 @@ const PAGES: PageSpec[] = [
   },
   {
     name: "ConversationDetail",
-    route: "/conversations/" + sampleConversation,
+    route: "/conversations/" + sampleConversation + `?range=all&sessionSource=${sampleSource}`,
     pattern: "/conversations/:id",
     Component: ConversationDetailPage,
-    queries: [{ path: "/api/conversations/" + sampleConversation, params: filtersToParams(detailFilters, {}) }],
+    queries: [{ path: "/api/conversations/" + sampleConversation, params: filtersToParams(detailFilters, { sessionSource: sampleSource }) }],
     expect: ["Token growth", "Models used", "Requests in this conversation"],
     expectFrom: payloads => [sampleConversation, payloads[0]?.models?.[0]?.name],
   },
@@ -180,14 +181,15 @@ const SUSPECT = ["NaN", "Invalid Date", "undefined", "Infinity", "[object Object
 let failures = 0;
 let warnings = 0;
 
-function renderPage(Component: AnyComponent, client: QueryClient, route: string, pattern?: string) {
+function renderPage(Component: AnyComponent, client: QueryClient, route: string, pattern?: string, withLayout = false) {
   return renderToString(
     <QueryClientProvider client={client}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[route]}>
           <FiltersProvider>
             <Routes>
-              <Route path={pattern ?? route} element={<Component />} />
+              {withLayout ? <Route element={<Layout />}><Route path={pattern ?? route} element={<Component />} /></Route>
+                : <Route path={pattern ?? route} element={<Component />} />}
             </Routes>
           </FiltersProvider>
         </MemoryRouter>
@@ -320,6 +322,66 @@ async function checkMeasurementCohorts() {
   }
 }
 if (useFixtures) await checkMeasurementCohorts();
+
+/** F02: real scoped queries, toolbar/status rendering and source-qualified links on synthetic data. */
+async function checkDashboardScope() {
+  const check = (condition: boolean, label: string) => {
+    if (!condition) failures++;
+    console.log(`${condition ? "PASS" : "FAIL"}  F02 ${label}`);
+  };
+  const appA = join(process.env.OCX_HOME!, "work", "app-a");
+  const combined = { ...DEFAULT_FILTERS, sources: ["ocx"], projects: [escapeGlob(appA)], providers: ["openai"], models: ["gpt-6-luna"],
+    efforts: ["high"], statuses: ["ok"], search: "fixture", routeKinds: ["native"], from: "now-24h", to: "now", tz: "UTC", bucket: "hour", groupBy: "effort", metric: "requests" };
+  check(JSON.stringify(filtersFromParams(new URLSearchParams(filtersToParams(combined)))) === JSON.stringify(combined), "complete URL cohort round trip");
+  check(!new URLSearchParams(filtersToParams({ ...DEFAULT_FILTERS, sources: ["claude", "codex", "ocx"] })).has("sources"), "aliases and both-source default");
+
+  const renderScoped = async (Component: AnyComponent, path: string, filters: typeof DEFAULT_FILTERS, endpoint: string, extra = {}, layout = true) => {
+    const params = filtersToParams(filters);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+    client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
+    for (const [url, query] of [["/api/scope", params], ["/api/projects", filtersToParams({ ...filters, projects: [] })], [endpoint, filtersToParams(filters, extra)]] as const) {
+      client.setQueryData([url, query], await fetchJson(url, query));
+    }
+    const html = renderPage(Component, client, `${path}?${params}`, path.startsWith("/conversations/") ? "/conversations/:id" : path, layout);
+    client.clear();
+    return html;
+  };
+  const html = await renderScoped(ConversationsPage, "/conversations", combined, "/api/conversations", { sort: "tokens", limit: 200 });
+  const payload = await fetchJson<any>("/api/conversations", filtersToParams(combined));
+  check(payload.totals.requests > 0 && payload.conversations.every((c: any) => c.source === "ocx"), "combined cohort has matching source-qualified sessions");
+  check(html.includes("Source · 1") && html.includes("Project · 1") && html.includes("Project selection excludes") && html.includes("Custom window"), "toolbar, attribution and custom-window status");
+  const links = [...html.matchAll(/href="([^"]+)"/g)].map(match => match[1]!.replace(/&amp;/g, "&"));
+  const cohort = new URLSearchParams(filtersToParams(combined));
+  const routeLinks = links.filter(link => link.startsWith("/") && !link.startsWith("/api/"));
+  check(routeLinks.length >= 9 && routeLinks.every(link => [...cohort].every(([key, value]) => new URL(link, "http://localhost").searchParams.get(key) === value)), "all navigation retains every cohort parameter");
+  check(routeLinks.some(link => link.includes("/conversations/") && new URL(link, "http://localhost").searchParams.get("sessionSource") === "ocx"), "session links add source identity");
+  check(!html.includes("Could not load data") && !html.includes("No requests match these filters"), "combined dashboard renders without an error or false empty state");
+
+  const none = await renderScoped(UsagePage, "/usage", { ...combined, projects: ["/no/such/synthetic/project"] }, "/api/usage");
+  check(none.includes("No requests match these filters") && none.includes("Reset all filters") && none.includes("unattributed requests"), "no-match result offers reset and explains exclusions");
+  const claudeFilters = { ...DEFAULT_FILTERS, sources: ["claude-code"] };
+  const unavailable = await renderScoped(QuotaPage, "/quota", claudeFilters, "/api/quota");
+  check(unavailable.includes("Quota and send ledger unavailable for Claude Code") && !unavailable.includes("Burn table") && !unavailable.includes("Send accounting"), "Claude-only account observations hidden and explained");
+  const overview = await renderScoped(OverviewPage, "/", { ...DEFAULT_FILTERS, sources: ["claude-code"], projects: [escapeGlob(appA)] }, "/api/overview", { metric: "tokens", groupBy: "model" });
+  check(overview.includes("Quota and send ledger unavailable for Claude Code") && !overview.includes("81%"), "Claude-only overview does not show Codex quota");
+  const quota = await renderScoped(QuotaPage, "/quota", combined, "/api/quota");
+  check(quota.includes("Account-wide opencodex observation") && quota.includes("not a project&#x27;s own usage") && quota.includes("projects, providers, models, efforts, statuses, routeKinds, search"), "project-filtered quota declares every ignored dimension");
+
+  const literal = await fetchJson<any>("/api/scope", filtersToParams({ ...DEFAULT_FILTERS, projects: [escapeGlob(join(process.env.OCX_HOME!, "work", "literal[app]*"))] }));
+  check(literal.matched.requests === 2, "picker escapes literal glob metacharacters");
+  const detail = conversationsSeed.conversations[0]!;
+  const link = conversationLink(detail, `?${filtersToParams({ ...combined, projects: ["/no/match"] })}`);
+  const detailParams = new URLSearchParams(link.search);
+  const detailFilters = filtersFromParams(detailParams);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+  const params = filtersToParams(detailFilters, { sessionSource: detail.source });
+  const scoped = await fetchJson<any>(`/api${link.pathname}`, params);
+  client.setQueryData([`/api${link.pathname}`, params], scoped);
+  const rendered = renderPage(ConversationDetailPage, client, `${link.pathname}?${params}`, "/conversations/:id");
+  check(scoped.scope.matched === 0 && rendered.includes("No requests in this session match") && !rendered.includes("NaN") && !rendered.includes("Could not load data"), "empty scoped detail renders without leaking session history or crashing");
+  client.clear();
+}
+if (useFixtures) await checkDashboardScope();
 if (useFixtures) await Promise.all([process.env.OCX_HOME!, fixturePricing].map(path => rm(path, { recursive: true, force: true })));
 
 globalThis.fetch = realFetch;

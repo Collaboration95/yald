@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Coins, Percent, PiggyBank, Zap } from "lucide-react";
-import { exportUrl, useEndpoint } from "../api";
+import { conversationLink, exportUrl, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Card, CardHeader, Legend, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
@@ -167,16 +167,16 @@ export function CostPage() {
           <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
             <ul className="space-y-2.5">
               {data?.topConversations.map(conversation => (
-                <li key={conversation.id}>
+                <li key={JSON.stringify([conversation.source, conversation.id])}>
                   <div className="flex items-center justify-between gap-2">
-                    <Link to={{ pathname: `/conversations/${conversation.id}`, search }} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
+                    <Link to={conversationLink(conversation, search)} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline" title={sourceLabel(conversation.source)}>
                       {shortId(conversation.id, 12)}
                     </Link>
                     <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{conversation.pricedRequests > 0 ? formatUsd(conversation.cost) : "unpriced"}</span>
                   </div>
                   <ProgressBar value={conversation.cost} max={data.topConversations[0]?.cost ?? 1} className="mt-1.5" />
                   <p className="mt-1 text-[10.5px] text-muted">
-                    {formatInteger(conversation.requests)} requests · {formatCompact(conversation.tokens)} tokens
+                    {sourceLabel(conversation.source)} · {formatInteger(conversation.requests)} requests · {formatCompact(conversation.tokens)} tokens
                   </p>
                 </li>
               ))}

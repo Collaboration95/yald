@@ -15,14 +15,15 @@ import {
   Sun,
   Timer,
 } from "lucide-react";
-import { fetchJson, RANGES } from "../api";
+import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { CheckList, Popover, Segmented } from "./ui";
 import { Wordmark } from "./Wordmark";
 import { Delight } from "./Delight";
+import { NoScopeMatches, ProjectFilter, ScopeStatus, SourceFilter } from "./ScopeControls";
 import { formatCompact, formatRelative } from "../lib/format";
-import type { MetaResponse } from "../types";
+import type { MetaResponse, ScopeResponse } from "../types";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -36,7 +37,7 @@ const NAV = [
 ];
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
-  "/": { title: "Overview", subtitle: "Everything opencodex has seen, in one screen" },
+  "/": { title: "Overview", subtitle: "Usage recorded by your selected sources" },
   "/usage": { title: "Usage", subtitle: "Token volume, composition and context pressure" },
   "/cost": { title: "Cost & spend", subtitle: "Estimated spend from opencodex's own pricing engine" },
   "/performance": { title: "Performance", subtitle: "Latency, time-to-first-token and throughput" },
@@ -58,8 +59,9 @@ export function Layout() {
     staleTime: 60_000,
   });
 
-  const activeFilters = filters.providers.length + filters.models.length + filters.efforts.length + filters.statuses.length;
-  const heading = TITLES[location.pathname] ?? { title: "Conversation", subtitle: "The complete session, request by request" };
+  const scope = useEndpoint<ScopeResponse>("/api/scope", filters);
+  const activeFilters = activeFilterCount(filters);
+  const heading = TITLES[location.pathname] ?? { title: "Conversation", subtitle: "The selected session cohort, request by request" };
   const page = location.pathname.startsWith("/conversations/") ? "conversation" : location.pathname.slice(1) || "overview";
 
   const refresh = async () => {
@@ -88,7 +90,7 @@ export function Layout() {
         </nav>
         <div className="relay-activity">
           <div className="px-2">
-            <p className="relay-activity-label">Activity</p>
+            <p className="relay-activity-label">All local activity</p>
             <p className="num mt-1 text-[11.5px] text-ink-soft">
               {meta.data ? `${meta.data.totals.requests.toLocaleString()} requests` : "loading…"}
             </p>
@@ -112,10 +114,13 @@ export function Layout() {
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
             <div className="flex flex-wrap items-center gap-1.5">
               <Segmented
-                value={filters.range}
+                value={hasCustomWindow(filters) ? "" : filters.range}
                 options={RANGES.map(range => ({ id: range.id, label: range.label }))}
                 onChange={range => set({ range })}
               />
+              {hasCustomWindow(filters) ? <span className="px-1 text-[11px] text-accent">Custom window</span> : null}
+              <SourceFilter scope={scope.data} />
+              <ProjectFilter />
               <Popover
                 label={filters.providers.length ? `Provider · ${filters.providers.length}` : "Provider"}
                 active={filters.providers.length > 0}
@@ -141,7 +146,7 @@ export function Layout() {
                   onClick={reset}
                   className="rounded-lg px-2 py-1.5 text-[11.5px] font-medium text-muted transition hover:text-bad"
                 >
-                  Clear
+                  Reset filters · {activeFilters}
                 </button>
               ) : null}
               <div className="relative">
@@ -168,6 +173,7 @@ export function Layout() {
                 onClick={toggle}
                 className="rounded-lg border border-line bg-surface p-1.5 text-muted transition hover:text-ink"
                 title="Toggle theme"
+                aria-label="Toggle theme"
               >
                 {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
               </button>
@@ -180,7 +186,9 @@ export function Layout() {
             <h1>{heading.title}<span className="relay-title-stop">.</span></h1>
             <p>{heading.subtitle}</p>
           </div>
-          <Outlet />
+          <ScopeStatus data={scope.data} loading={scope.isLoading} error={scope.error} />
+          {hasScope(filters) && scope.data?.matched.requests === 0 && page !== "quota" && page !== "conversation"
+            ? <NoScopeMatches /> : <Outlet />}
           <footer className="relay-footer"><span>{new Date().getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
         </main>
       </div>
