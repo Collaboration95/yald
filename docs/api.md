@@ -47,7 +47,7 @@ Every analytics route takes the same window parameters. Windows are half-open, `
 | `to` only | Error `conflicting_params` |
 | `from`, `to` and `last` together | Error `conflicting_params` |
 
-A window that does not end after it starts is `empty_window`. A naive local time inside a spring-forward gap (`2026-03-08 02:30` in `America/New_York`) is `nonexistent_time`; an ambiguous fall-back time (`2026-11-01 01:30`) resolves to the earlier instant. The grammar is specified by the table-driven tests in [`server/src/time/window.test.ts`](../server/src/time/window.test.ts).
+A window that does not end after it starts is `empty_window`. A naive local time inside a spring-forward gap (`2026-03-08 02:30` in `America/New_York`) is `nonexistent_time`; an ambiguous fall-back time (`2026-11-01 01:30`) resolves to the earlier instant. The grammar is specified by the repository's [table-driven window tests](https://github.com/Collaboration95/yald/blob/dev/server/src/time/window.test.ts).
 
 An ISO-8601 time with a positive offset must encode the `+` as `%2B`; an unencoded `+` decodes to a space:
 
@@ -328,7 +328,7 @@ sorting, history truncation and eligibility rules.
 
 ### `GET /api/labs/cache`
 
-Returns `CacheEconomicsResponse` ([web types](../web/src/types.ts)), with
+Returns `CacheEconomicsResponse` ([repository web types](https://github.com/Collaboration95/yald/blob/dev/web/src/types.ts)), with
 `ok: true`, `analysis: "cache-economics"`, `version: 1`, `precisionDp: 6`,
 `currency: "USD"` and `basis: "api-list-price-equivalent"`. It uses the standard
 window parser and filters, including `sources`, `projects`, `providers`, `models`,

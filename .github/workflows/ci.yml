@@ -8,14 +8,54 @@ on:
   workflow_dispatch:
 
 jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.produce.outputs.artifact-name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+          cache: true
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      # Only this job builds/packs the installed candidate. Never overwrite an
+      # earlier attempt. Failed-job reruns retain this producer's output name.
+      - name: Produce the candidate once
+        id: produce
+        run: node scripts/qualify-package.mjs produce "$RUNNER_TEMP/yald-candidate"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.produce.outputs.artifact-name }}
+          path: ${{ runner.temp }}/yald-candidate/
+          if-no-files-found: error
+          retention-days: 90
+
   verify:
+    needs: candidate
+    # A failed producer must fail the required checks, never skip them green.
+    if: ${{ always() }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Require the successful candidate producer
+        env:
+          CANDIDATE_RESULT: ${{ needs.candidate.result }}
+          CANDIDATE_ARTIFACT: ${{ needs.candidate.outputs.artifact-name }}
+        run: test "$CANDIDATE_RESULT" = success && test -n "$CANDIDATE_ARTIFACT"
+
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -44,22 +84,25 @@ jobs:
       - name: Build web app
         run: bun run build
 
-      # No opencodex ledger exists on a runner, so the smoke test falls back to the
-      # synthetic fixture home and still exercises every page with data.
+      # Always synthetic, including all existing investigation/evidence and
+      # report harnesses. The source build above never replaces the candidate.
       - name: Server-render smoke test
-        run: bun run smoke
+        run: bun run smoke -- --fixtures
 
-      - name: Install the distribution package
-        run: |
-          release_version="$(node -p 'require("./package.json").version')"
-          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
-          npm install --prefix "$RUNNER_TEMP/yald-install" --no-audit --no-fund \
-            "$RUNNER_TEMP/yald-dashboard-${release_version}.tgz"
-          installed_version="$(node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" --version)"
-          test "$installed_version" = "$release_version"
-          node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" --help
-          node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" report --help
-          # A dry run reads (empty) data folders and writes nothing; no ledger exists on a runner.
-          empty="$RUNNER_TEMP/yald-empty-home"
-          node "$RUNNER_TEMP/yald-install/node_modules/.bin/yald" report --dry-run --last 1h \
-            --ocx-home "$empty" --claude-projects "$empty" --codex-home "$empty"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.candidate.outputs.artifact-name }}
+          path: ${{ runner.temp }}/yald-candidate
+
+      - name: Verify the unchanged installed candidate
+        env:
+          YALD_CANDIDATE_ARTIFACT: ${{ needs.candidate.outputs.artifact-name }}
+        run: node scripts/qualify-package.mjs verify "$RUNNER_TEMP/yald-candidate" "$RUNNER_TEMP/yald-receipt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yald-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/yald-receipt/
+          if-no-files-found: error
+          retention-days: 90

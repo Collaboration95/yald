@@ -7,7 +7,7 @@
   "homepage": "https://github.com/Collaboration95/yald#readme",
   "bugs": { "url": "https://github.com/Collaboration95/yald/issues" },
   "bin": { "yald": "scripts/yald.mjs" },
-  "files": ["server/src", "web/dist", "scripts/yald.mjs", "scripts/demo.mjs", "scripts/demo", "LICENSE", "README.md", "CHANGELOG.md", "docs/install.md", "docs/metrics.md", "docs/api.md", "docs/architecture.md", "docs/demo.md", "docs/guide.md", "docs/labs-evidence.md", "docs/labs-context.md", "docs/releasing.md", "docs/screenshots/overview.png", "CONTRIBUTORS.md"],
+  "files": ["server/src", "web/dist", "scripts/yald.mjs", "scripts/demo.mjs", "scripts/demo", "LICENSE", "README.md", "CHANGELOG.md", "docs/install.md", "docs/metrics.md", "docs/api.md", "docs/architecture.md", "docs/demo.md", "docs/guide.md", "docs/labs-evidence.md", "docs/labs-context.md", "docs/releasing.md", "docs/release-evidence.md", "docs/screenshots/overview.png", "CONTRIBUTORS.md"],
   "dependencies": { "bun": "^1.4.0", "hono": "^4.13.9" },
   "devDependencies": { "oxlint": "^1.86.0" },
   "type": "module",
