@@ -316,3 +316,11 @@ request endpoint/view. No links use unscoped conversation detail.
 Like `/api/projects`, Radar validates before a conditional response and hashes
 its resolved payload, so changes in on-disk git roots invalidate a pinned ETag
 without a ledger edit.
+
+### Labs Context Replay
+
+`GET /api/labs/context` returns fixed window/cohort, request and eligibility
+coverage, source-qualified sessions, observed request sequences, median-based
+growth and exact evidence selectors. Missing input and unpriced cost remain null.
+See the [Context Replay response contract](labs-context.md) for fields, units,
+sorting, history truncation and eligibility rules.
