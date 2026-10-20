@@ -41,4 +41,10 @@ make screenshots                   # requires Chrome or Chromium
 make check                         # typecheck, lint, test, build, and smoke
 ```
 
+Demo API and lifecycle tests copy the runtime into a private temporary package
+with a minimal HTML test fixture, removed after the suite. They run without a UI
+build, including with raw `bun test`, and never write to the checkout's `web/dist`.
+The build and smoke checks cover the UI; `scripts/verify-demo-package.mjs` checks
+a built, installed tarball with real assets and the missing-assets failure.
+
 The smoke check exercises the pages with synthetic fixture data when no usage ledger is available. It checks for runtime errors, missing sections, invalid rendered values, and quota range-selector behavior.

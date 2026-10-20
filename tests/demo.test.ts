@@ -1,9 +1,9 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { createServer as httpServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -11,12 +11,31 @@ import { join, resolve } from "node:path";
 import { runDemo, parseDemoArgs } from "../scripts/demo.mjs";
 import { generateDemo } from "../scripts/demo/generate.mjs";
 
-const root = resolve(import.meta.dir, ".."), runtime = process.execPath;
+const sourceRoot = resolve(import.meta.dir, ".."), runtime = process.execPath;
+const guardPath = join(sourceRoot, "tests/helpers/demo-guard.mjs");
+let root: string;
 const node = Bun.which("node")!;
 const fixed = Date.parse("2026-10-20T12:00:00Z");
 const owned = new Set<string>();
 afterAll(async () => { for (const dir of owned) await rm(dir, { recursive: true, force: true }); });
 const temp = async () => { const dir = await mkdtemp(join(tmpdir(), "yald-o02-test-")); owned.add(dir); return dir; };
+// Exercise unchanged runtime files in a private package layout. A tiny shell is
+// enough for server/API/lifecycle tests; real UI assets are checked after build
+// by smoke and installed-package verification. Never write to source web/dist.
+async function packageFixture(withWebAssets = true) {
+  const directory = await temp();
+  for (const name of ["server", "scripts"]) await mkdir(join(directory, name));
+  for (const path of ["package.json", "server/src", "scripts/yald.mjs", "scripts/demo.mjs", "scripts/demo"]) {
+    await cp(join(sourceRoot, path), join(directory, path), { recursive: true });
+  }
+  await symlink(join(sourceRoot, "node_modules"), join(directory, "node_modules"), "dir");
+  if (withWebAssets) {
+    await mkdir(join(directory, "web/dist"), { recursive: true });
+    await writeFile(join(directory, "web/dist/index.html"), "<!doctype html><html><head><title>Demo server test fixture</title></head><body></body></html>");
+  }
+  return directory;
+}
+beforeAll(async () => { root = await packageFixture(); });
 const delay = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check: () => boolean | Promise<boolean>, message: () => string, ms = 15000) {
   const end = Date.now() + ms;
@@ -73,6 +92,9 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
   const n = await port(), base = `http://127.0.0.1:${n}`, demo = start({ port: n });
   try {
     await demo.ready();
+    const shell = await (await fetch(base + "/labs/project-radar")).text();
+    expect(shell).toContain("Demo server test fixture");
+    expect(shell).toContain('id="yald-demo"');
     const meta = await get(base, "/api/meta"), overview = await get(base, "/api/overview");
     expect(meta.demo).toMatchObject({ synthetic: true, clock: "fixed", now: fixed, sampleAt: fixed });
     expect(meta.sources).toEqual(["claude-code", "ocx"]);
@@ -123,6 +145,27 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
   expect(demo.signals.listenerCount("SIGINT")).toBe(0);
   expect(demo.child().exitCode).toBe(0);
 }, 20000);
+
+test("demo without web assets fails before readiness and cleans only its data", async () => {
+  const missingRoot = await packageFixture(false), n = await port();
+  let opens = 0, stderr = "";
+  const demo = start({ port: n, open: true }, { root: missingRoot, openUrl: () => { opens++; },
+    spawnServer: (rt: string, args: string[], opts: any) => {
+      const child = spawn(rt, args, { ...opts, stdio: ["ignore", "ignore", "pipe", "ipc"] });
+      child.stderr!.on("data", chunk => stderr += String(chunk));
+      return child;
+    } });
+  try {
+    expect(await demo.promise).toBe(1);
+    expect(stderr).toContain("Demo web assets are missing. Reinstall the built Yald package.");
+    expect(demo.errors.join(" ")).toContain("before ready");
+    expect(demo.logs.some(line => line.startsWith("Demo ready:"))).toBe(false);
+    expect(opens).toBe(0);
+    expect(existsSync(demo.directory()!)).toBe(false);
+    expect(existsSync(missingRoot)).toBe(true);
+    await expect(fetch(`http://127.0.0.1:${n}/api/health`)).rejects.toThrow();
+  } finally { await demo.stop(); }
+}, 15000);
 
 test("default sample anchor is fresh wall time and API windows continue advancing", async () => {
   const n = await port(), started = Date.now(), demo = start({ port: n, now: null });
@@ -226,7 +269,7 @@ test("contaminated caller homes/.env/config/global pricing and retained Claude a
     expect(opts.env.HOME).not.toBe(sentinel);
     expect(opts.env.OCX_HOME).not.toBe(contaminated.OCX_HOME);
     expect(opts.env.NODE_OPTIONS).toBeUndefined();
-    return spawn(rt, [args[0], `--preload=${join(root, "tests/helpers/demo-guard.mjs")}`, ...args.slice(1)], {
+    return spawn(rt, [args[0], `--preload=${guardPath}`, ...args.slice(1)], {
       ...opts, env: { ...opts.env, YALD_TEST_DEMO_GUARD: guard },
     });
   } });
@@ -247,7 +290,7 @@ test("contaminated caller homes/.env/config/global pricing and retained Claude a
   expect(await snapshot()).toEqual(before);
   // Prove the guard catches the actual retained-archive path even with empty transcripts.
   const empty = await temp();
-  const control = Bun.spawn([runtime, "--no-env-file", `--preload=${join(root, "tests/helpers/demo-guard.mjs")}`, "-e",
+  const control = Bun.spawn([runtime, "--no-env-file", `--preload=${guardPath}`, "-e",
     `await import(${JSON.stringify(join(root, "server/src/claude/transcripts.ts"))}).then(m=>m.readClaudeEntries())`], {
     cwd: empty, env: { HOME: empty, OCX_HOME: contaminated.OCX_HOME, CLAUDE_PROJECTS_DIR: empty,
       CODEX_HOME: empty, YALD_TEST_DEMO_GUARD: guard }, stdout: "pipe", stderr: "pipe" });
@@ -255,7 +298,7 @@ test("contaminated caller homes/.env/config/global pricing and retained Claude a
   expect(await new Response(control.stderr).text()).toContain("yald-claude-usage.jsonl");
   // Missing explicit pricing must stop before global probes, even with a usable
   // decoy global package and npm present. Removing the guard from env.ts fails this.
-  const discovery = Bun.spawn([runtime, "--no-env-file", `--preload=${join(root, "tests/helpers/demo-guard.mjs")}`, "-e",
+  const discovery = Bun.spawn([runtime, "--no-env-file", `--preload=${guardPath}`, "-e",
     `const m=await import(${JSON.stringify(join(root, "server/src/env.ts"))}); if(m.ocxPackageDir()!==null)process.exit(98);`], {
     cwd: empty, env: { HOME: sentinel, OCX_HOME: empty, CLAUDE_PROJECTS_DIR: empty, CODEX_HOME: empty,
       YALD_DEMO: "1", OCX_PACKAGE_DIR: join(empty, "missing-explicit"), YALD_TEST_DEMO_GUARD: guard }, stdout: "pipe", stderr: "pipe" });

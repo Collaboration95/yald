@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -212,6 +212,24 @@ try {
     || within(path, artifact), `Unexpected runtime import: ${path}`);
   assert.ok(!modules.some(path => /yald-o02-work|\/web\/scripts\//.test(path)));
   receipt.audit = { guard: "active; no forbidden source reads, subprocesses or network fetches", modules };
+  // This verifier owns the installation. Restore its real built assets even if
+  // the negative control fails; source test shells must never satisfy this check.
+  const webDist = join(root, "web/dist"), heldAssets = join(artifact, "built-web-dist");
+  await rename(webDist, heldAssets);
+  try {
+    const port = await freePort(), openedBefore = await readFile(openRecord, "utf8");
+    const missing = spawnSync(process.execPath, [cli, "demo", "--open", "--port", String(port)], {
+      cwd: sentinel, env, encoding: "utf8", timeout: 15000,
+    });
+    assert.equal(missing.status, 1, missing.stderr);
+    assert.match(missing.stderr, /Demo web assets are missing\. Reinstall the built Yald package\./);
+    assert.doesNotMatch(missing.stdout, /Demo ready:/);
+    const directory = missing.stdout.match(/Demo data: (.+)/)?.[1];
+    assert.ok(directory && !existsSync(directory));
+    assert.equal(await readFile(openRecord, "utf8"), openedBefore);
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/api/health`));
+    receipt.missingAssets = { exitCode: 1, ready: false, opened: false, dataRemoved: true, listenerStopped: true };
+  } finally { await rename(heldAssets, webDist); }
   receipt.sentinels.after = await snapshot();
   assert.deepEqual(receipt.sentinels.after, receipt.sentinels.before);
   receipt.sentinels.unreadAndUnchanged = true;
@@ -221,4 +239,4 @@ try {
   await writeFile(out, JSON.stringify(receipt, null, 2) + "\n");
   await rm(artifact, { recursive: true, force: true });
 }
-console.log(`Installed demo: fixed + wall clock, real --open with fake executable, exact API evidence, static assets, isolated homes and cleanup PASS\nReceipt: ${out}`);
+console.log(`Installed demo: fixed + wall clock, real --open with fake executable, exact API evidence, static assets, missing-assets failure, isolated homes and cleanup PASS\nReceipt: ${out}`);
