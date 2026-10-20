@@ -6,7 +6,7 @@ import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, ModelTag, OutcomeDot, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, scatterChart } from "../components/chartOptions";
-import { formatCompact, formatDateTime, formatDuration, formatPercent } from "../lib/format";
+import { formatCoverage, formatCompact, formatDateTime, formatDuration, formatPercent } from "../lib/format";
 import type { PerformanceResponse } from "../types";
 
 export function PerformancePage() {
@@ -74,9 +74,9 @@ export function PerformancePage() {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Stat label="TTFT p50" value={formatDuration(percentiles?.ttft.p50)} hint={data ? `${formatPercent(percentiles?.ttft.coverage ?? 0, 0)} of rows measure TTFT` : undefined} tone="info" icon={<Timer size={13} />} />
+        <Stat label="TTFT p50" value={formatDuration(percentiles?.ttft.p50)} hint={data ? formatCoverage(data.measurementCoverage.ttft) : undefined} tone="info" icon={<Timer size={13} />} />
         <Stat label="TTFT p95" value={formatDuration(percentiles?.ttft.p95)} hint="Slowest 5% of first tokens" tone="warn" />
-        <Stat label="Latency p50" value={formatDuration(percentiles?.duration.p50)} hint="Whole request" />
+        <Stat label="Latency p50" value={formatDuration(percentiles?.duration.p50)} hint={data ? formatCoverage(data.measurementCoverage.duration) : undefined} />
         <Stat label="Latency p95" value={formatDuration(percentiles?.duration.p95)} hint="Tail behaviour" tone="warn" />
         <Stat label="Latency p99" value={formatDuration(percentiles?.duration.p99)} hint="Worst case" tone="bad" />
         <Stat label="Output tok/s p50" value={percentiles?.throughput.p50?.toFixed(1) ?? "—"} hint={percentiles?.throughput.mean ? `mean ${percentiles.throughput.mean.toFixed(1)}` : undefined} tone="good" icon={<Zap size={13} />} />
@@ -149,9 +149,9 @@ export function PerformancePage() {
                   <tr key={row.id} className="transition hover:bg-surface-2">
                     <Td className="whitespace-nowrap text-muted">{formatDateTime(row.ts)}</Td>
                     <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[200px]" /></Td>
-                    <Td align="right">{formatDuration(row.ttftMs)}</Td>
-                    <Td align="right" className="font-semibold text-ink">{formatDuration(row.durationMs)}</Td>
-                    <Td align="right">{formatCompact(row.outputTokens)}</Td>
+                    <Td align="right">{formatDuration(row.measurements.ttft ? row.ttftMs : null)}</Td>
+                    <Td align="right" className="font-semibold text-ink">{formatDuration(row.measurements.duration ? row.durationMs : null)}</Td>
+                    <Td align="right">{formatCompact(row.measurements.output ? row.outputTokens : null)}</Td>
                     <Td align="center"><OutcomeDot outcome={row.outcome} /></Td>
                   </tr>
                 ))}

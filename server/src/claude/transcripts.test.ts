@@ -132,6 +132,7 @@ test("archive entries written before cwd was kept are back-filled from a live tr
   const archive = join(await mkdtemp(join(tmpdir(), "yald-archive-")), "claude.jsonl");
   // Two pre-cwd archive entries: req_1 still has its transcript, req_gone does not.
   const old = collectEntries([block("text")])[0]!;
+  delete old.usagePresence;
   await writeFile(archive, [old, { ...old, requestId: "req_gone" }].map(entry => JSON.stringify(entry)).join("\n") + "\n");
   const line = JSON.parse(block("text"));
   line.cwd = "/work/app-a";
@@ -141,6 +142,8 @@ test("archive entries written before cwd was kept are back-filled from a live tr
   const rows = Object.fromEntries(entries.map(entry => [String(entry.requestId), normalizeRow(entry)]));
   expect(rows.req_1!.cwd).toBe("/work/app-a");
   expect(rows.req_gone!.cwd).toBeNull();
+  expect(rows.req_1!.measurements.input).toBe(true);
+  expect(rows.req_gone!.measurements.input).toBe(false);
   expect(rows.req_1!.totalTokens).toBe(normalizeRow(old).totalTokens);
   // The back-filled copy is appended once, so attribution survives the transcript's deletion.
   const archived = (await readFile(archive, "utf8")).trim().split("\n").map(raw => JSON.parse(raw));
@@ -173,6 +176,7 @@ test("old archive cwd is back-filled even from an incomplete live snapshot", asy
   const archiveDir = await mkdtemp(join(tmpdir(), "yald-archive-"));
   const archive = join(archiveDir, "usage.jsonl");
   const old = collectEntries([block("text")])[0]!;
+  delete old.usagePresence;
   await writeFile(archive, JSON.stringify(old) + "\n");
   const live = JSON.parse(block("text"));
   live.cwd = "/work/app-a";
@@ -182,6 +186,7 @@ test("old archive cwd is back-filled even from an incomplete live snapshot", asy
   const result = await readClaudeEntries(dir, archive);
   expect(result.entries[0]!.cwd).toBe("/work/app-a");
   expect(result.entries[0]!.totalTokens).toBe(old.totalTokens);
+  expect(normalizeRow(result.entries[0]!).measurements.input).toBe(false);
   expect(result.entries[0]!.closeReason).toBe(old.closeReason);
   await rm(join(dir, "session.jsonl"));
   expect((await readClaudeEntries(dir, archive)).entries[0]!.cwd).toBe("/work/app-a");

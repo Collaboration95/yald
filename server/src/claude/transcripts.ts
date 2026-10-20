@@ -40,6 +40,12 @@ export function toUsageEntry(line: Record<string, any>): Record<string, unknown>
     // Cache counts come straight from the API response, not a proxy-side estimate.
     cacheProvenance: "observed",
     spend: { sends: 1, settled: 1, unresolved: 0 },
+    usagePresence: {
+      input: typeof usage.input_tokens === "number" && Number.isFinite(usage.input_tokens) && usage.input_tokens >= 0,
+      output: typeof usage.output_tokens === "number" && Number.isFinite(usage.output_tokens) && usage.output_tokens >= 0,
+      cacheRead: typeof usage.cache_read_input_tokens === "number" && Number.isFinite(usage.cache_read_input_tokens) && usage.cache_read_input_tokens >= 0,
+      cacheWrite: typeof usage.cache_creation_input_tokens === "number" && Number.isFinite(usage.cache_creation_input_tokens) && usage.cache_creation_input_tokens >= 0,
+    },
     usage: {
       inputTokens,
       outputTokens,
@@ -64,6 +70,18 @@ function retainEntry(byRequest: Map<string, Record<string, unknown>>, entry: Rec
   let old = byRequest.get(key);
   let backfilled = false;
   if (old) {
+    // Presence belongs to a usage snapshot. Only an identical snapshot can
+    // recover flags erased by an older converter/archive.
+    const oldUsage = old.usage as Record<string, unknown> | undefined;
+    const nextUsage = entry.usage as Record<string, unknown> | undefined;
+    const sameUsage = ["inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"]
+      .every(key => oldUsage?.[key] === nextUsage?.[key]);
+    if (!old.usagePresence && entry.usagePresence && sameUsage) {
+      old = { ...old, usagePresence: entry.usagePresence };
+      byRequest.set(key, old);
+      backfilled = true;
+    }
+    if (!entry.usagePresence && old.usagePresence && sameUsage) entry = { ...entry, usagePresence: old.usagePresence };
     // Attribution is independent of streaming usage completeness. An incomplete
     // live copy can back-fill an old archive, and a later snapshot must keep it.
     if (!old.cwd && entry.cwd) {

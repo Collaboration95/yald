@@ -18,3 +18,33 @@ const ALIASES: Record<string, Source> = { "claude-code": "claude-code", claude: 
 export function parseSource(name: string): Source | null {
   return ALIASES[name.trim().toLowerCase()] ?? null;
 }
+
+/** Source support is independent of whether an individual row has a measurement. */
+export const SOURCE_CAPABILITIES = {
+  "claude-code": { outcomes: false, retries: false, timing: false, quota: false, cache: true },
+  ocx: { outcomes: true, retries: true, timing: true, quota: true, cache: true },
+} as const;
+
+export interface Measurements {
+  outcome: boolean;
+  duration: boolean;
+  ttft: boolean;
+  retries: boolean;
+  input: boolean;
+  output: boolean;
+  cacheRead: boolean;
+  cacheWrite: boolean;
+  usage: "logical" | "attempt-sum" | "missing";
+}
+
+export function cacheEligible(row: RequestRow): boolean {
+  return row.cacheProvenance === "observed" && row.measurements.input && row.measurements.cacheRead;
+}
+
+export function contextEligible(row: RequestRow): boolean {
+  return row.measurements.input && row.measurements.usage === "logical" && !row.usageFromAttempts;
+}
+
+export function throughputEligible(row: RequestRow): boolean {
+  return row.measurements.duration && row.durationMs > 0 && row.measurements.output && row.outputTokens > 0;
+}

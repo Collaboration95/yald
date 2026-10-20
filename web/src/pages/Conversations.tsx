@@ -82,7 +82,7 @@ export function ConversationsPage() {
                   </Td>
                   <Td align="right">{formatInteger(conversation.requests)}</Td>
                   <Td align="right">{formatCompact(conversation.tokens)}</Td>
-                  <Td align="right">{conversation.cost > 0 ? "$" + conversation.cost.toFixed(2) : "—"}</Td>
+                  <Td align="right">{conversation.pricedRequests > 0 ? "$" + conversation.cost.toFixed(2) : "unpriced"}</Td>
                   <Td align="right">{formatDuration(conversation.spanMs)}</Td>
                   <Td align="right">{formatCompact(conversation.intensity)}</Td>
                   <Td align="right" className={conversation.errors > 0 ? "text-bad" : undefined}>{conversation.errors || "—"}</Td>
@@ -110,7 +110,7 @@ export function ConversationDetailPage() {
     const labels = data.points.map(point => new Date(point.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }));
     return lineChart(chartTheme, labels, [
       { name: "cumulative tokens", data: data.points.map(point => point.cumulative), area: true },
-      { name: "input (context)", data: data.points.map(point => point.contextTokens), dashed: true },
+      { name: "input (context)", data: data.points.map(point => point.contextEligible ? point.contextTokens : null), dashed: true },
     ], { formatter: value => formatCompact(value) });
   }, [data, chartTheme]);
 
@@ -136,10 +136,10 @@ export function ConversationDetailPage() {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Stat label="Requests" value={formatInteger(data.summary.requests)} hint="in this session" />
           <Stat label="Tokens" value={formatCompact(data.summary.tokens.total)} hint={formatCompact(data.summary.tokens.cacheRead) + " cached"} tone="good" />
-          <Stat label="Cost" value={data.summary.cost > 0 ? "$" + data.summary.cost.toFixed(2) : "—"} hint={formatInteger(data.summary.unpricedRequests) + " unpriced"} tone="good" />
+          <Stat label="Cost" value={data.summary.pricedRequests > 0 ? "$" + data.summary.cost.toFixed(2) : "—"} hint={formatInteger(data.summary.unpricedRequests) + " unpriced"} tone="good" />
           <Stat label="Span" value={formatDuration(data.points[data.points.length - 1]!.ts - data.points[0]!.ts)} hint={formatDateTime(data.points[0]!.ts) + " start"} icon={<MessagesSquare size={13} />} />
           <Stat label="Median latency" value={formatDuration(data.summary.latency.p50)} hint={"p95 " + formatDuration(data.summary.latency.p95)} tone="info" />
-          <Stat label="Errors" value={formatInteger(data.summary.errors + data.summary.cancelled)} hint={formatInteger(data.summary.errors) + " failed"} tone={data.summary.errors > 0 ? "bad" : "neutral"} />
+          <Stat label="Errors" value={formatInteger(data.summary.measurementCoverage.outcomes.eligibleRequests ? data.summary.errors + data.summary.cancelled : null)} hint={`${data.summary.measurementCoverage.outcomes.eligibleRequests} of ${data.summary.requests} requests observed`} tone={data.summary.errors > 0 ? "bad" : "neutral"} />
         </div>
       ) : null}
 
@@ -190,14 +190,16 @@ export function ConversationDetailPage() {
                 <tr key={row.id} className="transition hover:bg-surface-2">
                   <Td className="whitespace-nowrap text-muted">{formatDateTime(row.ts)}</Td>
                   <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[210px]" /></Td>
-                  <Td align="right">{formatCompact(row.inputTokens)}</Td>
-                  <Td align="right">{formatCompact(row.cacheReadTokens)}</Td>
-                  <Td align="right">{formatCompact(row.outputTokens)}</Td>
+                  <Td align="right">{formatCompact(row.measurements.input ? row.inputTokens : null)}</Td>
+                  <Td align="right">{formatCompact(row.measurements.cacheRead ? row.cacheReadTokens : null)}</Td>
+                  <Td align="right">{formatCompact(row.measurements.output ? row.outputTokens : null)}</Td>
                   <Td align="right">{row.priced ? "$" + row.cost.toFixed(4) : "—"}</Td>
-                  <Td align="right">{formatDuration(row.ttftMs)}</Td>
-                  <Td align="right">{formatDuration(row.durationMs)}</Td>
+                  <Td align="right">{formatDuration(row.measurements.ttft ? row.ttftMs : null)}</Td>
+                  <Td align="right">{formatDuration(row.measurements.duration ? row.durationMs : null)}</Td>
                   <Td align="center">
-                    {row.outcome === "ok"
+                    {row.outcome === "unobserved"
+                      ? <Badge>unobserved</Badge>
+                      : row.outcome === "ok"
                       ? <Badge tone="good">ok</Badge>
                       : row.outcome === "cancelled"
                         ? <Badge tone="warn">closed</Badge>

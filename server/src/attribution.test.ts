@@ -12,6 +12,8 @@ const T0 = Date.parse("2026-10-11T00:00:00Z");
 let n = 0;
 function row(over: Partial<RequestRow>): RequestRow {
   return {
+    measurements: { outcome: over.protocol !== "claude-code", duration: false, ttft: false, retries: false,
+      input: true, output: true, cacheRead: true, cacheWrite: true, usage: "logical" },
     id: `r${++n}`, ts: T0 + n * 1_000, provider: "openai", model: "model-a", status: 200, ok: true,
     totalTokens: 100, inputTokens: 90, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0,
     cost: 0.01, priced: true, estimated: false, protocol: "responses", conversationId: null, cwd: null, ...over,

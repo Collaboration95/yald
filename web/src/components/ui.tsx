@@ -295,8 +295,8 @@ export function ModelTag({ model, provider, className }: { model: string; provid
 }
 
 export function OutcomeDot({ outcome }: { outcome: string }) {
-  const tone = outcome === "ok" ? "bg-accent" : outcome === "cancelled" ? "bg-warn" : "bg-bad";
-  return <span className={clsx("inline-block h-1.5 w-1.5 rounded-full", tone)} />;
+  const tone = outcome === "ok" ? "bg-accent" : outcome === "cancelled" ? "bg-warn" : outcome === "unobserved" ? "bg-muted" : "bg-bad";
+  return <span role="img" aria-label={outcome} title={outcome} className={clsx("inline-block h-1.5 w-1.5 rounded-full", tone)} />;
 }
 
 export function Legend({ items }: { items: { label: string; color: string; value?: ReactNode }[] }) {

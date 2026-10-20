@@ -15,6 +15,7 @@ export const OUTCOME_COLORS: Record<string, string> = {
   ok: "#16a34a",
   error: "#dc2626",
   cancelled: "#f59e0b",
+  unobserved: "#64748b",
 };
 
 export const COMPOSITION_COLORS: Record<string, string> = {
