@@ -7,6 +7,7 @@ import {
   Boxes,
   CircleDollarSign,
   LayoutDashboard,
+  FlaskConical,
   MessagesSquare,
   Moon,
   RefreshCw,
@@ -24,6 +25,7 @@ import { Delight } from "./Delight";
 import { NoScopeMatches, ProjectFilter, ScopeStatus, SourceFilter } from "./ScopeControls";
 import { formatCompact, formatRelative } from "../lib/format";
 import type { MetaResponse, ScopeResponse } from "../types";
+import { usePreferences } from "../lib/preferences";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -48,6 +50,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
 };
 
 export function Layout() {
+  const { labsEnabled, setPreference } = usePreferences();
   const { filters, set, toggleIn, reset } = useFilters();
   const { theme, toggle } = useTheme();
   const location = useLocation();
@@ -61,8 +64,10 @@ export function Layout() {
 
   const scope = useEndpoint<ScopeResponse>("/api/scope", filters);
   const activeFilters = activeFilterCount(filters);
-  const heading = TITLES[location.pathname] ?? { title: "Conversation", subtitle: "The selected session cohort, request by request" };
-  const page = location.pathname.startsWith("/conversations/") ? "conversation" : location.pathname.slice(1) || "overview";
+  const isLabs = location.pathname === "/labs" || location.pathname.startsWith("/labs/");
+  const heading = isLabs ? { title: "Labs", subtitle: "Follow patterns in your usage" }
+    : TITLES[location.pathname] ?? { title: "Conversation", subtitle: "The selected session cohort, request by request" };
+  const page = isLabs ? "labs" : location.pathname.startsWith("/conversations/") ? "conversation" : location.pathname.slice(1) || "overview";
 
   const refresh = async () => {
     await fetchJson("/api/dataset/refresh");
@@ -76,7 +81,7 @@ export function Layout() {
       <aside className="relay-sidebar">
         <Wordmark />
         <nav className="relay-nav" aria-label="Analytics sections">
-          {NAV.map(item => (
+          {[...NAV, ...(labsEnabled ? [{ to: "/labs", label: "Labs", icon: FlaskConical }] : [])].map(item => (
             <NavLink
               key={item.to}
               to={{ pathname: item.to, search: location.search }}
@@ -88,6 +93,11 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
+        <label className="mx-4 mt-3 flex cursor-pointer items-center gap-2 text-[11.5px] text-ink-soft">
+          <input type="checkbox" role="switch" checked={labsEnabled}
+            onChange={event => setPreference("labsEnabled", event.target.checked)} className="accent-accent" />
+          Enable Labs
+        </label>
         <div className="relay-activity">
           <div className="px-2">
             <p className="relay-activity-label">All local activity</p>
@@ -182,12 +192,13 @@ export function Layout() {
         </header>
         <main className="relay-content" data-page={page} id="main-content">
           <div className="relay-heading">
-            <span className="relay-eyebrow">{String(NAV.findIndex(item => item.to === location.pathname) + 1 || 8).padStart(2, "0")} / DASHBOARD</span>
+            <span className="relay-eyebrow">{isLabs ? "09" : String(NAV.findIndex(item => item.to === location.pathname) + 1 || 8).padStart(2, "0")} / DASHBOARD</span>
             <h1>{heading.title}<span className="relay-title-stop">.</span></h1>
             <p>{heading.subtitle}</p>
           </div>
+          {isLabs ? <p className="mb-1 text-[11.5px] font-medium text-ink-soft">Dashboard selection</p> : null}
           <ScopeStatus data={scope.data} loading={scope.isLoading} error={scope.error} />
-          {hasScope(filters) && scope.data?.matched.requests === 0 && page !== "quota" && page !== "conversation"
+          {hasScope(filters) && scope.data?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
             ? <NoScopeMatches /> : <Outlet />}
           <footer className="relay-footer"><span>{new Date().getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
         </main>

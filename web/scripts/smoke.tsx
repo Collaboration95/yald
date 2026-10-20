@@ -19,6 +19,11 @@ import { conversationLink, DEFAULT_FILTERS, escapeGlob, fetchJson, filtersFromPa
 import { OutcomeDot } from "../src/components/ui";
 import { Layout } from "../src/components/Layout";
 import { ThemeProvider } from "../src/lib/theme";
+import { decodePreferences, PREFERENCES_STORAGE_KEY, PreferencesProvider, usePreferences, type Preferences } from "../src/lib/preferences";
+import { LabsPage, LabsInvestigationPage } from "../src/pages/labs/LabsPage";
+import { LabsLayout } from "../src/pages/labs/LabsLayout";
+import { InvestigationScope } from "../src/pages/labs/InvestigationScope";
+import { InvestigationState, type InvestigationStateKind } from "../src/pages/labs/InvestigationState";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { OverviewPage } from "../src/pages/Overview";
 import { UsagePage } from "../src/pages/Usage";
@@ -181,16 +186,22 @@ const SUSPECT = ["NaN", "Invalid Date", "undefined", "Infinity", "[object Object
 let failures = 0;
 let warnings = 0;
 
-function renderPage(Component: AnyComponent, client: QueryClient, route: string, pattern?: string, withLayout = false) {
+function renderPage(Component: AnyComponent, client: QueryClient, route: string, pattern?: string, withLayout = false, preferences: Preferences = { labsEnabled: false, hideArtwork: false }) {
+  const content = route.split("?")[0]!.startsWith("/labs")
+    ? <Route path="/labs" element={<LabsLayout />}>
+        <Route index element={<Component />} /><Route path=":investigation" element={<Component />} /><Route path="*" element={<Component />} />
+      </Route>
+    : <Route path={pattern ?? route} element={<Component />} />;
   return renderToString(
     <QueryClientProvider client={client}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[route]}>
           <FiltersProvider>
+          <PreferencesProvider storage={{ getItem: () => JSON.stringify({ version: 1, ...preferences }), setItem: () => { throw new Error("SSR must not write preferences"); } }}>
             <Routes>
-              {withLayout ? <Route element={<Layout />}><Route path={pattern ?? route} element={<Component />} /></Route>
-                : <Route path={pattern ?? route} element={<Component />} />}
+              {withLayout ? <Route element={<Layout />}>{content}</Route> : content}
             </Routes>
+          </PreferencesProvider>
           </FiltersProvider>
         </MemoryRouter>
       </ThemeProvider>
@@ -382,6 +393,57 @@ async function checkDashboardScope() {
   client.clear();
 }
 if (useFixtures) await checkDashboardScope();
+async function checkLabsShell() {
+  const check = (condition: boolean, label: string) => {
+    if (!condition) failures++;
+    console.log(`${condition ? "PASS" : "FAIL"}  L01 ${label}`);
+  };
+  const fixed = { from: Date.parse("2026-09-01T00:00:00Z"), to: Date.parse("2026-09-02T00:00:00Z"), tz: "Asia/Singapore", label: "Fixed day" };
+  const cohort = { sources: ["ocx" as const], projects: ["/synthetic/{one,two}"], providers: ["synthetic-provider"], models: ["synthetic,model"],
+    efforts: ["high"], statuses: ["ok" as const], routeKinds: ["native"], conversationId: "synthetic-session", search: "fixture" };
+  const selector = JSON.stringify({ version: 1, window: fixed, cohort, selection: { kind: "scope" }, eligibility: "all" });
+  const params = new URLSearchParams({ range: "7d", sources: "ocx", projects: "/no/synthetic/matches", providers: "openai", models: "gpt-6-luna",
+    efforts: "high", statuses: "ok", routeKinds: "native", conversationId: "synthetic-session", from: "2026-09-01", to: "2026-09-02", tz: "UTC",
+    search: "fixture", selectorVersion: "1", selector, priorSelector: selector });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const filters = filtersFromParams(params);
+  client.setQueryData(["/api/scope", filtersToParams(filters)], await fetchJson("/api/scope", filtersToParams(filters)));
+  client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
+  const disabledChild = () => { throw new Error("Disabled Labs mounted an investigation"); };
+  for (const path of ["/labs", "/labs/project-radar", "/labs/evidence", "/labs/unknown/deep"]) {
+    const html = renderPage(disabledChild, client, `${path}?${params}`, "/labs/*", true);
+    const links = [...html.matchAll(/href="([^"]+)"/g)].map(match => match[1]!.replace(/&amp;/g, "&")).filter(link => link.startsWith("/"));
+    check(html.includes("Labs is off") && html.includes("Enable Labs") && html.includes("Return to Overview") && !html.includes("No requests match these filters"), `${path} recovers even when the cohort is empty; child never mounts`);
+    check(links.length >= 9 && links.every(link => [...params].every(([key, value]) => new URL(link, "http://localhost").searchParams.get(key) === value)), `${path} links preserve the complete cohort and comma-bearing selector JSON`);
+  }
+  const enabledPreferences = { labsEnabled: true, hideArtwork: true };
+  const home = renderPage(LabsPage, client, `/labs?${params}`, "/labs", true, enabledPreferences);
+  check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs", "Not available yet."].every(text => home.includes(text)), "enabled shell exposes the three independent component slots");
+  for (const path of ["project-radar", "cache-detective", "context-replay", "evidence", "unknown/deep"]) {
+    const html = renderPage(LabsInvestigationPage, client, `/labs/${path}?${params}`, "/labs/*", true, enabledPreferences);
+    check(html.includes("not available yet") && html.includes("All investigations") && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
+  }
+  check(!client.getQueryCache().getAll().some(query => String(query.queryKey[0]).startsWith("/api/labs/")), "disabled and enabled empty shell create no experiment queries");
+  for (const kind of ["loading", "error", "empty", "insufficient"] as InvestigationStateKind[]) {
+    const html = renderToString(<InvestigationState kind={kind} onRetry={() => {}} />);
+    check(html.includes(`role="${kind === "error" ? "alert" : "status"}"`) && html.includes("aria-describedby") && !html.includes("<img")
+      && html.includes("Try again") === (kind === "error"), `${kind} state has complete text and accessible semantics`);
+  }
+  const scope = renderToString(<InvestigationScope window={fixed} cohort={cohort} sample={{ eligibleRequests: 0, totalRequests: 4 }}
+    unpricedRequests={0} unattributedRequests={2} notes={["Only measured inputs are eligible."]} />).replace(/<!--.*?-->/g, "");
+  check(["2026-09-01T00:00:00.000Z", "2026-09-02T00:00:00.000Z", "From (included)", "Until (excluded)", "Asia/Singapore", "/synthetic/{one,two}",
+    "synthetic,model", "0 of 4", "0 requests without a price", "2 requests without project attribution", "Only measured inputs are eligible."].every(text => scope.includes(text)), "fixed scope presents exact bounds, lossless cohort, observed zero and separate coverage notes");
+  const defaults = JSON.stringify({ labsEnabled: false, hideArtwork: false });
+  for (const raw of [null, "{broken", "null", "true", "[]", '{"labsEnabled":true}', '{"version":2,"labsEnabled":true}', '{"version":1,"labsEnabled":"true","hideArtwork":1}']) {
+    check(JSON.stringify(decodePreferences(raw)) === defaults, `invalid or unsupported preferences use defaults: ${raw}`);
+  }
+  const Probe = () => { const { labsEnabled, hideArtwork } = usePreferences(); return <p>{`${labsEnabled}/${hideArtwork}`}</p>; };
+  check(renderToString(<PreferencesProvider storage={null}><Probe /></PreferencesProvider>).includes("false/false"), "SSR without browser storage uses defaults");
+  check(renderToString(<PreferencesProvider storage={{ getItem: () => { throw new Error("blocked"); }, setItem: () => {} }}><Probe /></PreferencesProvider>).includes("false/false"), "blocked storage uses defaults");
+  check(PREFERENCES_STORAGE_KEY === "yald.preferences", "single documented preference storage key");
+  client.clear();
+}
+await checkLabsShell();
 if (useFixtures) await Promise.all([process.env.OCX_HOME!, fixturePricing].map(path => rm(path, { recursive: true, force: true })));
 
 globalThis.fetch = realFetch;
