@@ -147,3 +147,28 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
 
 `GET /api/dataset/refresh` is an operational endpoint used by local tooling. It rebuilds immediately and returns `{ok, rows, parseMs, builtAt}`. The application server serves the built web app at `/` and its client routes.
+
+
+### Source and measurement metadata
+
+`/api/meta` adds `sources` and `sourceCapabilities` keyed by `claude-code` and
+`ocx`. Source comes from protocol, never provider. Public request rows add `source`,
+`protocol`, `measurements`, `usageFromAttempts`, `usageStatus`, `cacheProvenance`,
+cache-write tokens, nullable token-class rates, sends, attempt tokens and cwd.
+Existing numeric defaults remain for compatibility; consult the measurement flags
+before displaying them as observations. CSV exports serialize nested metadata as
+JSON in quoted cells.
+
+`outcome` and the shared `statuses` filter accept `unobserved` in addition to `ok`,
+`error` and `cancelled`. An observed outcome filter never selects Claude's synthetic
+HTTP 200. Without an outcome filter, transcript rows retain their volume and cost.
+
+Summaries, model breakdown rows, `/api/performance` and `/api/reliability` expose
+`measurementCoverage`: `totalRequests`, plus `{eligibleRequests, totalRequests}`
+for `outcomes`, `duration`, `ttft`, `throughput`, `retries`, `input`, `context`,
+`cache` and `pricing`. `/api/reliability` also adds the same nullable `successRate`
+as the overview. `unobserved` is a separate outcome timeline series. This metadata
+is distinct from project-attribution `coverage`. Cache points and context pressure
+add eligible and total counts; conversation context points add `contextEligible`.
+See [metric definitions](metrics.md#source-capabilities-and-measurement-coverage)
+for denominator, zero-versus-missing and attempt-sum rules.

@@ -20,7 +20,7 @@ Cost is estimated by the opencodex pricing engine used by `ocx usage`. It applie
 
 ## Reliability and retries
 
-Success rate uses logical request outcomes, not physical sends. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.
+Success rate uses observed logical request outcomes, not physical sends or Claude transcript compatibility statuses. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.
 
 ## Project attribution
 
@@ -58,3 +58,64 @@ Range presets are rolling elapsed-time windows ending at the current time: `24h`
 ### Claude Code quota
 
 Claude Code subscription quota (5-hour and weekly windows) is not shown, and yald never estimates it from transcript tokens or reports a missing window as 0% usage. Anthropic documents `rate_limits.five_hour` and `rate_limits.seven_day` (`used_percentage`, `resets_at`) only in the JSON that Claude Code passes to a custom status-line command on stdin; Claude Code does not persist that payload. The local files checked (`~/.claude/projects` transcripts, `stats-cache.json`, `claude-dashboard.local.json`) contain none of these fields, so there is no existing snapshot to ingest. Reading quota would need a status-line collector that writes the payload to a file, which changes Claude settings and is outside yald's passive, read-only design; it requires a separate decision. If such a snapshot exists later, yald would show its sample time and source, mark a window expired once its reset time passes, and never present the previous window's percentage as current.
+
+## Source capabilities and measurement coverage
+
+Source is determined by the reader protocol: `claude-code` means a Claude Code
+transcript; every other protocol is `ocx`. An Anthropic request routed through
+opencodex remains `ocx`. The API's `sourceCapabilities` describes what each source
+can observe. Capability does not prove that an individual row recorded a value.
+
+Claude transcripts record usage and cache counters. They do not record failures,
+retry history, request timing or subscription quota. Their compatibility HTTP 200,
+one-attempt and send defaults are not observations. Their API outcome is
+`unobserved`, and their request badge says so. `ok`, `error` and `cancelled` filters
+select only observed outcomes; `unobserved` selects the remainder. With no outcome
+filter, all otherwise-matching rows remain in request, token and priced-cost totals.
+The four outcome counts reconcile to total logical requests.
+
+Success rate is `ok / (ok + error + cancelled)` over observed logical requests,
+including failed requests without usage. With no eligible requests it is null,
+not 100% or zero. HTTP status distributions, failure rates, waste and retry charts
+exclude unobserved outcomes or retry histories as applicable. Retry overhead and
+upstream-send summaries do not count Claude's compatibility defaults.
+
+Every normalized/public request has `measurements` flags for `outcome`, `duration`,
+`ttft`, `retries`, `input`, `output`, `cacheRead` and `cacheWrite`. Token and timing
+presence is captured from finite, nonnegative values before numeric defaults;
+reported zero is present. Durations and TTFT use only measured values from a
+capable source. Output throughput also requires positive duration and output.
+`measurements.usage` is `logical`, `attempt-sum`, or `missing`; `usageFromAttempts`
+remains available. If neither input nor output is present at the logical level,
+usage can be recovered by summing attempts. Explicit logical zero usage is kept.
+Attempt sums describe burned volume, not the context of one submission.
+
+Summary and model breakdown `measurementCoverage` fields give
+`{ eligibleRequests, totalRequests }` for outcomes, duration, TTFT, throughput,
+retries, input, context, cache and pricing. Performance and reliability endpoints
+also expose this object. These are counts for the selected cohort; eligibility
+does not expand the query scope. Existing TTFT `coverage` remains the fraction of
+all selected requests with measured TTFT.
+
+Cache hit ratios require both observed cache-read accounting and observed input.
+They divide eligible cache reads by eligible input; zero eligible input gives a
+null ratio, including when observed inputs are all zero. Cache provenance counts
+still describe all selected rows; ratio coverage separately identifies eligibility.
+Cache timeline points expose the same eligible and total counts. Context pressure
+and conversation context traces exclude missing-input and attempt-summed rows;
+observed zero input remains eligible. Volume totals retain those excluded rows.
+
+Price presence is `priced`, never `cost > 0`: a priced free request has zero cost,
+whereas an unpriced request has unavailable prices (`rateIn`, `rateOut`,
+`rateCacheRead`, `rateCacheWrite` are nullable). Missing rates are omitted from money
+calculations. Existing cache-read discount estimates and token-class cost totals
+keep their price-equivalent definitions; a cache-read discount is not net savings
+once cache-write premiums are considered. All displayed costs are **API list-price
+equivalents**, not subscription bills, productivity or proof of realized savings.
+
+New Claude archive records retain the raw presence flags. Older archive entries
+already replaced missing counters with zeros, so absence cannot be reconstructed
+from those records alone. Their input/cache presence remains unavailable until a
+live copy with the same usage supplies evidence. Yald never changes source logs;
+its own append-only Claude usage archive under the opencodex home persists usage
+after source transcripts are deleted and has no automatic retention expiry.

@@ -108,3 +108,8 @@ export function shortId(value: string | null | undefined, length = 8): string {
 export function titleCase(value: string): string {
   return value.replace(/[-_]/g, " ").replace(/\b\w/g, char => char.toUpperCase());
 }
+
+export function formatCoverage(sample: { eligibleRequests: number; totalRequests: number } | undefined): string {
+  if (!sample) return "";
+  return `${formatInteger(sample.eligibleRequests)} of ${formatInteger(sample.totalRequests)} requests observed`;
+}

@@ -17,6 +17,7 @@ import {
   heatmap,
   heatmapDateBreakdown,
   latencyTimeline,
+  measurementCoverage,
   outcome,
   percentile,
   projectCoverage,
@@ -30,6 +31,7 @@ import {
   type Metric,
   type RowFilter,
 } from "./analytics";
+import { ALL_SOURCES, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
@@ -145,11 +147,25 @@ function delta(current: number, prior: number): number | null {
 }
 
 function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
-  return [...rows].sort((a, b) => b.durationMs - a.durationMs).slice(0, limit);
+  return rows.filter(row => row.measurements.duration).sort((a, b) => b.durationMs - a.durationMs).slice(0, limit);
 }
 
 function publicRow(row: RequestRow) {
   return {
+    source: sourceOf(row),
+    protocol: row.protocol,
+    measurements: row.measurements,
+    usageFromAttempts: row.usageFromAttempts,
+    usageStatus: row.usageStatus,
+    cacheProvenance: row.cacheProvenance,
+    cacheWriteTokens: row.cacheWriteTokens,
+    rateIn: row.rateIn,
+    rateOut: row.rateOut,
+    rateCacheRead: row.rateCacheRead,
+    rateCacheWrite: row.rateCacheWrite,
+    sends: row.sends,
+    attemptTokens: row.attemptTokens,
+    cwd: row.cwd,
     id: row.id,
     ts: row.ts,
     provider: row.provider,
@@ -180,7 +196,7 @@ function toCsv(rows: Record<string, unknown>[]): string {
   const headers = Object.keys(rows[0]!);
   const escape = (value: unknown): string => {
     if (value === null || value === undefined) return "";
-    const text = String(value);
+    const text = typeof value === "object" ? JSON.stringify(value) : String(value);
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   return [headers.join(","), ...rows.map(row => headers.map(header => escape(row[header])).join(","))].join("\n");
@@ -265,6 +281,8 @@ api.get("/api/meta", async c => {
     firstRequestAt: dataset.rows[0]?.ts ?? null,
     lastRequestAt: dataset.rows[dataset.rows.length - 1]?.ts ?? null,
     totals: { requests: dataset.rows.length, tokens, cost: round(cost, 2) },
+    sources: ALL_SOURCES.filter(source => dataset.rows.some(row => sourceOf(row) === source)),
+    sourceCapabilities: SOURCE_CAPABILITIES,
     providers: [...providers].sort(),
     models: [...models].sort(),
     modelsByProvider: Object.fromEntries([...modelsByProvider.entries()].map(([key, value]) => [key, value.sort()])),
@@ -443,9 +461,9 @@ api.get("/api/performance", async c => {
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const timeline = latencyTimeline(rows, query.bucket, query.from, query.to, query.tz);
-  const durations = rows.filter(row => row.durationMs > 0).map(row => row.durationMs);
-  const ttfts = rows.filter(row => row.ttftMs !== null).map(row => row.ttftMs as number);
-  const throughputs = rows.filter(row => row.outputTokens > 0 && row.durationMs > 0).map(row => row.outputTokens / (row.durationMs / 1000));
+  const durations = rows.filter(row => row.measurements.duration).map(row => row.durationMs);
+  const ttfts = rows.filter(row => row.measurements.ttft).map(row => row.ttftMs as number);
+  const throughputs = rows.filter(throughputEligible).map(row => row.outputTokens / (row.durationMs / 1000));
   const byModel = breakdown(rows, row => row.model);
 
   return c.json({
@@ -453,6 +471,7 @@ api.get("/api/performance", async c => {
     ...coverageField(dataset.rows, query.filter),
     window: { ...query.window, bucket: query.bucket },
     timeline,
+    measurementCoverage: measurementCoverage(rows),
     histogram: {
       duration: histogram(durations, [0, 1000, 2500, 5000, 10000, 20000, 40000, 80000, Number.POSITIVE_INFINITY], ["<1s", "1-2.5s", "2.5-5s", "5-10s", "10-20s", "20-40s", "40-80s", "80s+"]),
       ttft: histogram(ttfts, [0, 500, 1000, 2000, 4000, 8000, 16000, Number.POSITIVE_INFINITY], ["<0.5s", "0.5-1s", "1-2s", "2-4s", "4-8s", "8-16s", "16s+"]),
@@ -465,7 +484,7 @@ api.get("/api/performance", async c => {
     },
     byModel,
     ttftVsOutput: rows
-      .filter(row => row.ttftMs !== null && row.outputTokens > 0)
+      .filter(row => row.measurements.ttft && row.measurements.output && row.outputTokens > 0)
       .slice(-2000)
       .map(row => ({ ttftMs: row.ttftMs, outputTokens: row.outputTokens, model: row.model, ts: row.ts })),
     slowest: slowest(rows, 15).map(publicRow),
@@ -479,12 +498,14 @@ api.get("/api/reliability", async c => {
   const rows = filterRows(dataset.rows, query.filter);
   const report = reliability(rows, query.tz);
   const summary = summarize(rows);
-  const failureRows = rows.filter(row => outcome(row) !== "ok").slice(-500);
+  const failureRows = rows.filter(row => outcome(row) === "error" || outcome(row) === "cancelled").slice(-500);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
     window: query.window,
     ...report,
+    successRate: summary.successRate,
+    measurementCoverage: summary.measurementCoverage,
     recentFailures: [...failureRows].sort((a, b) => b.ts - a.ts).slice(0, 40).map(publicRow),
     waste: summary.waste,
     metering: summary.metering,

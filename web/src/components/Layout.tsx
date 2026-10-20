@@ -133,7 +133,7 @@ export function Layout() {
                 <CheckList items={meta.data?.efforts ?? []} selected={filters.efforts} onToggle={value => toggleIn("efforts", value)} />
               </Popover>
               <Popover label={filters.statuses.length ? `Outcome · ${filters.statuses.length}` : "Outcome"} active={filters.statuses.length > 0} width={180}>
-                <CheckList items={["ok", "error", "cancelled"]} selected={filters.statuses} onToggle={value => toggleIn("statuses", value)} />
+                <CheckList items={["ok", "error", "cancelled", "unobserved"]} selected={filters.statuses} onToggle={value => toggleIn("statuses", value)} />
               </Popover>
               {activeFilters > 0 ? (
                 <button

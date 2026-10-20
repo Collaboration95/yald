@@ -154,7 +154,7 @@ export function ModelsPage() {
                   <Td align="right">{formatInteger(model.requests)}</Td>
                   <Td align="right">{formatCompact(model.tokens)}</Td>
                   <Td align="right">{formatPercent(model.share)}</Td>
-                  <Td align="right">{model.cost > 0 ? `$${model.cost.toFixed(2)}` : <span className="text-muted">unpriced</span>}</Td>
+                  <Td align="right">{model.pricedRequests > 0 ? `$${model.cost.toFixed(2)}` : <span className="text-muted">unpriced</span>}</Td>
                   <Td align="right">{model.costPer1MTokens ? `$${model.costPer1MTokens.toFixed(2)}` : "—"}</Td>
                   <Td align="right">{formatDuration(model.ttftP50)}</Td>
                   <Td align="right">{formatDuration(model.p50DurationMs)}</Td>

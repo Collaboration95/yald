@@ -1,10 +1,12 @@
 import { stat, readFile } from "node:fs/promises";
 import { readClaudeEntries } from "../claude/transcripts";
 import { readCodexSessionIndex, type CodexSession } from "../codex/sessions";
+import { SOURCE_CAPABILITIES, sourceOf, type Measurements } from "../report/source";
 import { PATHS } from "../env";
 import { loadPricing, priceEntry, pricingGeneration } from "./pricing";
 
 export interface RequestRow {
+  measurements: Measurements;
   id: string;
   ts: number;
   provider: string;
@@ -116,9 +118,16 @@ function finiteOrNull(value: unknown): number | null {
 }
 
 export function normalizeRow(entry: Record<string, any>): RequestRow {
+  const present = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const presence = (usage: Record<string, any>) => ({
+    input: present(usage.inputTokens), output: present(usage.outputTokens),
+    cacheRead: present(usage.cacheReadInputTokens ?? usage.cachedInputTokens),
+    cacheWrite: present(usage.cacheCreationInputTokens ?? usage.cacheWriteInputTokens),
+  });
   let usage = entry.usage ?? {};
+  let usagePresence = presence(usage);
   let usageFromAttempts = false;
-  if (num(usage.inputTokens) === 0 && num(usage.outputTokens) === 0 && Array.isArray(entry.attempts)) {
+  if (!usagePresence.input && !usagePresence.output && Array.isArray(entry.attempts)) {
     // A failed logical request often carries no top-level usage while its attempts do.
     // Summing them recovers the tokens actually burned upstream (retries, half-streams).
     const summed: Record<string, number> = {
@@ -132,15 +141,19 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
       totalTokens: 0,
     };
     let found = false;
+    let summedPresence = { input: true, output: true, cacheRead: true, cacheWrite: true };
     for (const attempt of entry.attempts) {
       const attemptUsage = attempt?.usage;
       if (!attemptUsage) continue;
       found = true;
+      const fields = presence(attemptUsage);
+      summedPresence = { input: summedPresence.input && fields.input, output: summedPresence.output && fields.output,
+        cacheRead: summedPresence.cacheRead && fields.cacheRead, cacheWrite: summedPresence.cacheWrite && fields.cacheWrite };
       summed.inputTokens += num(attemptUsage.inputTokens);
       summed.outputTokens += num(attemptUsage.outputTokens);
       summed.cachedInputTokens += num(attemptUsage.cachedInputTokens);
-      summed.cacheReadInputTokens += num(attemptUsage.cacheReadInputTokens);
-      summed.cacheCreationInputTokens += num(attemptUsage.cacheCreationInputTokens);
+      summed.cacheReadInputTokens += num(attemptUsage.cacheReadInputTokens ?? attemptUsage.cachedInputTokens);
+      summed.cacheCreationInputTokens += num(attemptUsage.cacheCreationInputTokens ?? attemptUsage.cacheWriteInputTokens);
       summed.cacheWriteInputTokens += num(attemptUsage.cacheWriteInputTokens);
       summed.reasoningOutputTokens += num(attemptUsage.reasoningOutputTokens);
       summed.totalTokens += num(attemptUsage.totalTokens);
@@ -148,6 +161,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     if (found) {
       usage = summed;
       usageFromAttempts = true;
+      usagePresence = summedPresence;
     }
   }
   const inputTokens = num(usage.inputTokens);
@@ -177,7 +191,24 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     }
   }
 
+  const capabilities = SOURCE_CAPABILITIES[sourceOf({ protocol: str(entry.inboundProtocol) })];
+  // Transcript converters supply presence before their arithmetic supplies zero defaults.
+  // Older archive entries without that evidence cannot prove input/cache presence.
+  if (sourceOf({ protocol: str(entry.inboundProtocol) }) === "claude-code") {
+    const saved = entry.usagePresence ?? {};
+    usagePresence = { input: saved.input === true, output: saved.output === true,
+      cacheRead: saved.cacheRead === true, cacheWrite: saved.cacheWrite === true };
+  }
+  const measurements: Measurements = {
+    ...usagePresence,
+    outcome: capabilities.outcomes && ((present(entry.status) && entry.status > 0) || !!str(entry.errorCode) || entry.closeReason === "client_closed"),
+    duration: capabilities.timing && present(entry.durationMs),
+    ttft: capabilities.timing && present(entry.firstOutputMs),
+    retries: capabilities.retries && Array.isArray(entry.attempts),
+    usage: usageFromAttempts ? "attempt-sum" : usagePresence.input || usagePresence.output ? "logical" : "missing",
+  };
   return {
+    measurements,
     id: String(entry.requestId),
     ts: num(entry.timestamp),
     provider: String(entry.provider ?? "unknown"),

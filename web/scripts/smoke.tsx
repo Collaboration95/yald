@@ -8,6 +8,7 @@
  *
  * Run with: ./scripts/smoke.sh  (add --fixtures to force the synthetic ledger)
  */
+import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { renderToString } from "react-dom/server";
 import { DEFAULT_FILTERS, fetchJson, filtersToParams } from "../src/api";
+import { OutcomeDot } from "../src/components/ui";
+import { Layout } from "../src/components/Layout";
 import { ThemeProvider } from "../src/lib/theme";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { OverviewPage } from "../src/pages/Overview";
@@ -25,16 +28,32 @@ import { ReliabilityPage } from "../src/pages/Reliability";
 import { ModelsPage } from "../src/pages/Models";
 import { QuotaPage } from "../src/pages/Quota";
 import { ConversationDetailPage, ConversationsPage } from "../src/pages/Conversations";
-import { materializeFixtureHome } from "./fixtureHome";
+import { materializeFixtureHome, materializeFixturePricing } from "./fixtureHome";
 
 type AnyComponent = () => React.ReactElement | null;
 
 const ocxHome = process.env.OCX_HOME ?? join(homedir(), ".opencodex");
 const useFixtures = process.argv.includes("--fixtures") || !existsSync(join(ocxHome, "usage.jsonl"));
+let fixturePricing = "";
 if (useFixtures) {
+  fixturePricing = await materializeFixturePricing();
+  process.env.OCX_PACKAGE_DIR = fixturePricing;
   process.env.OCX_HOME = await materializeFixtureHome();
   process.env.CLAUDE_PROJECTS_DIR = join(process.env.OCX_HOME, "claude-projects");
   process.env.CODEX_HOME = join(process.env.OCX_HOME, "codex");
+  const ts = Date.now() - 60_000;
+  const common = { timestamp: ts, provider: "anthropic", model: "f01-proxy", inboundProtocol: "messages", status: 200, usageStatus: "reported", cacheProvenance: "observed", durationMs: 100, firstOutputMs: 10, attempts: [{}] };
+  const synthetic = [
+    { ...common, requestId: "f01-failure", status: 502, errorCode: "synthetic_failure", usage: { inputTokens: 10, outputTokens: 1, cacheReadInputTokens: 0 } },
+    { ...common, requestId: "f01-input-missing", model: "f01-presence", usage: { outputTokens: 1 } },
+    { ...common, requestId: "f01-input-zero", model: "f01-presence", usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 } },
+  ];
+  await appendFile(join(process.env.OCX_HOME, "usage.jsonl"), synthetic.map(row => JSON.stringify(row)).join("\n") + "\n");
+  const folder = join(process.env.CLAUDE_PROJECTS_DIR, "f01");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "f01.jsonl"), JSON.stringify({ type: "assistant", requestId: "f01-transcript", sessionId: "f01-session", timestamp: new Date(ts).toISOString(),
+    message: { model: "f01-transcript", usage: { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }) + "\n");
+
 }
 console.log(useFixtures ? "source: synthetic fixtures" : `source: ${join(ocxHome, "usage.jsonl")}`);
 
@@ -238,6 +257,46 @@ async function checkQuotaRange(): Promise<void> {
 }
 
 await checkQuotaRange();
+
+/** Exercise source/presence policy through real API data and the rendered consumers. */
+async function checkMeasurementCohorts() {
+  const check = (condition: boolean, label: string) => {
+    if (!condition) failures++;
+    console.log(`${condition ? "PASS" : "FAIL"}  F01 ${label}`);
+  };
+  const params = filtersToParams(DEFAULT_FILTERS, {});
+  const claudeFilters = { ...DEFAULT_FILTERS, models: ["f01-transcript"] };
+  const claudeParams = filtersToParams(claudeFilters, {});
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+  const reliability = await fetchJson<any>("/api/reliability", claudeParams);
+  const overview = await fetchJson<any>("/api/overview", claudeParams);
+  client.setQueryData(["/api/reliability", claudeParams], reliability);
+  client.setQueryData(["/api/overview", claudeParams], overview);
+  client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
+  const html = renderPage(ReliabilityPage, client, "/reliability?models=f01-transcript", "/reliability");
+  const overviewHtml = renderPage(OverviewPage, client, "/?models=f01-transcript", "/");
+  check(reliability.successRate === null && reliability.measurementCoverage.outcomes.eligibleRequests === 0 && reliability.outcomes[0]?.name === "unobserved", "Claude-only outcome denominator");
+  check(html.includes("0 of 1 requests observed") && html.includes("Retry history unavailable"), "Claude-only reliability rendering");
+  check(overviewHtml.includes("unobserved") && overviewHtml.includes("Retry history unavailable"), "transcript request badge");
+  const badge = renderToString(<OutcomeDot outcome="unobserved" />);
+  check(badge.includes('aria-label="unobserved"') && !badge.includes("bg-bad"), "unobserved badge accessibility");
+  const layout = renderPage(Layout, client, "/", "/");
+  check(layout.includes("Outcome"), "shared outcome control renders");
+  // Every outcome cohort is queried through the same shared statuses parameter.
+  for (const status of ["ok", "error", "cancelled", "unobserved"]) {
+    const filtered = await fetchJson<any>("/api/overview", filtersToParams({ ...claudeFilters, statuses: [status] }, {}));
+    check(filtered.summary.requests === (status === "unobserved" ? 1 : 0), `Claude-only ${status} cohort`);
+  }
+  const mixed = await fetchJson<any>("/api/overview", filtersToParams({ ...DEFAULT_FILTERS, models: ["f01-transcript", "f01-proxy"] }, {}));
+  check(mixed.summary.requests === 2 && mixed.summary.successRate === 0 && mixed.summary.measurementCoverage.outcomes.eligibleRequests === 1 && mixed.recent.find((r: any) => r.id === "f01-failure")?.source === "ocx", "mixed failure and Anthropic proxy source");
+  const presence = await fetchJson<any>("/api/overview", filtersToParams({ ...DEFAULT_FILTERS, models: ["f01-presence"] }, {}));
+  check(presence.recent.find((r: any) => r.id === "f01-input-missing")?.measurements.input === false && presence.recent.find((r: any) => r.id === "f01-input-zero")?.measurements.input === true && presence.context.eligibleRequests === 1, "missing input versus observed zero");
+  // Ensure mixed production data retains unobserved volume while rates stay eligible.
+  const full = await fetchJson<any>("/api/reliability", params);
+  check(full.outcomes.reduce((n: number, x: any) => n + x.value, 0) === full.measurementCoverage.totalRequests, "outcome totals reconcile");
+}
+if (useFixtures) await checkMeasurementCohorts();
+if (useFixtures) await Promise.all([process.env.OCX_HOME!, fixturePricing].map(path => rm(path, { recursive: true, force: true })));
 
 globalThis.fetch = realFetch;
 console.log(`\n${PAGES.length - failures}/${PAGES.length} pages rendered, ${warnings} with suspicious tokens`);

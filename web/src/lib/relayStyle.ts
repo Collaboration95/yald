@@ -13,7 +13,7 @@ export function makeRelayStyle(dark: boolean, modelNames: string[] = []): ChartS
   const rank = (name: string) => preferredOrder.includes(name) ? preferredOrder.indexOf(name) : 10;
   const modelMap = new Map([...modelNames].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).map((name, index) => [name, colors[index % colors.length]!]));
   const modelColor = (name: string) => modelMap.get(name) ?? colors[[...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % colors.length]!;
-  const outcomes: Record<string, string> = { ok: colors[0]!, error: colors[1]!, cancelled: dark ? "#e0c087" : "#c49c45" };
+  const outcomes: Record<string, string> = { unobserved: dark ? "#9ca3af" : "#64748b", ok: colors[0]!, error: colors[1]!, cancelled: dark ? "#e0c087" : "#c49c45" };
   const colorFor = (label: string, fallback: string) => outcomes[label] ?? modelMap.get(label) ?? color(fallback);
   const heatmapColors = dark ? ["#302e2c", "#754c45", "#c17c6f", "#f09082"] : ["#f5efec", "#f6d4cb", "#eea99b", "#e7584d"];
 

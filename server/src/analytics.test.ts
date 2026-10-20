@@ -12,6 +12,7 @@ const tz = "America/New_York";
 const now = new Date("2026-03-08T16:00:00-04:00").getTime();
 function row(overrides: Partial<RequestRow> = {}): RequestRow {
   return {
+    measurements: { outcome: true, duration: true, ttft: true, retries: true, input: true, output: true, cacheRead: true, cacheWrite: true, usage: "logical" },
     id: "r1", ts: now, provider: "openai", model: "gpt-test", requestedModel: "openai/gpt-test", resolvedModel: "gpt-test",
     effort: "high", status: 200, ok: true, durationMs: 1000, ttftMs: 200, inputTokens: 100, outputTokens: 20,
     cacheReadTokens: 40, cacheWriteTokens: 10, reasoningTokens: 2, totalTokens: 120, cost: 0.01, priced: true, estimated: false,

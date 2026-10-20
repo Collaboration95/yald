@@ -1,7 +1,7 @@
 import { attributionCoverage, type AttributionCoverage } from "./attribution";
 import type { Dataset, RequestRow } from "./ocx/store";
 import { projectMatcher } from "./projects";
-import { sourceOf } from "./report/source";
+import { cacheEligible, contextEligible, sourceOf, throughputEligible } from "./report/source";
 import type { Source } from "./report/types";
 import { isoInZone, nextBucketStart, zonedBucketStart } from "./time/window";
 
@@ -15,7 +15,7 @@ export interface RowFilter {
   sources?: Source[];
   models?: string[];
   efforts?: string[];
-  statuses?: ("ok" | "error" | "cancelled")[];
+  statuses?: Outcome[];
   routeKinds?: string[];
   conversationId?: string;
   search?: string;
@@ -98,9 +98,10 @@ export interface ProjectCoverage {
   attribution: AttributionCoverage;
 }
 
-export type Outcome = "ok" | "error" | "cancelled";
+export type Outcome = "ok" | "error" | "cancelled" | "unobserved";
 
 export function outcome(row: RequestRow): Outcome {
+  if (!row.measurements.outcome) return "unobserved";
   if (row.ok) return "ok";
   if (row.closeReason === "client_closed" || row.errorCode === "client_closed_request") return "cancelled";
   return "error";
@@ -130,11 +131,47 @@ export interface TokenTotals {
   total: number;
 }
 
+export interface MeasurementSample { eligibleRequests: number; totalRequests: number }
+export interface MeasurementCoverage {
+  totalRequests: number;
+  outcomes: MeasurementSample;
+  duration: MeasurementSample;
+  ttft: MeasurementSample;
+  throughput: MeasurementSample;
+  retries: MeasurementSample;
+  input: MeasurementSample;
+  context: MeasurementSample;
+  cache: MeasurementSample;
+  pricing: MeasurementSample;
+}
+
+export function measurementCoverage(rows: RequestRow[]): MeasurementCoverage {
+  const sample = (): MeasurementSample => ({ eligibleRequests: 0, totalRequests: rows.length });
+  const coverage: MeasurementCoverage = {
+    totalRequests: rows.length, outcomes: sample(), duration: sample(), ttft: sample(), throughput: sample(),
+    retries: sample(), input: sample(), context: sample(), cache: sample(), pricing: sample(),
+  };
+  for (const row of rows) {
+    if (row.measurements.outcome) coverage.outcomes.eligibleRequests++;
+    if (row.measurements.duration) coverage.duration.eligibleRequests++;
+    if (row.measurements.ttft) coverage.ttft.eligibleRequests++;
+    if (throughputEligible(row)) coverage.throughput.eligibleRequests++;
+    if (row.measurements.retries) coverage.retries.eligibleRequests++;
+    if (row.measurements.input) coverage.input.eligibleRequests++;
+    if (contextEligible(row)) coverage.context.eligibleRequests++;
+    if (cacheEligible(row)) coverage.cache.eligibleRequests++;
+    if (row.priced) coverage.pricing.eligibleRequests++;
+  }
+  return coverage;
+}
+
 export interface Summary {
   requests: number;
   ok: number;
   errors: number;
   cancelled: number;
+  unobserved: number;
+  measurementCoverage: MeasurementCoverage;
   successRate: number | null;
   tokens: TokenTotals;
   cost: number;
@@ -169,6 +206,7 @@ export function summarize(rows: RequestRow[]): Summary {
   let ok = 0;
   let errors = 0;
   let cancelled = 0;
+  let unobserved = 0;
   let cost = 0;
   let priced = 0;
   let estimatedCost = 0;
@@ -192,7 +230,8 @@ export function summarize(rows: RequestRow[]): Summary {
     const kind = outcome(row);
     if (kind === "ok") ok++;
     else if (kind === "cancelled") cancelled++;
-    else errors++;
+    else if (kind === "error") errors++;
+    else unobserved++;
 
     tokens.input += row.inputTokens;
     tokens.output += row.outputTokens;
@@ -208,21 +247,23 @@ export function summarize(rows: RequestRow[]): Summary {
         savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
       }
     }
-    if (row.cacheProvenance === "observed") {
-      observed++;
+    if (row.cacheProvenance === "observed") observed++;
+    else if (row.cacheProvenance === "synthesized") synthesized++;
+    else unknown++;
+    if (cacheEligible(row)) {
       observedCacheRead += row.cacheReadTokens;
       observedInput += row.inputTokens;
     }
-    else if (row.cacheProvenance === "synthesized") synthesized++;
-    else unknown++;
 
-    if (row.durationMs > 0) durations.push(row.durationMs);
-    if (row.ttftMs !== null) ttfts.push(row.ttftMs);
-    if (row.outputTokens > 0 && row.durationMs > 0) throughputs.push(row.outputTokens / (row.durationMs / 1000));
-    if (row.retried) retried++;
-    sends += row.sends;
-    settled += row.settled;
-    unresolved += row.unresolved;
+    if (row.measurements.duration) durations.push(row.durationMs);
+    if (row.measurements.ttft) ttfts.push(row.ttftMs!);
+    if (throughputEligible(row)) throughputs.push(row.outputTokens / (row.durationMs / 1000));
+    if (row.measurements.retries) {
+      if (row.retried) retried++;
+      sends += row.sends;
+      settled += row.settled;
+      unresolved += row.unresolved;
+    }
 
     if (row.usageStatus === "reported") metering.reported++;
     else if (row.usageStatus === "estimated") metering.estimated++;
@@ -230,12 +271,12 @@ export function summarize(rows: RequestRow[]): Summary {
     else if (row.usageStatus === "unsupported") metering.unsupported++;
     else metering.other++;
 
-    if (row.retried && row.attemptTokens > row.totalTokens) {
+    if (row.measurements.retries && row.retried && row.attemptTokens > row.totalTokens) {
       retryOverhead.tokens += row.attemptTokens - row.totalTokens;
       retryOverhead.requests++;
     }
 
-    if (kind !== "ok") {
+    if (kind === "error" || kind === "cancelled") {
       if (kind === "cancelled") {
         waste.cancelledTokens += row.totalTokens;
         waste.cancelledCostUsd += row.cost;
@@ -255,7 +296,9 @@ export function summarize(rows: RequestRow[]): Summary {
     ok,
     errors,
     cancelled,
-    successRate: requests > 0 ? round(ok / requests, 4) : null,
+    unobserved,
+    measurementCoverage: measurementCoverage(rows),
+    successRate: ok + errors + cancelled > 0 ? round(ok / (ok + errors + cancelled), 4) : null,
     tokens,
     cost: round(cost, 4),
     pricedRequests: priced,
@@ -410,6 +453,8 @@ export interface BreakdownRow {
   firstSeen: number;
   lastSeen: number;
   unpricedRequests: number;
+  pricedRequests: number;
+  measurementCoverage: MeasurementCoverage;
 }
 
 export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => string): BreakdownRow[] {
@@ -426,7 +471,7 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
   for (const [key, list] of map) {
     const summary = summarize(list);
     const throughputs = list
-      .filter(row => row.outputTokens > 0 && row.durationMs > 0)
+      .filter(throughputEligible)
       .map(row => row.outputTokens / (row.durationMs / 1000));
     result.push({
       key,
@@ -450,6 +495,8 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
       firstSeen: summary.firstRequestAt ?? 0,
       lastSeen: summary.lastRequestAt ?? 0,
       unpricedRequests: summary.unpricedRequests,
+      pricedRequests: summary.pricedRequests,
+      measurementCoverage: summary.measurementCoverage,
     });
   }
   return result.sort((a, b) => b.tokens - a.tokens);
@@ -485,7 +532,7 @@ export function costComposition(rows: RequestRow[]): {
     if (row.rateCacheRead !== null) cacheRead += (row.cacheReadTokens * row.rateCacheRead) / 1e6;
     if (row.rateCacheWrite !== null) cacheWrite += (row.cacheWriteTokens * row.rateCacheWrite) / 1e6;
     if (row.rateOut !== null) output += (row.outputTokens * row.rateOut) / 1e6;
-    if (row.rateIn !== null && row.rateCacheRead !== null) savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
+    if (row.priced && row.rateIn !== null && row.rateCacheRead !== null) savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
   }
   const total = freshInput + cacheRead + cacheWrite + output;
   return {
@@ -589,9 +636,9 @@ export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number
   const points = [...groups.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([ts, list]) => {
-      const durations = list.filter(row => row.durationMs > 0).map(row => row.durationMs);
-      const ttfts = list.filter(row => row.ttftMs !== null).map(row => row.ttftMs as number);
-      const throughputs = list.filter(row => row.outputTokens > 0 && row.durationMs > 0).map(row => row.outputTokens / (row.durationMs / 1000));
+      const durations = list.filter(row => row.measurements.duration).map(row => row.durationMs);
+      const ttfts = list.filter(row => row.measurements.ttft).map(row => row.ttftMs as number);
+      const throughputs = list.filter(throughputEligible).map(row => row.outputTokens / (row.durationMs / 1000));
       return {
         ts,
         label: bucketLabel(ts, bucket, tz),
@@ -611,26 +658,27 @@ export function reliability(rows: RequestRow[], tz: string): {
   outcomes: { name: Outcome; value: number }[];
   statuses: { name: string; value: number }[];
   errors: { name: string; value: number; models: number; lastSeen: number; tokens: number; cost: number }[];
-  errorTimeline: { ts: number; label: string; ok: number; error: number; cancelled: number }[];
+  errorTimeline: { ts: number; label: string; ok: number; error: number; cancelled: number; unobserved: number }[];
   attempts: { name: string; value: number }[];
   failureByModel: { name: string; failures: number; requests: number; rate: number }[];
 } {
   const outcomes = new Map<Outcome, number>();
   const statuses = new Map<string, number>();
   const errors = new Map<string, { value: number; models: Set<string>; lastSeen: number; tokens: number; cost: number }>();
-  const timeline = new Map<number, { ok: number; error: number; cancelled: number }>();
+  const timeline = new Map<number, { ok: number; error: number; cancelled: number; unobserved: number }>();
   const attempts = new Map<string, number>();
   const byModel = new Map<string, { failures: number; requests: number }>();
 
   for (const row of rows) {
     const kind = outcome(row);
     outcomes.set(kind, (outcomes.get(kind) ?? 0) + 1);
-    statuses.set(String(row.status), (statuses.get(String(row.status)) ?? 0) + 1);
+    if (row.measurements.outcome && row.status > 0) statuses.set(String(row.status), (statuses.get(String(row.status)) ?? 0) + 1);
     const day = bucketStart(row.ts, "day", tz);
-    const slot = timeline.get(day) ?? { ok: 0, error: 0, cancelled: 0 };
+    const slot = timeline.get(day) ?? { ok: 0, error: 0, cancelled: 0, unobserved: 0 };
     slot[kind] += 1;
     timeline.set(day, slot);
-    attempts.set(String(row.attempts), (attempts.get(String(row.attempts)) ?? 0) + 1);
+    if (row.measurements.retries) attempts.set(String(row.attempts), (attempts.get(String(row.attempts)) ?? 0) + 1);
+    if (kind === "unobserved") continue;
 
     const model = byModel.get(row.model) ?? { failures: 0, requests: 0 };
     model.requests += 1;
@@ -738,7 +786,7 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
 
 export function conversationTimeline(rows: RequestRow[], id: string): {
   id: string;
-  points: { ts: number; tokens: number; cumulative: number; model: string; outcome: Outcome; cost: number; durationMs: number; ttftMs: number | null; contextTokens: number }[];
+  points: { ts: number; tokens: number; cumulative: number; model: string; outcome: Outcome; cost: number; durationMs: number; ttftMs: number | null; contextTokens: number; contextEligible: boolean }[];
   summary: Summary;
   models: { name: string; value: number }[];
 } {
@@ -758,6 +806,7 @@ export function conversationTimeline(rows: RequestRow[], id: string): {
       durationMs: row.durationMs,
       ttftMs: row.ttftMs,
       contextTokens: row.inputTokens,
+      contextEligible: contextEligible(row),
     };
   });
   return {
@@ -948,18 +997,20 @@ export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: numbe
     });
 }
 
-export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number, tz: string): { ts: number; label: string; hitRate: number | null; savingsUsd: number; cacheRead: number; input: number }[] {
-  const buckets = new Map<number, { read: number; input: number; savings: number }>();
-  for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { read: 0, input: 0, savings: 0 });
+export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number, tz: string): { ts: number; label: string; hitRate: number | null; savingsUsd: number; cacheRead: number; input: number; eligibleRequests: number; totalRequests: number }[] {
+  const buckets = new Map<number, { read: number; input: number; savings: number; eligible: number; total: number }>();
+  for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { read: 0, input: 0, savings: 0, eligible: 0, total: 0 });
   for (const row of rows) {
     const key = bucketStart(row.ts, bucket, tz);
     const entry = buckets.get(key);
     if (!entry) continue;
-    if (row.cacheProvenance === "observed") {
+    entry.total++;
+    if (cacheEligible(row)) {
+      entry.eligible++;
       entry.read += row.cacheReadTokens;
       entry.input += row.inputTokens;
     }
-    if (row.rateIn !== null && row.rateCacheRead !== null) {
+    if (row.priced && row.rateIn !== null && row.rateCacheRead !== null) {
       entry.savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
     }
   }
@@ -970,17 +1021,20 @@ export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, 
       label: bucketLabel(ts, bucket, tz),
       hitRate: entry.input > 0 ? round(entry.read / entry.input, 4) : null,
       savingsUsd: round(entry.savings, 4),
+      eligibleRequests: entry.eligible,
+      totalRequests: entry.total,
       cacheRead: entry.read,
       input: entry.input,
     }));
 }
 
-export function contextPressure(rows: RequestRow[]): { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null } {
+export function contextPressure(rows: RequestRow[]): { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number } {
   const edges = [0, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 512_000, Infinity];
   const labels = ["<8k", "8-16k", "16-32k", "32-64k", "64-128k", "128-256k", "256-512k", "512k+"];
   const counts = Array.from({ length: labels.length }, () => 0);
   const inputs: number[] = [];
   for (const row of rows) {
+    if (!contextEligible(row)) continue;
     inputs.push(row.inputTokens);
     for (let i = 0; i < labels.length; i++) {
       if (row.inputTokens >= edges[i]! && row.inputTokens < edges[i + 1]!) {
@@ -991,6 +1045,8 @@ export function contextPressure(rows: RequestRow[]): { buckets: { name: string; 
   }
   return {
     buckets: labels.map((name, index) => ({ name, value: counts[index]! })),
+    eligibleRequests: inputs.length,
+    totalRequests: rows.length,
     maxInput: inputs.length ? Math.max(...inputs) : 0,
     p50Input: percentile(inputs, 0.5),
     p95Input: percentile(inputs, 0.95),

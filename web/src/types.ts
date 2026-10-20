@@ -1,3 +1,30 @@
+export type Source = "claude-code" | "ocx";
+export interface Measurements {
+  outcome: boolean;
+  duration: boolean;
+  ttft: boolean;
+  retries: boolean;
+  input: boolean;
+  output: boolean;
+  cacheRead: boolean;
+  cacheWrite: boolean;
+  usage: "logical" | "attempt-sum" | "missing";
+}
+
+export interface MeasurementSample { eligibleRequests: number; totalRequests: number }
+export interface MeasurementCoverage {
+  totalRequests: number;
+  outcomes: MeasurementSample;
+  duration: MeasurementSample;
+  ttft: MeasurementSample;
+  throughput: MeasurementSample;
+  retries: MeasurementSample;
+  input: MeasurementSample;
+  context: MeasurementSample;
+  cache: MeasurementSample;
+  pricing: MeasurementSample;
+}
+
 export interface TokenTotals {
   input: number;
   output: number;
@@ -12,6 +39,8 @@ export interface Summary {
   ok: number;
   errors: number;
   cancelled: number;
+  unobserved: number;
+  measurementCoverage: MeasurementCoverage;
   successRate: number | null;
   tokens: TokenTotals;
   cost: number;
@@ -76,16 +105,32 @@ export interface BreakdownRow {
   firstSeen: number;
   lastSeen: number;
   unpricedRequests: number;
+  pricedRequests: number;
+  measurementCoverage: MeasurementCoverage;
 }
 
 export interface RequestRow {
+  source: Source;
+  protocol: string | null;
+  measurements: Measurements;
+  usageFromAttempts: boolean;
+  usageStatus: string;
+  cacheProvenance: string | null;
+  cacheWriteTokens: number;
+  rateIn: number | null;
+  rateOut: number | null;
+  rateCacheRead: number | null;
+  rateCacheWrite: number | null;
+  sends: number;
+  attemptTokens: number;
+  cwd: string | null;
   id: string;
   ts: number;
   provider: string;
   model: string;
   effort: string | null;
   status: number;
-  outcome: "ok" | "error" | "cancelled";
+  outcome: "ok" | "error" | "cancelled" | "unobserved";
   durationMs: number;
   ttftMs: number | null;
   inputTokens: number;
@@ -170,6 +215,8 @@ export interface QuotaResponse extends QuotaView {
 }
 
 export interface MetaResponse {
+  sources: Source[];
+  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean }>;
   ok: boolean;
   ocxHome: string;
   timeZone: string;
@@ -205,12 +252,13 @@ export interface OverviewResponse {
   topEfforts: BreakdownRow[];
   topConversations: ConversationRow[];
   heatmap: { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number };
-  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null };
+  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
   quota: QuotaView;
   recent: RequestRow[];
 }
 
 export interface PerformanceResponse {
+  measurementCoverage: MeasurementCoverage;
   ok: boolean;
   window: { from: number; to: number; bucket: "hour" | "day" | "week" };
   timeline: {
@@ -240,16 +288,18 @@ export interface PerformanceResponse {
   byModel: BreakdownRow[];
   ttftVsOutput: { ttftMs: number; outputTokens: number; model: string; ts: number }[];
   slowest: RequestRow[];
-  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null };
+  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
 }
 
 export interface ReliabilityResponse {
+  measurementCoverage: MeasurementCoverage;
+  successRate: number | null;
   ok: boolean;
   window: { from: number; to: number };
   outcomes: { name: string; value: number }[];
   statuses: { name: string; value: number }[];
   errors: { name: string; value: number; models: number; lastSeen: number; tokens: number; cost: number }[];
-  errorTimeline: { ts: number; label: string; ok: number; error: number; cancelled: number }[];
+  errorTimeline: { ts: number; label: string; ok: number; error: number; cancelled: number; unobserved: number }[];
   attempts: { name: string; value: number }[];
   failureByModel: { name: string; failures: number; requests: number; rate: number }[];
   recentFailures: RequestRow[];
@@ -301,7 +351,7 @@ export interface ConversationsResponse {
 export interface ConversationDetailResponse {
   ok: boolean;
   id: string;
-  points: { ts: number; tokens: number; cumulative: number; model: string; outcome: string; cost: number; durationMs: number; ttftMs: number | null; contextTokens: number }[];
+  points: { ts: number; tokens: number; cumulative: number; model: string; outcome: string; cost: number; durationMs: number; ttftMs: number | null; contextTokens: number; contextEligible: boolean }[];
   summary: Summary;
   models: { name: string; value: number }[];
   requests: RequestRow[];
@@ -320,6 +370,8 @@ export interface CompositionPoint {
 }
 
 export interface CachePoint {
+  eligibleRequests: number;
+  totalRequests: number;
   ts: number;
   label: string;
   hitRate: number | null;
@@ -344,7 +396,7 @@ export interface UsageResponse {
   cache: CachePoint[];
   series: Series;
   heatmap: { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number };
-  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null };
+  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
   byModel: BreakdownRow[];
   byProvider: BreakdownRow[];
   byEffort: BreakdownRow[];
