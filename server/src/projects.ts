@@ -66,6 +66,17 @@ export function gitRoot(dir: string): string | null {
   return findGitRoot(dir, new Map());
 }
 
+/** Exact grouping identity, shared by project totals and Labs evidence (never a glob).
+ * Create once per analysis so both windows share root resolution, without stale global caches.
+ */
+export function createProjectIdentity(): (cwd: string | null) => { project: string; gitRoot: boolean } {
+  const roots = new Map<string, string | null>();
+  return cwd => {
+    const root = cwd === null ? null : findGitRoot(cwd, roots);
+    return { project: cwd === null ? UNATTRIBUTED : root ?? cwd, gitRoot: root !== null };
+  };
+}
+
 export interface ProjectRow {
   /** Git root, the working directory itself when there is none, or `(unattributed)`. */
   project: string;
@@ -83,15 +94,14 @@ export interface ProjectRow {
 
 /** Requests, tokens and cost per project, largest first, then an `(unattributed)` row (always present). */
 export function projectBreakdown(rows: RequestRow[]): ProjectRow[] {
-  const roots = new Map<string, string | null>();
+  const identity = createProjectIdentity();
   const byProject = new Map<string, ProjectRow & { folderSet: Set<string> }>();
   byProject.set(UNATTRIBUTED, { project: UNATTRIBUTED, gitRoot: false, folders: [], folderSet: new Set(), requests: 0, tokens: 0, cost: 0, firstSeen: null, lastSeen: null });
   for (const row of rows) {
-    const root = row.cwd === null ? null : findGitRoot(row.cwd, roots);
-    const project = row.cwd === null ? UNATTRIBUTED : root ?? row.cwd;
+    const { project, gitRoot } = identity(row.cwd);
     let entry = byProject.get(project);
     if (!entry) {
-      entry = { project, gitRoot: root !== null, folders: [], folderSet: new Set(), requests: 0, tokens: 0, cost: 0, firstSeen: row.ts, lastSeen: row.ts };
+      entry = { project, gitRoot, folders: [], folderSet: new Set(), requests: 0, tokens: 0, cost: 0, firstSeen: row.ts, lastSeen: row.ts };
       byProject.set(project, entry);
     }
     if (row.cwd !== null) entry.folderSet.add(row.cwd);
