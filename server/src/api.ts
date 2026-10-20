@@ -34,6 +34,7 @@ import {
 } from "./analytics";
 import { ALL_SOURCES, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
+import { buildContextReplay } from "./labs/context";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
@@ -294,6 +295,12 @@ api.get("/api/meta", async c => {
     quota: { windows: dataset.quota.windows, updatedAt: dataset.quota.updatedAt },
     paths: PATHS,
   });
+});
+
+api.get("/api/labs/context", c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  return c.json({ ok: true, ...buildContextReplay(dataset.rows, query.filter, query.window) });
 });
 
 api.get("/api/overview", async c => {

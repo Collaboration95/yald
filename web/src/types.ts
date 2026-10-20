@@ -540,3 +540,5 @@ export interface ProjectRadarResponse {
     comparison: RadarComparison;
   }[];
 }
+
+export type { ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";

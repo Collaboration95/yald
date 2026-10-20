@@ -1,4 +1,5 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import type { ContextReplayResponse } from "./labs/context-types";
 
 export const RANGES = [
   { id: "24h", label: "24h" },
@@ -101,4 +102,13 @@ export function useEndpoint<T>(
 
 export function exportUrl(filters: Filters, dataset: string): string {
   return `/api/export?${filtersToParams(filters, { dataset })}`;
+}
+
+/** Mount only when Labs is enabled; extra accepts resolved bounds and source/project scope. */
+export function useContextReplay(
+  filters: Filters,
+  extra: Record<string, unknown> = {},
+  options: { enabled?: boolean; staleTime?: number; refetchInterval?: number | false } = {},
+): UseQueryResult<ContextReplayResponse> {
+  return useEndpoint<ContextReplayResponse>("/api/labs/context", filters, extra, options);
 }
