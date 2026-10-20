@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { CacheDetective } from "./CacheDetective";
+import { ContextReplay } from "./ContextReplay";
 
 export interface LabsInvestigation {
   path: string;
@@ -13,5 +14,5 @@ export interface LabsInvestigation {
 export const LABS_INVESTIGATIONS: readonly LabsInvestigation[] = [
   { path: "project-radar", title: "Project Radar", description: "Explore project usage and estimated cost changes." },
   { path: "cache-detective", title: "Cache Detective", description: "Inspect cache-read discounts and cache-write premiums.", Component: CacheDetective },
-  { path: "context-replay", title: "Context Replay", description: "Follow submitted context across requests in a session." },
+  { path: "context-replay", title: "Context Replay", description: "Follow submitted context across requests in a session.", Component: ContextReplay },
 ];
