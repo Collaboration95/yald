@@ -24,6 +24,7 @@ import { LabsPage, LabsInvestigationPage } from "../src/pages/labs/LabsPage";
 import { LabsLayout } from "../src/pages/labs/LabsLayout";
 import { InvestigationScope } from "../src/pages/labs/InvestigationScope";
 import { InvestigationState, type InvestigationStateKind } from "../src/pages/labs/InvestigationState";
+import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { OverviewPage } from "../src/pages/Overview";
 import { UsagePage } from "../src/pages/Usage";
