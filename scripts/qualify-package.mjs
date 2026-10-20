@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import { arch, platform, release, tmpdir, version } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const [command, directoryArg, receiptArg] = process.argv.slice(2);
@@ -52,14 +53,59 @@ async function fresh(path) {
   assert.deepEqual(await readdir(path), [], `Refusing to reuse or overwrite an artifact/receipt directory: ${path}`);
 }
 async function inventory(tarball) {
-  const names = run("tar", ["-tzf", tarball]).split("\n");
-  assert.equal(new Set(names).size, names.length, "Duplicate tar entries");
-  for (const name of names) assert.ok(/^package\/.+/.test(name) && !name.split("/").some(p => p === ".." || p === "."), `Unsafe tar entry: ${name}`);
+  // Inspect raw ustar headers: BSD tar renders even a regular-file header
+  // ending in '/' as a directory. A textual type listing loses that distinction.
+  // npm's candidate uses plain ustar. Reject extensions (including PAX/GNU
+  // overrides) rather than risk validating a different path/type than tar uses.
+  const archive = gunzipSync(await readFile(tarball)), members = [];
+  let offset = 0;
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    if (header.every(byte => byte === 0)) break;
+    const field = (start, length) => header.subarray(start, start + length).toString("utf8").split("\0", 1)[0];
+    assert.equal(header.toString("utf8", 257, 265), "ustar\0" + "00", "Unsupported tar header format");
+    const prefix = field(345, 155), name = (prefix ? `${prefix}/` : "") + field(0, 100);
+    const type = header[156] === 0 ? "0" : String.fromCharCode(header[156]);
+    assert.ok(type === "0" || type === "5", `Unsupported tar entry type ${type}: ${name}`);
+    assert.equal(field(157, 100), "", `Unexpected tar link target: ${name}`);
+    const sizeField = header.toString("utf8", 124, 136);
+    assert.match(sizeField, /^ *[0-7]+[ \0]*$/, `Unsupported tar size: ${name}`);
+    const size = parseInt(sizeField, 8), directory = type === "5";
+    assert.ok(Number.isSafeInteger(size) && size >= 0 && (!directory || size === 0), `Invalid tar size: ${name}`);
+    offset += 512 + Math.ceil(size / 512) * 512;
+    assert.ok(offset <= archive.length, `Truncated tar entry: ${name}`);
+    members.push({ name, directory });
+  }
+  assert.ok(archive.length % 512 === 0 && archive.length - offset >= 1024 && archive.subarray(offset).every(byte => byte === 0), "Invalid tar end marker or hidden entries");
+  const entries = new Map(), filesToRead = [];
+  for (const { name, directory } of members) {
+    // Conservative portable names reject control characters and ambiguous
+    // spellings. Only actual directories may end in '/'.
+    const path = directory ? name.replace(/\/$/, "") : name;
+    assert.ok(/^package(?:\/[A-Za-z0-9_@+.-]+)*$/.test(path) && !path.split("/").some(p => p === ".." || p === ".") &&
+      (directory || path !== "package"), `Unsafe tar entry: ${name}`);
+    // Include directory/file aliases and case collisions on macOS, not just
+    // byte-identical names, and reject files used as ancestor directories.
+    const key = path.toLowerCase();
+    assert.ok(!entries.has(key), `Duplicate/conflicting tar entry: ${name}`);
+    entries.set(key, directory);
+    if (!directory) filesToRead.push(name);
+  }
+  for (const path of entries.keys()) {
+    for (let parent = dirname(path); parent !== "."; parent = dirname(parent)) {
+      assert.notEqual(entries.get(parent), false, `Conflicting tar ancestor: ${path}`);
+    }
+  }
+  // Let the platform tar validate checksums and agree on every effective name
+  // before extraction. Directory suffix presentation varies between tar tools.
+  const names = run("tar", ["-tzf", tarball], { encoding: null, env: { ...process.env, LC_ALL: "C" } }).toString("utf8").split("\n");
+  assert.equal(names.pop(), "", "Incomplete tar listing");
+  assert.deepEqual(names.map(name => name.replace(/\/$/, "")), members.map(({ name }) => name.replace(/\/$/, "")), "Ambiguous tar inventory");
   const unpack = await mkdtemp(join(tmpdir(), "yald-tar-inventory-"));
   try {
     run("tar", ["-xzf", tarball, "-C", unpack]);
     const files = [];
-    for (const name of names.filter(name => !name.endsWith("/")).sort()) {
+    for (const name of filesToRead.sort()) {
       const path = join(unpack, name), info = await lstat(path);
       assert.ok(info.isFile() && !info.isSymbolicLink(), `Expected regular file: ${name}`);
       files.push({ path: name.slice(8), bytes: info.size, sha256: sha(await readFile(path)) });
