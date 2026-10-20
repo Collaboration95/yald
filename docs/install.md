@@ -103,17 +103,31 @@ attribution coverage remain independent. See [cost](metrics.md#metering-and-cost
 | --- | --- | --- |
 | Installed `yald` or `node scripts/yald.mjs` | `127.0.0.1:4318` | `--port` / `YALD_PORT`, `--host` / `YALD_HOST` |
 | `make run` / `scripts/serve.sh` | `127.0.0.1:4318` | Builds UI; sets `PORT=4318` when `PORT` is absent; server env precedence still applies |
-| `make dev` / `scripts/dev.sh` | API `127.0.0.1:4318`, Vite `localhost:5317` | `YALD_API_PORT` selects the API port; use Vite's printed URL if it selects another free port |
+| `make dev` / `scripts/dev.sh` | API `127.0.0.1:4318`, Vite `localhost:5317` | See the HMR override below; use Vite's printed URL if it selects another free port |
 | Direct `scripts/bun run server/src/index.ts` or `npm start` | `127.0.0.1:4317` | No launcher port override |
 | Report CLI | No listener | Writes local output files |
 
 The direct server resolves port as `YALD_PORT`, then `OCX_OBSERVATORY_PORT`, then
 `PORT`, then `4317`. The packaged launcher explicitly supplies `YALD_PORT=4318`
 when it is unset, so `PORT` and the legacy port variable do not override its
-default. Pass `--port` or set `YALD_PORT` to choose consistently across entry points.
+default. The launcher accepts `--port`; `YALD_PORT` controls its port and the
+direct server's port. HMR also needs the alignment described below.
 For the host, the direct server uses `YALD_HOST`, then `HOST`, then `127.0.0.1`;
 the launcher's `--open` URL uses `YALD_HOST` or loopback, so use `--host` /
 `YALD_HOST` for that entry point.
+
+For HMR, the script chooses its proxy port from `YALD_API_PORT`, then
+`OCX_OBSERVATORY_API_PORT`, `YALD_PORT`, `PORT`, or `4318`. It passes that port
+to the server as `PORT`. The server still gives `YALD_PORT` and
+`OCX_OBSERVATORY_PORT` higher precedence. Unset those higher-precedence values
+in the server environment or align them with `YALD_API_PORT`; otherwise Vite
+can target a different port from the actual listener. This example aligns the
+ports and binds the API to loopback:
+
+```bash
+YALD_HOST=127.0.0.1 YALD_API_PORT=4319 YALD_PORT=4319 \
+  OCX_OBSERVATORY_PORT=4319 make dev
+```
 
 | Variable | Default / use |
 | --- | --- |
@@ -123,7 +137,7 @@ the launcher's `--open` URL uses `YALD_HOST` or loopback, so use `--host` /
 | `OCX_PACKAGE_DIR` | Auto-discovered pricing package; use an absolute path |
 | `YALD_TZ` | System timezone; legacy `OCX_OBSERVATORY_TZ` is the fallback; report `--tz` overrides both |
 | `YALD_PORT`, `YALD_HOST` | Listener settings above |
-| `YALD_API_PORT` | Development script's API port; legacy `OCX_OBSERVATORY_API_PORT` is its fallback |
+| `YALD_API_PORT` | HMR proxy port and server `PORT` fallback; legacy `OCX_OBSERVATORY_API_PORT` is its fallback. Higher-precedence server port variables must be unset or aligned as above |
 | `BUN_BIN` | Checkout runtime override after a package-local Bun runtime |
 
 ## Development checkout
