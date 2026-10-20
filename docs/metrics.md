@@ -165,3 +165,14 @@ bounds to the exact half-open scope. Active days count days with requests, even
 when tokens or prices are zero; missing days are not evidence of known zero use.
 Model mix is source/provider qualified. The API reference documents sorting,
 units and the exact fixed-window selectors for both periods and each group.
+
+## Labs context growth
+
+Context Replay compares median input of the first three eligible requests with
+median input of the last three, requiring at least six. It reports signed absolute
+change and latest/baseline ratio; a zero baseline has no ratio. Missing input and
+attempt sums remain gaps, and observed zero remains eligible. Shorter sequences
+remain viewable without ranked growth. Sessions are source-qualified; window and
+cohort limits and all excluded requests are disclosed. See the
+[Context Replay contract](labs-context.md) for denominators and history coverage.
+These request observations do not infer turns, compaction, waste or answer quality.
