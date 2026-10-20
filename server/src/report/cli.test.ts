@@ -138,14 +138,16 @@ describe("yald report", () => {
     expect(await readdir(cwd)).toEqual([]);
   });
 
-  test("--json - writes only the JSON to stdout, equal to the committed sample apart from the clock", async () => {
+  test("--json - writes only JSON with the current package version and the committed sample data", async () => {
     const cwd = await emptyDir();
     const result = run([...SAMPLE_FLAGS, "--out", "report.html", "--json", "-"], { cwd });
     expect(result.code).toBe(0);
     const data = JSON.parse(result.stdout) as ReportData;
     expect(result.stdout).toBe(`${JSON.stringify(data, null, 2)}\n`);
-    // generatedAt and quota projections follow the real clock; the sample's is frozen.
-    const strip = (report: ReportData) => ({ ...report, meta: { ...report.meta, generatedAt: 0 }, quota: null });
+    expect(data.meta.yaldVersion).toBe(JSON.parse(await readFile(join(root, "package.json"), "utf8")).version);
+    // The sample freezes an older version and clock. Check the live version
+    // above, then compare report data independently of version/time metadata.
+    const strip = (report: ReportData) => ({ ...report, meta: { ...report.meta, generatedAt: 0, yaldVersion: "" }, quota: null });
     expect(strip(data)).toEqual(strip(committedSample as unknown as ReportData));
     expect(await readdir(cwd)).toEqual(["report.html"]);
     expect(result.stderr.trimEnd().split("\n").at(-1)).toMatch(/^Wrote report\.html \(\d+ KB\) and JSON to stdout \(\d+ KB\) · 72 requests · /);

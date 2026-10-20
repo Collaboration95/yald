@@ -1,13 +1,13 @@
 # Installation and local data
 
-## Published GitHub preview
+## Meet Yaldi 0.2.0 GitHub package
 
-The verified distribution channel is the
-[v0.1.0 GitHub prerelease](https://github.com/Collaboration95/yald/releases/tag/v0.1.0),
-with `yald-dashboard-0.1.0.tgz` and `SHA256SUMS`. npm registry and Homebrew
-publication are unverified. Use the release tarball, rather than a registry
-package with a similar name. The executable is `yald`; the package name is
-`yald-dashboard`.
+The baseline channel for **0.2.0 — Meet Yaldi** is the GitHub tarball,
+`yald-dashboard-0.2.0.tgz`, with `SHA256SUMS`. Confirm both assets are present on
+the [v0.2.0 release page](https://github.com/Collaboration95/yald/releases/tag/v0.2.0)
+before downloading; preparing these instructions does not publish the candidate.
+npm registry and Homebrew distribution remain **UNVERIFIED**. The executable is
+`yald`; the package name is `yald-dashboard`.
 
 Prerequisites: macOS or Linux, Node.js 18+, npm, an authenticated GitHub CLI
 (`gh`) and `shasum`. The tarball contains the built UI and server. npm installs
@@ -17,26 +17,29 @@ checkout, Make and a separate global Bun installation are unnecessary.
 ```bash
 release_dir="$(mktemp -d)"
 yald_prefix="$HOME/.local"
-gh release download v0.1.0 --repo Collaboration95/yald \
-  --pattern 'yald-dashboard-0.1.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
+gh release download v0.2.0 --repo Collaboration95/yald \
+  --pattern 'yald-dashboard-0.2.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
 (cd "$release_dir" && shasum -a 256 -c SHA256SUMS) && \
-npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.1.0.tgz"
+npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.2.0.tgz"
 export PATH="$yald_prefix/bin:$PATH"
 yald --version
 yald --help
-yald
+yald demo --open
 ```
 
 Continue only if checksum verification says `OK`; the installed version should
-be `0.1.0`. Open **http://127.0.0.1:4318** and stop with Ctrl+C. `yald --open`
-also opens the dashboard in your default browser. Add the chosen prefix's `bin`
-directory to your shell's `PATH` for later sessions. If the runtime is missing,
+be exactly `0.2.0`. The installed demo opens **http://127.0.0.1:4318** with
+synthetic data, illustrative prices and Labs enabled. Stop with Ctrl+C to remove
+its generated data. Run `yald --open` to read your normal sources instead; that
+mode writes Yald's own Claude usage archive as documented below. Add the chosen
+prefix's `bin` directory to your shell's `PATH` for later sessions. If the runtime is missing,
 check npm's install-script policy and reinstall the same verified tarball.
 
-This published package is the **opencodex-only preview**. It predates Claude
-ingestion, source/project controls, standalone reports, Yaldi and Labs. Those
-features exist on `dev` for planned 0.2.0; no 0.2.0 download is published yet.
-The sections below describe current development unless explicitly stated.
+The earlier [v0.1.0 prerelease](https://github.com/Collaboration95/yald/releases/tag/v0.1.0)
+is the opencodex-only preview; it has no Claude ingestion, source/project controls,
+reports, Yaldi, Labs or demo. The sections below describe 0.2.0. See the
+[demo guide](demo.md), [release notes](release-notes-v0.2.0.md) and
+[candidate process](release-candidate-v0.2.0.md) for feature and qualification details.
 
 ## Data locations and local archive
 
@@ -142,10 +145,9 @@ YALD_HOST=127.0.0.1 YALD_API_PORT=4319 YALD_PORT=4319 \
 
 ## Development checkout
 
-Use this path to work with the implemented Claude, report and Labs features
-before 0.2.0 publication. It is a source build, separate from the published
-preview installation above. Install Bun 1.1+ (or supply a compatible runtime
-through `BUN_BIN`), Git, Node.js and npm; then:
+Use this path to develop Yald from source, separate from installing the GitHub
+package above. Install Bun compatible with the declared `^1.4.0` dependency
+(or supply a compatible runtime through `BUN_BIN`), Git, Node.js and npm; then:
 
 ```bash
 gh repo clone Collaboration95/yald yald -- --branch dev

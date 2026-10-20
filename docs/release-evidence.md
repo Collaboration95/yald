@@ -64,8 +64,10 @@ tree. Immutable identities and actual platform outcomes belong in the uploaded
 manifest/receipts and parent PR/issue evidence after the source is committed.
 Until those receipts and UI evidence pass, qualification remains incomplete.
 Record every unresolved finding there; material data, identity, isolation or
-platform failures block R02. Development packages may still say `0.1.0`; they
-are distinct bytes from the published preview. Node `>=18` and Bun `^1.4.0`
+platform failures block R02. The selected release version is now `0.2.0`, with
+archive `yald-dashboard-0.2.0.tgz`; the accepted R01 development archive saying
+`0.1.0` does not qualify these changed inputs. See the
+[0.2.0 candidate packet](release-candidate-v0.2.0.md). Node `>=18` and Bun `^1.4.0`
 are declarations, not a claim that every permitted runtime was tested. CI
 currently selects Node 22 and Bun latest; receipts record what actually ran.
 Version selection, release inputs and requalification belong to R02; promotion,
