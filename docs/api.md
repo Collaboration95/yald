@@ -142,12 +142,13 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/usage` | Shared | Summary, token composition, cache timeline, series, heatmap, context, breakdowns |
 | `GET /api/usage/heatmap-dates` | Shared; `weekday` (0–6, Monday first), `hour` (0–23), `limit`, `offset` | Ranked local dates for one heatmap cell in `tz` |
 | `GET /api/context` | Shared | Context length per `(source, model)`, over time, by band, above thresholds and as session growth, each with eligible coverage; see [`GET /api/context`](#get-apicontext) |
-| `GET /api/cost` | Shared | Summary, cost composition, cost series/cumulative totals, cache savings, breakdowns |
+| `GET /api/cost` | Shared | Summary, cost composition (with `adjustment`), `pricedTokens`, cost series/cumulative totals, cache savings, breakdowns, the ten costliest sessions across all sessions |
+| `GET /api/cost/structure` | Shared; `bucket` | Session cost concentration, blended price by price tier over time and token-class cost mix per source, priced rows only; see [`GET /api/cost/structure`](#get-apicoststructure) |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
 | `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
 | `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |
 | `GET /api/ledger` | Window parameters, `sources`; other shared filters are declared ignored | Account-wide spend-ledger counts and selected-range buckets, send/token totals, account `scope` |
-| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Ranked conversations and aggregate totals |
+| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Conversations ranked by `sort` across every session in the selection, then cut to `limit`; aggregate totals |
 | `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |
@@ -157,6 +158,18 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
 
 `GET /api/dataset/refresh` is an operational endpoint used by local tooling. It rebuilds immediately and returns `{ok, rows, parseMs, builtAt}`. The application server serves the built web app at `/` and its client routes.
+
+### `GET /api/cost/structure`
+
+Spend structure over the priced requests of the selection. Every dollar is an API list-price equivalent; unpriced requests are counted in `pricing` and left out of every figure, never treated as $0. Takes the shared parameters and `bucket`. See [Spend structure](metrics.md#spend-structure).
+
+| Field | Meaning |
+| --- | --- |
+| `pricing` | `totalRequests`, `pricedRequests`, `unpricedRequests`, `pricedTokens`, `unpricedTokens`, `cost` |
+| `concentration` | Over sessions `(source, conversationId)` with at least one priced request: `sessions`, `partlyPricedSessions` (cost is a lower bound), `unpricedSessions`, `clippedSessions`, `noSessionId`, `totalCost`, `top1pct`, `top5pct`, `top10Sessions` (`{ sessions, cost, share }`), `gini`, and `curve` (`{ x, y }`: cumulative share of sessions against cumulative share of cost, log-spaced, at most about 100 points). A figure below its minimum sample (`minimums`: 100, 20, 10 and 10 sessions) is `null` |
+| `tiers` | `definitions` (the fixed price-tier bands), `models` per tier, and `unclassifiedRequests` (priced, no input rate) |
+| `series` | Per bucket: `pricedRequests`, `pricedTokens`, `cost`, `blendedPer1M` and per tier `blendedPer1M`, `requestShare`, `tokenShare`; empty buckets are `null`, never 0 |
+| `classMix` | Per source: priced `tokens` and `cost` by class (`freshInput`, `cacheRead`, `cacheWrite`, `output`, with `reasoning` as an `of which` inside output, and `adjustment`), `tokenShare` and `costShare`, and the same per bucket |
 
 ### `GET /api/context`
 
