@@ -1,5 +1,10 @@
 # Meet Yaldi 0.2.0 candidate packet
 
+Historical preparation record: the hosted Ubuntu/macOS CI workflow and its
+required checks were removed on 2026-10-21. CI-based gates below describe the
+earlier process. Current verification is [local](releasing.md#check-locally).
+Earlier artifacts identify their original source, which predates this removal.
+
 This is the checked-in preparation contract for #70, not a publication receipt.
 Final version **0.2.0**, title **Meet Yaldi**, date **2026-10-20**, eventual tag
 `v0.2.0`, package `yald-dashboard`, CLI version `0.2.0`, archive

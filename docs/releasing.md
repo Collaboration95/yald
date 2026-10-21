@@ -18,15 +18,18 @@ See the [candidate packet](release-candidate-v0.2.0.md),
 Exact source identities, selected artifact IDs and checksums belong in external
 receipts after the final source is committed, avoiding a self-referencing tree.
 
-## Qualify one archive
+## Check locally
 
 From clean committed source with frozen dependencies installed:
 
 ```sh
 make check
-for zone in UTC Asia/Singapore America/Los_Angeles; do
-  TZ="$zone" scripts/bun test server/src/time
-done
+```
+
+Hosted Ubuntu/macOS test CI has been removed. No cross-platform test matrix or
+Actions artifact is required. For an optional clean-install check of an archive:
+
+```sh
 node scripts/qualify-package.mjs produce /tmp/yald-candidate-UNIQUE
 node scripts/qualify-package.mjs verify /tmp/yald-candidate-UNIQUE /tmp/yald-receipt-UNIQUE
 ```
@@ -39,19 +42,11 @@ Tests, fixtures, source logs, private paths, reference art and verification tool
 are excluded from the distribution. Explicitly manifested screenshots and user
 documents are intentional payload. Installed relative Markdown links must resolve.
 
-Local macOS evidence alone is insufficient. CI's `candidate` job produces
-`yald-candidate-RUN_ID-PRODUCER_RUN_ATTEMPT`. Required
-`verify (ubuntu-latest)` and `verify (macos-latest)` jobs install that same
-archive. Retain its manifest, npm inventory, SHA256SUMS and both successful
-receipt artifacts before the 90-day Actions retention expires. Compare actual
-source commit/tree/ordered parents, archive hash/size/version, producer identity,
-all installed files and UI resource hashes. Record actual runtimes and platforms;
-Node `>=18` is a declaration, not evidence that every allowed version was tested.
-
-Select **one exact producer artifact**, including its ID and attempt. A failed
-verifier may retry against the original producer; never silently substitute a
-new run's archive. Independent source builds in matrix jobs do not replace it.
-A source, documentation or asset change requires a fresh candidate and receipts.
+Record the archive checksum, source and platform actually checked. A local run
+does not establish results on another operating system. Node `>=18` is a
+declaration, not evidence that every allowed version was tested. Earlier Actions
+artifacts and platform receipts remain historical evidence for their own source;
+they do not establish checks for later changes.
 
 ## Promote and publish the selected bytes
 
@@ -61,22 +56,9 @@ checks, up-to-date base and resolved conversations, with no direct/force push or
 protection bypass. Record the actual promotion commits and prove the final
 `main`/tag tree equals the qualified candidate tree. If it changes, requalify.
 
-The release owner downloads the selected producer and its two verifier artifacts
-with authenticated `gh`, for example:
-
-```sh
-gh run download SELECTED_RUN_ID --repo Collaboration95/yald \
-  --name yald-candidate-SELECTED_RUN_ID-PRODUCER_ATTEMPT --dir /tmp/selected-candidate
-gh run download SELECTED_RUN_ID --repo Collaboration95/yald \
-  --name yald-receipt-SELECTED_RUN_ID-VERIFY_ATTEMPT-ubuntu-latest --dir /tmp/selected-linux
-gh run download SELECTED_RUN_ID --repo Collaboration95/yald \
-  --name yald-receipt-SELECTED_RUN_ID-VERIFY_ATTEMPT-macos-latest --dir /tmp/selected-macos
-```
-
-Replace placeholders with actual artifact names (verifier attempts can differ).
-Retain successful run/check URLs, IDs and receipt paths in PR/issue evidence.
-Attach the exact selected `.tgz`, `SHA256SUMS`, `manifest.json` and separately
-named platform receipts to the release. Publish using
+Keep the locally prepared archive and checksum together. Attach the exact
+selected `.tgz` and `SHA256SUMS`, plus any recorded verification evidence, to the
+release. Publish using
 `docs/release-notes-v0.2.0.md` unchanged as the body and `Meet Yaldi` as the title.
 Tag the qualified `main` commit only after all promotion gates pass.
 
@@ -86,7 +68,7 @@ existing clean-install verifier against those downloaded bytes on their recorded
 clean candidate source (the verifier requires exact commit/tree/parents); separately
 record equality with the promoted tag tree. A new build from an equal tree is not
 the selected archive. Only successful published-download and installed-package
-evidence completes publication. CI does not publish releases or packages itself.
+evidence completes publication. Releases and package publication are manual.
 
 ## Separate, UNVERIFIED channels
 
