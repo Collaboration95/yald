@@ -44,6 +44,11 @@ export interface RequestRow {
   unresolved: number;
   cacheProvenance: string | null;
   contextTier: "long" | null;
+  /**
+   * The engine's own cost per token class (input excludes cache), so the classes add up to `cost`
+   * exactly, including long-context tier and priority rows. Null/absent: unpriced or incomplete.
+   */
+  costParts?: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
   serviceTier: string | null;
   retried: boolean;
   /** True when the row had no top-level usage and tokens were summed from attempts. */
@@ -121,6 +126,16 @@ function str(value: unknown): string | null {
 
 function finiteOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** The engine's per-class costs when they are finite, non-negative and add up to its total; otherwise null. */
+function engineCostParts(cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } | undefined): RequestRow["costParts"] {
+  if (!cost) return null;
+  const parts = [cost.input, cost.output, cost.cacheRead, cost.cacheWrite];
+  if (![...parts, cost.total].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)) return null;
+  const sum = parts[0]! + parts[1]! + parts[2]! + parts[3]!;
+  if (Math.abs(sum - cost.total) > 1e-9 * Math.max(1, cost.total)) return null;
+  return { input: cost.input, output: cost.output, cacheRead: cost.cacheRead, cacheWrite: cost.cacheWrite };
 }
 
 export function normalizeRow(entry: Record<string, any>): RequestRow {
@@ -234,6 +249,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     reasoningTokens,
     totalTokens,
     cost: estimate?.cost?.total ?? 0,
+    costParts: engineCostParts(estimate?.cost),
     priced: estimate !== null,
     estimated: estimate?.estimated ?? false,
     rateIn: estimate?.price?.cost4?.input ?? null,

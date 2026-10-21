@@ -131,8 +131,11 @@ const PAGES: PageSpec[] = [
     name: "Cost",
     route: "/cost",
     Component: CostPage,
-    queries: [{ path: "/api/cost", params: filtersToParams(DEFAULT_FILTERS, { groupBy: DEFAULT_FILTERS.groupBy }) }],
-    expect: ["Spend over time", "Where the dollars go", "Blended price per 1M tokens", "Cost by model"],
+    queries: [
+      { path: "/api/cost", params: filtersToParams(DEFAULT_FILTERS, { groupBy: DEFAULT_FILTERS.groupBy }) },
+      { path: "/api/cost/structure", params: filtersToParams({ ...DEFAULT_FILTERS, groupBy: "", metric: "" }, {}) },
+    ],
+    expect: ["Spend over time", "Where the dollars go", "Blended price per 1M tokens", "Cost by model", "Spend concentration", "Blended price and price tiers", "Price tiers", "Token-class cost mix"],
     expectFrom: payloads => [payloads[0]?.byModel?.[0]?.key],
   },
   {

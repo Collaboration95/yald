@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { makeRelayStyle } from "../web/src/lib/relayStyle";
 import type { ChartOption } from "../web/src/components/Chart";
 import {
-  barChart, boxplotChart, donutChart, heatmapChart, lineChart, scatterChart,
+  barChart, boxplotChart, paretoChart, pairedBarChart, donutChart, heatmapChart, lineChart, scatterChart,
   stackedAreaChart, stackedBarChart, type ThemeTokens,
 } from "../web/src/components/chartOptions";
 import { formatCompact, formatInteger, formatUsdPrecise } from "../web/src/lib/format";
@@ -72,6 +72,13 @@ function fixtures(tokens: ThemeTokens): [string, ChartOption][] {
       { label: "tiny", box: null, p99: null, max: 3_000, n: 4 },
       { label: "zero-floor", box: [0, 0, 10, 50, 90], p99: null, max: 120, n: 12 },
     ], { formatter: formatCompact })],
+    ["cost / pareto curve of sessions", paretoChart(tokens, [{ x: 0.005, y: 0.3 }, { x: 0.05, y: 0.9 }, { x: 1, y: 1 }], [{ label: "top 5% · 90%", x: 0.05, y: 0.9 }])],
+    ["cost / tokens beside cost by class", pairedBarChart(tokens, ["Fresh input", "Cache read"], [
+      { name: "Share of tokens", data: [0.02, null] }, { name: "Share of cost", data: [0.25, 0.5] },
+    ], { formatter: value => `${(value * 100).toFixed(1)}%` })],
+    ["cost / class mix share area", stackedAreaChart(tokens, dates, [
+      { name: "Fresh input", data: [0.2, null, 0.1] }, { name: "Output", data: [0.8, null, 0.9] },
+    ], { formatter: value => `${Math.round(value * 100)}%`, colors: COMPOSITION_COLORS, max: 1 })],
     ["context / model by band heatmap", heatmapChart(tokens, [
       { weekday: 0, hour: 0, value: 0.75, requests: 3 }, { weekday: 0, hour: 1, value: 0.25, requests: 1 },
       { weekday: 1, hour: 0, value: 0, requests: 0 }, { weekday: 1, hour: 1, value: 1, requests: 9 },
@@ -204,6 +211,25 @@ describe("Relay production chart contracts", () => {
         expect(result.tooltip.formatter({ seriesType: "boxplot", dataIndex: 0 })).toContain("p99 too few requests");
         expect(result.tooltip.formatter({ seriesType: "scatter", value: [12, 1] })).toContain("p99 12");
         expect(result.legend?.show ?? false).toBe(false);
+      });
+
+      test("pareto curve is log-x with percent labels, marks the chosen points and has no legend", () => {
+        const result = inspect(makeRelayStyle(dark, models).chart(freeze(paretoChart(tokens, [{ x: 0.01, y: 0.4 }, { x: 1, y: 1 }], [{ label: "top 1%", x: 0.01, y: 0.4 }]))));
+        expect(result.xAxis.type).toBe("log");
+        expect(result.xAxis.min).toBe(0.01);
+        expect(result.xAxis.axisLabel.formatter(0.01)).toBe("1%");
+        expect(result.xAxis.axisLabel.formatter(0.5)).toBe("50%");
+        expect(result.series[1].data).toEqual([[0.01, 0.4], [1, 1]]);
+        expect(result.series[2].data).toEqual([[0.01, 0.4]]);
+        expect(result.series[2].label.formatter({ dataIndex: 0 })).toBe("top 1%");
+        expect(result.tooltip.formatter({ seriesName: "Cumulative cost share", value: [0.01, 0.4] })).toContain("top 1% of sessions hold <b>40%</b>");
+        expect(result.legend).toBeUndefined();
+      });
+
+      test("paired bars keep an unavailable value as a gap, not zero", () => {
+        const result = inspect(makeRelayStyle(dark, models).chart(freeze(pairedBarChart(tokens, ["a", "b"], [{ name: "x", data: [0.1, null] }], { formatter: value => `${value}` }))));
+        expect(result.series[0].data).toEqual([0.1, null]);
+        expect(result.tooltip.valueFormatter(null)).toBe("Unavailable");
       });
 
       test("labelled heatmaps index their own rows and columns and leave the default grid alone", () => {

@@ -9,7 +9,8 @@ import { Chart } from "../components/Chart";
 import { barChart, donutChart, lineChart, stackedBarChart } from "../components/chartOptions";
 import { COMPOSITION_COLORS } from "../lib/palette";
 import { formatCompact, formatInteger, formatPercent, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
-import type { CostResponse } from "../types";
+import { ClassMixSection, ConcentrationCard, PriceDriftCard, TiersCard, useInView } from "./CostStructure";
+import type { CostResponse, SpendStructureResponse } from "../types";
 
 export function CostPage() {
   const { filters, set } = useFilters();
@@ -19,6 +20,10 @@ export function CostPage() {
   const query = useEndpoint<CostResponse>("/api/cost", filters, { groupBy });
   const data = query.data;
   const summary = data?.summary;
+  // The structure sections have their own endpoint, fetched once this point nears the viewport, so /api/cost stays as fast as before.
+  const [sentinel, inView] = useInView<HTMLDivElement>();
+  const structure = useEndpoint<SpendStructureResponse>("/api/cost/structure", { ...filters, groupBy: "", metric: "" }, {}, { enabled: inView });
+  const section = { data: structure.data, loading: structure.isLoading && inView, error: structure.error };
 
   const costSeriesOption = useMemo(() => {
     if (!data) return null;
@@ -84,7 +89,7 @@ export function CostPage() {
           tone="good"
           icon={<Coins size={13} />}
         />
-        <Stat label="Cost / 1M tokens" value={summary && summary.pricedRequests > 0 && summary.tokens.total > 0 ? `$${(summary.cost / summary.tokens.total * 1e6).toFixed(2)}` : "—"} hint="Blended rate across every token class" tone="info" />
+        <Stat label="Cost / 1M tokens" value={summary && data && summary.pricedRequests > 0 && data.pricedTokens > 0 ? `$${(summary.cost / data.pricedTokens * 1e6).toFixed(2)}` : "—"} hint="Priced cost over priced tokens, every token class" tone="info" />
         <Stat label="Cache savings" value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cache.savingsUsd) : "—"} hint={summary ? `vs paying full input price` : undefined} tone="good" icon={<PiggyBank size={13} />} />
         <Stat label="Output spend" value={data && data.summary.pricedRequests > 0 ? formatUsd(data.composition.output) : "—"} hint={data ? `${formatPercent(data.composition.output / Math.max(1, data.composition.total), 1)} of total` : undefined} tone="warn" icon={<Zap size={13} />} />
         <Stat
@@ -155,13 +160,11 @@ export function CostPage() {
         </Card>
       </div>
 
+      <div ref={sentinel} aria-hidden="true" />
+      <PriceDriftCard {...section} />
+
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader title="Blended price per 1M tokens" subtitle="Cheapest to most expensive model actually used" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.byModel.length === 0}>
-            {perModelOption ? <Chart option={perModelOption} height={Math.max(180, (data?.byModel.filter(m => m.costPer1MTokens !== null).slice(0, 10).length ?? 0) * 26 + 40)} /> : null}
-          </StateBlock>
-        </Card>
+        <ConcentrationCard {...section} />
         <Card>
           <CardHeader title="Most expensive sessions" subtitle="Conversations ranked by spend" />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
@@ -184,6 +187,19 @@ export function CostPage() {
           </StateBlock>
         </Card>
       </div>
+
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
+          <CardHeader title="Blended price per 1M tokens" subtitle="Priced cost over priced tokens, cheapest to most expensive model actually used" />
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.byModel.length === 0}>
+            {perModelOption ? <Chart option={perModelOption} height={Math.max(180, (data?.byModel.filter(m => m.costPer1MTokens !== null).slice(0, 10).length ?? 0) * 26 + 40)} /> : null}
+          </StateBlock>
+          <p className="mt-2 text-[10.5px] leading-4 text-muted">Unpriced requests carry no dollars, so their tokens are left out of each model's price; a model with mixed pricing would otherwise read low.</p>
+        </Card>
+        <TiersCard {...section} />
+      </div>
+
+      <ClassMixSection {...section} />
 
       <Card>
         <CardHeader

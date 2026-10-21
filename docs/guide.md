@@ -30,8 +30,12 @@ quota then remains the last captured account observation.
   eligible cache-read ratio, grouped volume, activity heatmap, context-size
   distribution and breakdown tables. Reasoning is already within output.
 - **Cost & spend:** priced cost by model/provider/effort and token class,
-  cumulative cost, gross cache-read discount, blended price per million tokens,
-  expensive sessions and unpriced coverage. Gross read discount excludes write
+  cumulative cost, gross cache-read discount, blended price per million tokens
+  (priced tokens only), the most expensive sessions across all sessions and
+  unpriced coverage. Structure sections show how concentrated spend is (top 1%
+  and 5% of sessions, top 10 sessions, Gini and a Pareto curve), blended price
+  over time by fixed price tier, and each token class's cost beside its token
+  share per source. Gross read discount excludes write
   premiums; use Cache Detective for net fixed-workload economics.
 - **Context:** how long contexts are (`inputTokens`, including cached tokens):
   median, p90, p99 and maximum per model, a box plot, a model-by-band grid, the

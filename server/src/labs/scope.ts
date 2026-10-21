@@ -94,6 +94,20 @@ export function orderedRequests(rows: RequestRow[]): RequestRow[] {
 
 export const sessionKey = (source: Source, conversationId: string): string => JSON.stringify([source, conversationId]);
 
+/**
+ * How many of the named sessions have a loaded request outside [from, to): the window clipped them, so only
+ * their in-window part is analysed. `named` maps each source to the conversation ids of interest.
+ */
+export function countClippedSessions(named: ReadonlyMap<Source, ReadonlySet<string>>, datasetRows: readonly RequestRow[], from: number, to: number): number {
+  const clipped = new Set<string>();
+  for (const row of datasetRows) {
+    if (!row.conversationId || (row.ts >= from && row.ts < to)) continue;
+    const source = sourceOf(row);
+    if (named.get(source)?.has(row.conversationId)) clipped.add(sessionKey(source, row.conversationId));
+  }
+  return clipped.size;
+}
+
 /** A session is ranked for growth when it has at least this many context-eligible requests. */
 export const GROWTH_MIN_ELIGIBLE = 6;
 /** Growth compares the median of this many first versus last eligible requests. */
