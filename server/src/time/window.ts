@@ -365,6 +365,46 @@ export function nextBucketStart(start: Instant, bucket: "hour" | "day" | "week",
   return midnight(addDays(wall, bucket === "day" ? 1 : 7), tz);
 }
 
+/**
+ * `zonedBucketStart` for many timestamps. Remembers one verified bucket `[start, next)`
+ * and answers from it while timestamps stay inside, so the zone is consulted about once
+ * per bucket instead of once per row. A timestamp outside it, earlier or later, takes
+ * the exact path and replaces it, so rows in any order get exactly the answers
+ * `zonedBucketStart` gives. Make one per call: the remembered bucket is per zone and unit.
+ */
+export function makeBucketer(bucket: "hour" | "day" | "week", tz: string): (ts: Instant) => Instant {
+  tz = zone(tz);
+  let start = 0;
+  let next = 0; // [0, 0) holds nothing
+  return ts => {
+    if (ts >= start && ts < next) return start;
+    const exact = zonedBucketStart(ts, bucket, tz);
+    const end = nextBucketStart(exact, bucket, tz);
+    // Only a bucket proven uniform is reused; any other bucket stays on the exact path.
+    if (uniformBucket(exact, end, bucket, tz)) {
+      start = exact;
+      next = end;
+    }
+    return exact;
+  };
+}
+
+/**
+ * True when every instant in `[start, end)` has bucket `start`. Local time only moves
+ * forward within one offset, so a piece with one offset whose first and last instants
+ * share a bucket is that bucket throughout. Checks the bucket as one piece, or as two
+ * pieces around one offset change; anything else is not reused.
+ */
+function uniformBucket(start: Instant, end: Instant, bucket: "hour" | "day" | "week", tz: string): boolean {
+  const last = end - 1;
+  if (!(start < end) || zonedBucketStart(start, bucket, tz) !== start || zonedBucketStart(last, bucket, tz) !== start) return false;
+  const offset = offsetAt(start, tz);
+  if (offsetAt(last, tz) === offset) return true;
+  const change = offsetTransition(start, last, tz);
+  return offsetAt(change, tz) === offsetAt(last, tz)
+    && zonedBucketStart(change - 1, bucket, tz) === start && zonedBucketStart(change, bucket, tz) === start;
+}
+
 /** First instant at the changed offset; callers bracket one transition within an hour. */
 function offsetTransition(before: Instant, after: Instant, tz: string): Instant {
   const offset = offsetAt(before, tz);

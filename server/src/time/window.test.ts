@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
-  formatInZone, isoInZone, nextBucketStart, parseDuration, parseInstant, parsePhases, parseWindow, windowLabel, zonedBucketStart,
+  formatInZone, isoInZone, makeBucketer, nextBucketStart, parseDuration, parseInstant, parsePhases, parseWindow, windowLabel, zonedBucketStart,
   WindowError, type TimeWindow, type WindowErrorCode,
 } from "./window";
 
@@ -335,7 +335,84 @@ describe.each(PROCESS_ZONES)("process TZ=%s", processTz => {
     expect(failure(() => parseInstant("2026-10-11T09:00:00 08:00", { tz: "UTC", now })).message)
       .toBe('Could not read "2026-10-11T09:00:00 08:00" as a time. If it has a +HH:MM offset, URL-encode the + as %2B.');
   });
+
+  // makeBucketer reuses one bucket per run of rows. Property: in any order it returns exactly
+  // what zonedBucketStart returns, and the bucket it names runs to nextBucketStart.
+  describe.each(BUCKETER_ZONES)("makeBucketer in $tz", ({ tz, days }) => {
+    const instants = bucketerInstants(tz, days);
+    test.each(["hour", "day", "week"] as const)("%s buckets match zonedBucketStart in sorted, reversed and shuffled order", unit => {
+      const exact = new Map(instants.map(ts => [ts, zonedBucketStart(ts, unit, tz)]));
+      for (const order of [instants, [...instants].reverse(), shuffled(instants, 7)]) {
+        const bucketOf = makeBucketer(unit, tz);
+        const mismatches = order.filter(ts => bucketOf(ts) !== exact.get(ts));
+        expect(mismatches.map(ts => new Date(ts).toISOString())).toEqual([]);
+      }
+      const ends = new Map<number, number>();
+      for (const [ts, start] of exact) {
+        if (!ends.has(start)) ends.set(start, nextBucketStart(start, unit, tz));
+        expect(start).toBeLessThanOrEqual(ts);
+        expect(ts).toBeLessThan(ends.get(start)!);
+      }
+    });
+  });
 });
+
+/**
+ * Change days (23h, 25h and 47h days), half-hour and 45-minute offsets, half-hour DST and a
+ * skipped date-line day. `days` are local dates whose neighbourhood is sampled densely.
+ */
+const BUCKETER_ZONES = [
+  { tz: "America/New_York", days: ["2026-03-08", "2026-11-01"] },
+  { tz: "Europe/London", days: ["2026-03-29", "2026-10-25"] },
+  { tz: "Australia/Lord_Howe", days: ["2026-04-05", "2026-10-04"] },
+  { tz: "Asia/Kathmandu", days: ["2026-10-11"] },
+  { tz: "Asia/Kolkata", days: ["2026-10-11"] },
+  { tz: "Pacific/Chatham", days: ["2026-04-05", "2026-09-27"] },
+  { tz: "Pacific/Apia", days: ["2011-12-29"] },
+  { tz: "America/Santiago", days: ["2026-04-05", "2026-09-06"] },
+];
+
+/**
+ * Deterministic: every hour edge within ±2 days and every day and week edge within ±8 days
+ * of each change day, each with its neighbours, plus seeded random instants and bursts.
+ */
+function bucketerInstants(tz: string, days: string[]): number[] {
+  const random = seeded(days.length * 97 + tz.length);
+  const instants = new Set<number>();
+  for (const day of days) {
+    const centre = Date.parse(`${day}T12:00:00Z`);
+    for (const [unit, span] of [["hour", 2 * D], ["day", 8 * D], ["week", 8 * D]] as const) {
+      for (let edge = zonedBucketStart(centre - span, unit, tz); edge < centre + span; edge = nextBucketStart(edge, unit, tz)) {
+        for (const delta of [-1, 0, 1, 20 * 60_000]) instants.add(edge + delta);
+      }
+    }
+    for (let i = 0; i < 150; i++) instants.add(Math.floor(centre - 8 * D + random() * 16 * D));
+    // A burst: many rows inside one hour, as real logs have.
+    for (let i = 0; i < 100; i++) instants.add(Math.floor(centre + random() * H));
+  }
+  return [...instants].sort((a, b) => a - b);
+}
+
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+function shuffled<T>(values: T[], seed: number): T[] {
+  const random = seeded(seed);
+  const copy = [...values];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j]!, copy[i]!];
+  }
+  return copy;
+}
 
 function isoWall(ts: number, offset: string): string {
   const shifted = new Date(ts + (offset[0] === "-" ? -1 : 1) * (Number(offset.slice(1, 3)) * H + Number(offset.slice(4)) * 60_000));

@@ -4,7 +4,7 @@ import type { RequestRow } from "../ocx/store";
 import { createProjectIdentity, UNATTRIBUTED } from "../projects";
 import { sourceOf } from "../report/source";
 import type { Source } from "../report/types";
-import { nextBucketStart, windowLabel, zonedBucketStart } from "../time/window";
+import { makeBucketer, nextBucketStart, windowLabel } from "../time/window";
 import { analysisScope, evidenceFor, orderedRequests, type AnalysisWindow, type EvidenceSelection } from "./scope";
 
 export interface RadarTotals {
@@ -35,8 +35,9 @@ function period(rows: RequestRow[], filter: RowFilter, window: AnalysisWindow, s
   const days = new Map<number, RequestRow[]>();
   const sources = new Map<Source, RequestRow[]>();
   const models = new Map<string, { source: Source; provider: string; model: string; rows: RequestRow[] }>();
+  const dayOf = makeBucketer("day", window.tz);
   for (const row of rows) {
-    const ts = zonedBucketStart(row.ts, "day", window.tz);
+    const ts = dayOf(row.ts);
     const day = days.get(ts) ?? [];
     day.push(row); days.set(ts, day);
     const source = sourceOf(row);

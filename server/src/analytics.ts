@@ -3,7 +3,7 @@ import type { Dataset, RequestRow } from "./ocx/store";
 import { projectMatcher } from "./projects";
 import { cacheEligible, contextEligible, sourceOf, throughputEligible } from "./report/source";
 import type { Source } from "./report/types";
-import { isoInZone, nextBucketStart, zonedBucketStart } from "./time/window";
+import { isoInZone, makeBucketer, nextBucketStart, zonedBucketStart } from "./time/window";
 
 export type Bucket = "hour" | "day" | "week";
 export type Metric = "tokens" | "cost" | "requests" | "outputTokens" | "inputTokens" | "cacheReadTokens" | "reasoningTokens";
@@ -28,6 +28,11 @@ const DAY_MS = 86_400_000;
 /** Local hour, day or Monday-based week in `tz`; never the process timezone. */
 export function bucketStart(ts: number, bucket: Bucket, tz: string): number {
   return zonedBucketStart(ts, bucket, tz);
+}
+
+/** `bucketStart` for a loop over many rows: exact, but the zone is consulted about once per bucket. */
+export function bucketer(bucket: Bucket, tz: string): (ts: number) => number {
+  return makeBucketer(bucket, tz);
 }
 
 /** Chart tick label in `tz`; the response's `window.label` states the offset. */
@@ -107,14 +112,46 @@ export function outcome(row: RequestRow): Outcome {
   return "error";
 }
 
-export function percentile(values: number[], p: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
+/** An ascending copy, so one sort serves every percentile read from the same values. */
+export function sortedSample(values: readonly number[]): Float64Array {
+  return Float64Array.from(values).sort();
+}
+
+/** Linear interpolation between the closest ranks of an ascending sample; null when it is empty. */
+export function percentileOfSorted(sorted: ArrayLike<number>, p: number): number | null {
+  if (sorted.length === 0) return null;
   const index = (sorted.length - 1) * p;
   const lower = Math.floor(index);
   const upper = Math.ceil(index);
   if (lower === upper) return sorted[lower]!;
   return sorted[lower]! + (sorted[upper]! - sorted[lower]!) * (index - lower);
+}
+
+export function percentile(values: number[], p: number): number | null {
+  return values.length === 0 ? null : percentileOfSorted(sortedSample(values), p);
+}
+
+/**
+ * The first `limit` items a stable sort by `compare` would give, without sorting them all:
+ * the same items in the same order as `[...items].sort(compare).slice(0, limit)`, ties included.
+ */
+export function topN<T>(items: Iterable<T>, limit: number, compare: (a: T, b: T) => number): T[] {
+  const top: T[] = [];
+  if (!(limit > 0)) return top;
+  for (const item of items) {
+    if (top.length >= limit && compare(top[top.length - 1]!, item) <= 0) continue;
+    // Insert after every kept item that sorts before it or ties with it.
+    let low = 0;
+    let high = top.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (compare(top[middle]!, item) <= 0) low = middle + 1;
+      else high = middle;
+    }
+    top.splice(low, 0, item);
+    if (top.length > limit) top.pop();
+  }
+  return top;
 }
 
 function round(value: number, digits = 2): number {
@@ -291,6 +328,8 @@ export function summarize(rows: RequestRow[]): Summary {
   }
 
   const requests = rows.length;
+  const durationSample = sortedSample(durations);
+  const ttftSample = sortedSample(ttfts);
   return {
     requests,
     ok,
@@ -305,14 +344,14 @@ export function summarize(rows: RequestRow[]): Summary {
     unpricedRequests: requests - priced,
     estimatedCostShare: cost > 0 ? round(estimatedCost / cost, 4) : 0,
     latency: {
-      p50: percentile(durations, 0.5),
-      p95: percentile(durations, 0.95),
-      p99: percentile(durations, 0.99),
+      p50: percentileOfSorted(durationSample, 0.5),
+      p95: percentileOfSorted(durationSample, 0.95),
+      p99: percentileOfSorted(durationSample, 0.99),
       mean: durations.length ? round(durations.reduce((a, b) => a + b, 0) / durations.length, 1) : null,
     },
     ttft: {
-      p50: percentile(ttfts, 0.5),
-      p95: percentile(ttfts, 0.95),
+      p50: percentileOfSorted(ttftSample, 0.5),
+      p95: percentileOfSorted(ttftSample, 0.95),
       coverage: requests > 0 ? round(ttfts.length / requests, 4) : 0,
     },
     throughput: {
@@ -393,8 +432,9 @@ export function buildSeries(rows: RequestRow[], options: { bucket: Bucket; metri
     }
   }
 
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     let entry = buckets.get(key);
     if (!entry) {
       entry = { ts: key, label: bucketLabel(key, bucket, tz), total: 0, groups: {}, requests: 0 };
@@ -470,9 +510,6 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
   const result: BreakdownRow[] = [];
   for (const [key, list] of map) {
     const summary = summarize(list);
-    const throughputs = list
-      .filter(throughputEligible)
-      .map(row => row.outputTokens / (row.durationMs / 1000));
     result.push({
       key,
       requests: summary.requests,
@@ -489,7 +526,8 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
       ttftP50: summary.ttft.p50,
       successRate: summary.successRate,
       cacheHitRate: summary.cache.hitRate,
-      outputTokensPerSecond: percentile(throughputs, 0.5),
+      // summarize reads the same throughput-eligible rows with the same formula.
+      outputTokensPerSecond: summary.throughput.p50,
       costPer1kTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1000, 4) : null,
       costPer1MTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1_000_000, 2) : null,
       firstSeen: summary.firstRequestAt ?? 0,
@@ -549,7 +587,9 @@ export function costComposition(rows: RequestRow[]): {
 
 const calendarFormatters = new Map<string, Intl.DateTimeFormat>();
 
-function calendarParts(ts: number, timeZone: string): { date: string; weekday: number; hour: number } {
+interface CalendarParts { date: string; weekday: number; hour: number }
+
+function calendarParts(ts: number, timeZone: string): CalendarParts {
   let formatter = calendarFormatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-US", {
@@ -563,10 +603,29 @@ function calendarParts(ts: number, timeZone: string): { date: string; weekday: n
   return { date: `${get("year")}-${get("month")}-${get("day")}`, weekday: weekdays[get("weekday")] ?? 0, hour: Number(get("hour")) };
 }
 
+/**
+ * `calendarParts` for a loop over many rows. A local-hour bucket ends at every offset change,
+ * so the local date, weekday and hour are fixed inside one and are read once per bucket.
+ */
+function calendarReader(timeZone: string): (ts: number) => CalendarParts {
+  const hourOf = bucketer("hour", timeZone);
+  let hour = Number.NaN;
+  let parts: CalendarParts | null = null;
+  return ts => {
+    const start = hourOf(ts);
+    if (start !== hour || !parts) {
+      hour = start;
+      parts = calendarParts(ts, timeZone);
+    }
+    return parts;
+  };
+}
+
 export function heatmap(rows: RequestRow[], metric: Metric = "tokens", timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone): { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number } {
   const grid = new Map<string, { value: number; requests: number }>();
+  const partsOf = calendarReader(timeZone);
   for (const row of rows) {
-    const { weekday, hour } = calendarParts(row.ts, timeZone);
+    const { weekday, hour } = partsOf(row.ts);
     const key = `${weekday}:${hour}`;
     const cell = grid.get(key) ?? { value: 0, requests: 0 };
     cell.value += metricValue(row, metric);
@@ -605,8 +664,9 @@ export function heatmapDateBreakdown(
   const offset = Math.max(0, Math.floor(options.offset ?? 0));
   const byDate = new Map<string, { value: number; requests: number }>();
   let total = 0;
+  const partsOf = calendarReader(options.timeZone);
   for (const row of rows) {
-    const local = calendarParts(row.ts, options.timeZone);
+    const local = partsOf(row.ts);
     if (local.weekday !== options.weekday || local.hour !== options.hour) continue;
     const value = metricValue(row, options.metric);
     total += value;
@@ -627,8 +687,9 @@ export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number
 } {
   const groups = new Map<number, RequestRow[]>();
   for (const ts of bucketStarts(bucket, from, to, tz)) groups.set(ts, []);
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     const list = groups.get(key);
     if (list) list.push(row);
     else groups.set(key, [row]);
@@ -636,18 +697,18 @@ export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number
   const points = [...groups.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([ts, list]) => {
-      const durations = list.filter(row => row.measurements.duration).map(row => row.durationMs);
-      const ttfts = list.filter(row => row.measurements.ttft).map(row => row.ttftMs as number);
+      const durations = sortedSample(list.filter(row => row.measurements.duration).map(row => row.durationMs));
+      const ttfts = sortedSample(list.filter(row => row.measurements.ttft).map(row => row.ttftMs as number));
       const throughputs = list.filter(throughputEligible).map(row => row.outputTokens / (row.durationMs / 1000));
       return {
         ts,
         label: bucketLabel(ts, bucket, tz),
         requests: list.length,
-        p50: percentile(durations, 0.5),
-        p90: percentile(durations, 0.9),
-        p95: percentile(durations, 0.95),
-        ttftP50: percentile(ttfts, 0.5),
-        ttftP95: percentile(ttfts, 0.95),
+        p50: percentileOfSorted(durations, 0.5),
+        p90: percentileOfSorted(durations, 0.9),
+        p95: percentileOfSorted(durations, 0.95),
+        ttftP50: percentileOfSorted(ttfts, 0.5),
+        ttftP95: percentileOfSorted(ttfts, 0.95),
         throughputP50: percentile(throughputs, 0.5),
       };
     });
@@ -668,12 +729,13 @@ export function reliability(rows: RequestRow[], tz: string): {
   const timeline = new Map<number, { ok: number; error: number; cancelled: number; unobserved: number }>();
   const attempts = new Map<string, number>();
   const byModel = new Map<string, { failures: number; requests: number }>();
+  const dayOf = bucketer("day", tz);
 
   for (const row of rows) {
     const kind = outcome(row);
     outcomes.set(kind, (outcomes.get(kind) ?? 0) + 1);
     if (row.measurements.outcome && row.status > 0) statuses.set(String(row.status), (statuses.get(String(row.status)) ?? 0) + 1);
-    const day = bucketStart(row.ts, "day", tz);
+    const day = dayOf(row.ts);
     const slot = timeline.get(day) ?? { ok: 0, error: 0, cancelled: 0, unobserved: 0 };
     slot[kind] += 1;
     timeline.set(day, slot);
@@ -957,8 +1019,9 @@ export function compositionSeries(rows: RequestRow[], bucket: Bucket, from: numb
   for (const ts of bucketStarts(bucket, from, to, tz)) {
     buckets.set(ts, { ts, label: bucketLabel(ts, bucket, tz), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 });
   }
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     let point = buckets.get(key);
     if (!point) {
       point = { ts: key, label: bucketLabel(key, bucket, tz), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 };
@@ -986,8 +1049,9 @@ export interface CumulativePoint {
 export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: number, to: number, metric: Metric, tz: string): CumulativePoint[] {
   const buckets = new Map<number, { value: number; requests: number }>();
   for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { value: 0, requests: 0 });
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     const entry = buckets.get(key);
     if (!entry) continue;
     entry.value += metricValue(row, metric);
@@ -1011,8 +1075,9 @@ export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: numbe
 export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number, tz: string): { ts: number; label: string; hitRate: number | null; savingsUsd: number; cacheRead: number; input: number; eligibleRequests: number; totalRequests: number }[] {
   const buckets = new Map<number, { read: number; input: number; savings: number; eligible: number; total: number }>();
   for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { read: 0, input: 0, savings: 0, eligible: 0, total: 0 });
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     const entry = buckets.get(key);
     if (!entry) continue;
     entry.total++;
@@ -1054,13 +1119,14 @@ export function contextPressure(rows: RequestRow[]): { buckets: { name: string; 
       }
     }
   }
+  const sorted = sortedSample(inputs);
   return {
     buckets: labels.map((name, index) => ({ name, value: counts[index]! })),
     eligibleRequests: inputs.length,
     totalRequests: rows.length,
-    maxInput: inputs.length ? Math.max(...inputs) : 0,
-    p50Input: percentile(inputs, 0.5),
-    p95Input: percentile(inputs, 0.95),
+    maxInput: inputs.length ? sorted[sorted.length - 1]! : 0,
+    p50Input: percentileOfSorted(sorted, 0.5),
+    p95Input: percentileOfSorted(sorted, 0.95),
   };
 }
 
