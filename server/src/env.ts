@@ -3,6 +3,13 @@ import { existsSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+// Under `bun test`, never fall back to the real data directories: a test that
+// forgot to isolate itself would read the user's logs and append to their archive.
+if (process.env.NODE_ENV === "test") {
+  const unset = ["OCX_HOME", "CLAUDE_PROJECTS_DIR", "CODEX_HOME"].filter(name => !process.env[name]);
+  if (unset.length) throw new Error(`Tests must set ${unset.join(", ")}; refusing to use the real data directories.`);
+}
+
 /** Where opencodex keeps its ledgers. Overridable for tests and multi-home setups. */
 export const OCX_HOME = process.env.OCX_HOME ?? join(homedir(), ".opencodex");
 
