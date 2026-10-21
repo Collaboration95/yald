@@ -93,7 +93,7 @@ export interface ContextTaxRow {
 export interface ContextBreakdown {
   bands: { id: string; label: string; min: number; max: number | null }[];
   minimums: typeof CONTEXT_MIN_N;
-  coverage: {
+  eligibility: {
     totalRequests: number;
     eligibleRequests: number;
     excludedRequests: number;
@@ -377,7 +377,7 @@ export function contextBreakdown(
   return {
     bands: CONTEXT_BANDS.map(band => ({ id: band.id, label: band.label, min: band.min, max: Number.isFinite(band.max) ? band.max : null })),
     minimums: CONTEXT_MIN_N,
-    coverage: {
+    eligibility: {
       totalRequests: rows.length, eligibleRequests: eligible, excludedRequests: rows.length - eligible,
       pricedEligibleRequests: pricedEligible, unpricedEligibleRequests: eligible - pricedEligible, unnamedRequests: unnamed,
     },

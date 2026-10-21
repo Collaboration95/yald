@@ -41,7 +41,7 @@ test("ineligible rows are counted as coverage and never enter a distribution", (
   const absent = row({ id: "absent", inputTokens: 0, measurements: { ...row().measurements, input: false, usage: "missing" } });
   const zero = row({ id: "zero", inputTokens: 0 });
   const result = run([summed, absent, zero, row({ id: "ok", inputTokens: 10 })]);
-  expect(result.coverage).toMatchObject({ totalRequests: 4, eligibleRequests: 2, excludedRequests: 2 });
+  expect(result.eligibility).toMatchObject({ totalRequests: 4, eligibleRequests: 2, excludedRequests: 2 });
   expect(result.overall).toMatchObject({ n: 2, max: 10, mean: 5 });
 });
 
@@ -58,7 +58,7 @@ test("thresholds and the context tax share one eligible, priced denominator", ()
   // The only request above 300k has no price: its cost is unavailable, not $0.
   expect(at(300_000)).toMatchObject({ requests: 1, requestShare: 0.25, pricedRequests: 0, cost: null, costShare: null });
   expect(at(null)).toMatchObject({ requests: 1, requestShare: 0.25, cost: 3, costShare: 0.5 });
-  expect(result.coverage).toMatchObject({ pricedEligibleRequests: 3, unpricedEligibleRequests: 1 });
+  expect(result.eligibility).toMatchObject({ pricedEligibleRequests: 3, unpricedEligibleRequests: 1 });
   expect(result.tax.map(band => [band.id, band.requests, band.pricedRequests])).toEqual([["lt50k", 1, 1], ["50-150k", 1, 1], ["150-300k", 1, 1], ["300k+", 1, 0]]);
   // The unpriced 300k+ row has no dollars: the band has no cost, not a $0 cost.
   expect(result.tax[3]).toMatchObject({ cost: null, costShare: null, costPerPricedRequest: null });
