@@ -1,6 +1,6 @@
 import type { Outcome, RowFilter } from "../analytics";
 import type { RequestRow } from "../ocx/store";
-import { ALL_SOURCES, sourceOf } from "../report/source";
+import { ALL_SOURCES, contextEligible, sourceOf } from "../report/source";
 import type { Source } from "../report/types";
 import { isoInZone } from "../time/window";
 
@@ -93,3 +93,36 @@ export function orderedRequests(rows: RequestRow[]): RequestRow[] {
 }
 
 export const sessionKey = (source: Source, conversationId: string): string => JSON.stringify([source, conversationId]);
+
+/** A session is ranked for growth when it has at least this many context-eligible requests. */
+export const GROWTH_MIN_ELIGIBLE = 6;
+/** Growth compares the median of this many first versus last eligible requests. */
+export const GROWTH_SAMPLE = 3;
+
+export interface SessionGrowth {
+  eligibleRequests: number;
+  ranked: boolean;
+  baseline: number | null;
+  latest: number | null;
+  absoluteChange: number | null;
+  ratio: number | null;
+}
+
+const medianOfThree = (rows: RequestRow[]): number => rows.map(row => row.inputTokens).sort((a, b) => a - b)[1]!;
+
+/**
+ * Context growth of one session: the median input of its first 3 eligible requests versus its
+ * last 3, ranked only from 6 eligible requests. `ordered` must already be in `orderedRequests` order.
+ * Context Replay and the Context page both read this, so they cannot drift.
+ */
+export function sessionGrowth(ordered: RequestRow[]): SessionGrowth {
+  const eligible = ordered.filter(contextEligible);
+  const ranked = eligible.length >= GROWTH_MIN_ELIGIBLE;
+  const baseline = ranked ? medianOfThree(eligible.slice(0, GROWTH_SAMPLE)) : null;
+  const latest = ranked ? medianOfThree(eligible.slice(-GROWTH_SAMPLE)) : null;
+  return {
+    eligibleRequests: eligible.length, ranked, baseline, latest,
+    absoluteChange: baseline === null ? null : latest! - baseline,
+    ratio: baseline !== null && baseline !== 0 ? latest! / baseline : null,
+  };
+}
