@@ -20,6 +20,7 @@ import { OutcomeDot } from "../src/components/ui";
 import { Layout } from "../src/components/Layout";
 import { ThemeProvider } from "../src/lib/theme";
 import { decodePreferences, PREFERENCES_STORAGE_KEY, PreferencesProvider, usePreferences, type Preferences } from "../src/lib/preferences";
+import { SpendChangesResult } from "../src/pages/labs/SpendChanges";
 import { LabsPage, LabsInvestigationPage } from "../src/pages/labs/LabsPage";
 import { LabsLayout } from "../src/pages/labs/LabsLayout";
 import { InvestigationScope } from "../src/pages/labs/InvestigationScope";
@@ -438,8 +439,8 @@ async function checkLabsShell() {
   }
   const enabledPreferences = { labsEnabled: true, hideArtwork: true };
   const home = renderPage(LabsPage, client, `/labs?${params}`, "/labs", true, enabledPreferences);
-  check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs"].every(text => home.includes(text))
-    && home.includes("Not available yet.") === LABS_INVESTIGATIONS.some(entry => !entry.Component), "enabled shell exposes the three independent component slots");
+  check(["Project Radar", "Cache Detective", "Context Replay", "Spend spikes", "Disable Labs"].every(text => home.includes(text))
+    && home.includes("Not available yet.") === LABS_INVESTIGATIONS.some(entry => !entry.Component), "enabled shell exposes the four independent component slots");
   for (const path of [...LABS_INVESTIGATIONS.filter(entry => !entry.Component).map(entry => entry.path), "unknown/deep"]) {
     const html = renderPage(LabsInvestigationPage, client, `/labs/${path}?${params}`, "/labs/*", true, enabledPreferences);
     check(html.includes("not available yet") && html.includes("All investigations") && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
@@ -451,6 +452,26 @@ async function checkLabsShell() {
   client.setQueryData(["/api/labs/cache", cacheParams], await fetchJson("/api/labs/cache", cacheParams));
   const cache = renderPage(LabsInvestigationPage, client, `/labs/cache-detective?${params}`, "/labs/*", true, enabledPreferences);
   check(["Cache Detective", "No requests to investigate", "Read discount", "Write premium", "Net · Unavailable", "Unnamed requests", "Investigation scope"].every(text => cache.includes(text)), "registered Cache Detective renders the real empty API payload without treating missing money as zero");
+  const spendParams = filtersToParams(filters, {});
+  client.setQueryData(["/api/labs/spend", spendParams], await fetchJson("/api/labs/spend", spendParams));
+  const spend = renderPage(LabsInvestigationPage, client, `/labs/spend-spikes?${params}`, "/labs/*", true, enabledPreferences);
+  check(["Spend spikes", "trailing-median", "API list-price equivalents", "not a budget"].every(text => spend.includes(text)) && !spend.includes("NaN"), "registered Spend spikes renders the real payload with its rule and honesty text");
+  const group = (key: string, change: number, isNew = false) => ({ key, label: key, dayCostUsd: Math.max(change, 0) + (isNew ? 0 : 1), baselineMeanUsd: isNew ? 0 : 1, changeUsd: change, isNew });
+  const spendCut = { groups: [group("alpha", 8), group("beta", -1)], new: [group("gamma", 3, true)], other: null };
+  const spendDay = { ts: 0, date: "2026-09-10", dayStart: 0, dayEnd: 1, from: 0, to: 1, hours: 24, requests: 12, pricedRequests: 10, unpricedRequests: 2, tokens: 99, pricedCostUsd: 12, state: "spike" as const,
+    partialReason: null, edge: false, insufficientReason: null, baseline: { activeDays: 10, medianUsd: 2, thresholdUsd: 5, ratio: 6, firstDate: "2026-08-25", lastDate: "2026-09-09", pricedRequests: 90, totalRequests: 95 } };
+  const spendDecomposition = { order: ["project", "model", "tokenClass"], baselineDays: 10, keptBaselineDays: 10, excludedBaselineDates: [], dayCostUsd: 12, baselineMedianUsd: 2, baselineMeanUsd: 2, changeUsd: 10,
+    unpriced: { dayRequests: 2, dayTokens: 5, baselineMeanRequests: 0.5, baselineMeanTokens: 1, requestChange: 1.5, tokenChange: 4 },
+    attribution: { dayRequests: 12, attributedRequests: 10, dayPricedCostUsd: 12, attributedPricedCostUsd: 11, baselineRequests: 95, baselineAttributedRequests: 90 },
+    cuts: { project: spendCut, model: spendCut, tokenClass: spendCut, session: spendCut },
+    drilldown: { order: ["project", "model", "tokenClass"], projects: [{ ...group("alpha", 10), models: [{ ...group("m", 10), tokenClasses: [group("Output", 10)] }], otherModels: null }], otherProjects: null } };
+  const spendPayload = { ok: true as const, analysis: "spend-changes" as const, version: 1 as const, window: { ...fixed, fromIso: "", toIso: "", halfOpen: true as const }, cohort,
+    rule: { id: "trailing-median", baselineActiveDays: 14, minBaselineActiveDays: 7, spikeMultiple: 2.5, activeDay: "a", baseline: "b", spike: "c", insufficient: "d", decomposition: "e", order: ["project", "model", "tokenClass"] },
+    pricingBasis: "currently-loaded-api-list-price-equivalents" as const, history: { basis: "earliest-loaded-request" as const, firstLoadedAt: 0, completeness: "unknown" as const, note: "n" },
+    coverage: { windowDays: 1, activeDays: 1, spikeDays: 1, normalDays: 0, insufficientDays: 0, partialDays: 0, totalRequests: 12, pricedRequests: 10, unpricedRequests: 2, pricedCostUsd: 12, spikeCostUsd: 12, spikeCostShare: 1, attributedRequests: 10, projectCoverage: null },
+    days: [spendDay], selected: { day: spendDay, decomposition: spendDecomposition, baselineDays: [], evidence: { selector: {}, priorSelector: {}, href: "/labs/evidence?x=1" }, limitations: [] } };
+  const spendHtml = renderToString(<MemoryRouter><ThemeProvider><PreferencesProvider storage={null}><SpendChangesResult data={spendPayload} /></PreferencesProvider></ThemeProvider></MemoryRouter>);
+  check(["1 day above 2.5", "What changed on 2026-09-10", "new", "Unpriced that day", "fixed case"].every(text => spendHtml.includes(text)) && !spendHtml.includes("NaN"), "Spend spikes renders a spike day with its decomposition, new group and coverage");
   for (const kind of ["loading", "error", "empty", "insufficient"] as InvestigationStateKind[]) {
     const html = renderToString(<ThemeProvider><PreferencesProvider storage={{ getItem: () => JSON.stringify({ version: 1, ...enabledPreferences }), setItem: () => {} }}>
       <InvestigationState kind={kind} onRetry={() => {}} /></PreferencesProvider></ThemeProvider>);

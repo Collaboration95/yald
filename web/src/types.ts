@@ -867,3 +867,54 @@ export interface SpendStructureResponse {
     buckets: { ts: number; label: string; cost: ClassCostTotals; total: number; share: Record<CostClassId | "adjustment", number | null> }[];
   }[];
 }
+
+/** Spend spikes (#106). Mirrors server/src/labs/spend.ts; the browser only renders what the server computed. */
+export type SpendDayState = "spike" | "normal" | "insufficient" | "partial" | "no-priced";
+export type SpendCut = "project" | "model" | "tokenClass" | "session";
+export interface SpendRule {
+  id: string; baselineActiveDays: number; minBaselineActiveDays: number; spikeMultiple: number;
+  activeDay: string; baseline: string; spike: string; insufficient: string; decomposition: string; order: readonly string[];
+}
+export interface SpendDay {
+  ts: number; date: string; dayStart: number; dayEnd: number; from: number; to: number; hours: number;
+  requests: number; pricedRequests: number; unpricedRequests: number; tokens: number; pricedCostUsd: number | null;
+  state: SpendDayState; partialReason: "in-progress" | "window-edge" | null; edge: boolean; insufficientReason: "baseline-days" | "zero-baseline" | null;
+  baseline: { activeDays: number; medianUsd: number | null; thresholdUsd: number | null; ratio: number | null; firstDate: string | null; lastDate: string | null; pricedRequests: number; totalRequests: number };
+}
+export interface SpendGroup {
+  key: string; label: string; dayCostUsd: number; baselineMeanUsd: number; changeUsd: number; isNew: boolean;
+  evidence?: { selector: unknown; priorSelector: unknown; href: string };
+}
+export interface SpendOther { groups: number; newGroups: number; dayCostUsd: number; baselineMeanUsd: number; changeUsd: number }
+export interface SpendCutData { groups: SpendGroup[]; new: SpendGroup[]; other: SpendOther | null }
+export interface SpendDecomposition {
+  order: readonly string[]; baselineDays: number; keptBaselineDays: number; excludedBaselineDates: string[];
+  dayCostUsd: number; baselineMedianUsd: number; baselineMeanUsd: number; changeUsd: number;
+  unpriced: { dayRequests: number; dayTokens: number; baselineMeanRequests: number; baselineMeanTokens: number; requestChange: number; tokenChange: number };
+  attribution: { dayRequests: number; attributedRequests: number; dayPricedCostUsd: number; attributedPricedCostUsd: number; baselineRequests: number; baselineAttributedRequests: number };
+  cuts: Record<SpendCut, SpendCutData>;
+  drilldown: {
+    order: readonly string[];
+    projects: (SpendGroup & { models: (SpendGroup & { tokenClasses: SpendGroup[] })[]; otherModels: SpendOther | null })[];
+    otherProjects: SpendOther | null;
+  };
+}
+export interface SpendChangesResponse {
+  ok: true; analysis: "spend-changes"; version: 1;
+  window: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
+  cohort: RadarCohort;
+  rule: SpendRule;
+  pricingBasis: "currently-loaded-api-list-price-equivalents";
+  history: { basis: "earliest-loaded-request"; firstLoadedAt: number | null; completeness: "unknown"; note: string };
+  coverage: {
+    windowDays: number; activeDays: number; spikeDays: number; normalDays: number; insufficientDays: number; partialDays: number;
+    totalRequests: number; pricedRequests: number; unpricedRequests: number; pricedCostUsd: number | null; spikeCostUsd: number | null; spikeCostShare: number | null;
+    attributedRequests: number; projectCoverage: unknown;
+  };
+  days: SpendDay[];
+  selected: null | {
+    day: SpendDay; decomposition: SpendDecomposition | null;
+    baselineDays: { date: string; pricedCostUsd: number; pricedRequests: number; requests: number }[];
+    evidence: { selector: unknown; priorSelector: unknown; href: string } | null; limitations: string[];
+  };
+}
