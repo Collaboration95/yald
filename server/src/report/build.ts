@@ -10,7 +10,7 @@ import {
   projectCoverage, quotaView, round, summarize, type RowFilter,
 } from "../analytics";
 import type { Dataset, RequestRow } from "../ocx/store";
-import { formatInZone, isoInZone, zonedBucketStart, type Instant } from "../time/window";
+import { formatInZone, isoInZone, makeBucketer, type Instant } from "../time/window";
 import { ALL_SOURCES, sourceOf } from "./source";
 import type { ReportData, ReportSpec, Source, Totals } from "./types";
 
@@ -161,7 +161,8 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
   const summary = summarize(rows);
   const total = accumulate(rows);
   const ocxRows = rows.filter(row => sourceOf(row) === "ocx");
-  const activeHours = new Set(rows.map(row => zonedBucketStart(row.ts, "hour", tz))).size;
+  const hourOf = makeBucketer("hour", tz);
+  const activeHours = new Set(rows.map(row => hourOf(row.ts))).size;
 
   const kpis: ReportData["kpis"] = {
     requests: summary.requests,
@@ -223,8 +224,9 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
   for (const ts of bucketStarts(bucket, from, to, tz)) {
     points.set(ts, { ts, label: timelineLabel(ts, bucket, tz, multiDay), bySource: bySource(() => ({ tokens: 0, requests: 0 })) });
   }
+  const bucketOf = makeBucketer(bucket, tz);
   for (const row of rows) {
-    const point = points.get(zonedBucketStart(row.ts, bucket, tz));
+    const point = points.get(bucketOf(row.ts));
     if (!point) continue; // unreachable: every in-window row has a bucket
     const slot = point.bySource[sourceOf(row)];
     slot.tokens += row.totalTokens;

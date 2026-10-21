@@ -36,7 +36,7 @@ export function projectRadarEvidenceHref(project: Project, period: "current" | "
 
 export function ProjectRadar() {
   const { filters } = useFilters();
-  const query = useEndpoint<ProjectRadarResponse>("/api/labs/projects", filters);
+  const query = useEndpoint<ProjectRadarResponse>("/api/labs/projects", filters, {}, { keepPrevious: false });
   if (query.error) return <InvestigationState kind="error" detail={query.error.message} onRetry={() => void query.refetch()} />;
   if (!query.data) return <InvestigationState kind="loading" />;
   // Selection belongs to this full cohort. A new query never displays a previous response.

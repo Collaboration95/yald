@@ -13,7 +13,9 @@ explains what Yald reads and writes.
 
 The desktop dashboard supports light and dark themes. Visible views poll every
 30 seconds, unchanged responses use ETags, and hidden tabs pause polling.
-Refresh forces a re-read. Recorded usage is available with the proxy stopped;
+Refresh forces a re-read. After a filter or range change, the previous numbers
+stay on screen, dimmed under an "Updating" notice, until the new selection's
+numbers arrive. The project list in the toolbar is not polled; Refresh reloads it. Recorded usage is available with the proxy stopped;
 quota then remains the last captured account observation.
 
 - **Overview:** period comparisons, usage by model/provider/effort, token-class

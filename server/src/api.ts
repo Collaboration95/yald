@@ -7,8 +7,8 @@ import { buildProjectRadar } from "./labs/projects";
 import { createHash } from "node:crypto";
 import {
   breakdown,
+  bucketer,
   bucketLabel,
-  bucketStart,
   bucketStarts,
   buildSeries,
   cacheTimeline,
@@ -25,13 +25,16 @@ import {
   measurementCoverage,
   outcome,
   percentile,
+  percentileOfSorted,
   projectCoverage,
   pickBucket,
   quotaView,
   reliability,
   round,
+  sortedSample,
   sparkline,
   summarize,
+  topN,
   type Bucket,
   type Metric,
   type RowFilter,
@@ -155,7 +158,14 @@ function delta(current: number, prior: number): number | null {
 }
 
 function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
-  return rows.filter(row => row.measurements.duration).sort((a, b) => b.durationMs - a.durationMs).slice(0, limit);
+  return topN(rows.filter(row => row.measurements.duration), limit, (a, b) => b.durationMs - a.durationMs);
+}
+
+const newestFirst = (a: RequestRow, b: RequestRow) => b.ts - a.ts;
+
+/** `Server-Timing` durations in milliseconds; never data-dependent values. */
+function serverTiming(build: number, compute: number): string {
+  return `build;dur=${build.toFixed(1)}, compute;dur=${compute.toFixed(1)}`;
 }
 
 
@@ -181,11 +191,16 @@ api.onError((error, c) => {
 });
 
 api.use("/api/*", async (c, next) => {
+  const started = performance.now();
   if (c.req.path === "/api/dataset/refresh") {
+    // The forced rebuild is the whole of this route's work.
     await next();
+    c.header("Server-Timing", serverTiming(performance.now() - started, 0));
     return;
   }
   const dataset = await getDataset();
+  const built = performance.now();
+  const timing = () => serverTiming(built - started, performance.now() - built);
   const now = requestNow();
   c.set("dataset", dataset);
   c.set("now", now);
@@ -200,8 +215,12 @@ api.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
   // a ledger revision. These routes hash the resolved payload after validation.
-  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) return c.body(null, 304);
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) {
+    c.header("Server-Timing", timing());
+    return c.body(null, 304);
+  }
   await next();
+  c.header("Server-Timing", timing());
 });
 
 api.get("/api/health", async c => {
@@ -323,7 +342,7 @@ api.get("/api/overview", async c => {
     // Quota is an opencodex account observation: never narrowed by, or attributed to, the selection.
     quota: quotaView(quotaScope.available ? dataset : { quota: EMPTY_QUOTA }, { from: query.from, to: query.to }),
     quotaScope,
-    recent: [...rows].sort((a, b) => b.ts - a.ts).slice(0, 25).map(publicRow),
+    recent: topN(rows, 25, newestFirst).map(publicRow),
   });
 });
 
@@ -454,6 +473,7 @@ api.get("/api/performance", async c => {
   const durations = rows.filter(row => row.measurements.duration).map(row => row.durationMs);
   const ttfts = rows.filter(row => row.measurements.ttft).map(row => row.ttftMs as number);
   const throughputs = rows.filter(throughputEligible).map(row => row.outputTokens / (row.durationMs / 1000));
+  const [durationSample, ttftSample, throughputSample] = [sortedSample(durations), sortedSample(ttfts), sortedSample(throughputs)];
   const byModel = breakdown(rows, row => row.model);
 
   return c.json({
@@ -468,9 +488,9 @@ api.get("/api/performance", async c => {
       throughput: histogram(throughputs, [0, 5, 10, 20, 40, 80, 160, Number.POSITIVE_INFINITY], ["<5", "5-10", "10-20", "20-40", "40-80", "80-160", "160+"]),
     },
     percentiles: {
-      duration: { p50: percentile(durations, 0.5), p90: percentile(durations, 0.9), p95: percentile(durations, 0.95), p99: percentile(durations, 0.99) },
-      ttft: { p50: percentile(ttfts, 0.5), p90: percentile(ttfts, 0.9), p95: percentile(ttfts, 0.95), p99: percentile(ttfts, 0.99), coverage: rows.length ? round(ttfts.length / rows.length, 4) : 0 },
-      throughput: { p50: percentile(throughputs, 0.5), p10: percentile(throughputs, 0.1), mean: throughputs.length ? round(throughputs.reduce((a, b) => a + b, 0) / throughputs.length, 2) : null },
+      duration: { p50: percentileOfSorted(durationSample, 0.5), p90: percentileOfSorted(durationSample, 0.9), p95: percentileOfSorted(durationSample, 0.95), p99: percentileOfSorted(durationSample, 0.99) },
+      ttft: { p50: percentileOfSorted(ttftSample, 0.5), p90: percentileOfSorted(ttftSample, 0.9), p95: percentileOfSorted(ttftSample, 0.95), p99: percentileOfSorted(ttftSample, 0.99), coverage: rows.length ? round(ttfts.length / rows.length, 4) : 0 },
+      throughput: { p50: percentileOfSorted(throughputSample, 0.5), p10: percentileOfSorted(throughputSample, 0.1), mean: throughputs.length ? round(throughputs.reduce((a, b) => a + b, 0) / throughputs.length, 2) : null },
     },
     byModel,
     ttftVsOutput: rows
@@ -496,7 +516,7 @@ api.get("/api/reliability", async c => {
     ...report,
     successRate: summary.successRate,
     measurementCoverage: summary.measurementCoverage,
-    recentFailures: [...failureRows].sort((a, b) => b.ts - a.ts).slice(0, 40).map(publicRow),
+    recentFailures: topN(failureRows, 40, newestFirst).map(publicRow),
     waste: summary.waste,
     metering: summary.metering,
     retryOverhead: summary.retryOverhead,
@@ -530,9 +550,10 @@ api.get("/api/ledger", async c => {
     buckets.set(ts, { ts, label: bucketLabel(ts, bucket, tz), settled: 0, sends: 0, tokens: 0 });
   }
   const sendTokens = new Map<string, number>();
+  const bucketOf = bucketer(bucket, tz);
   for (const event of events) {
     if (event.at < from || event.at >= to) continue;
-    const key = bucketStart(event.at, bucket, tz);
+    const key = bucketOf(event.at);
     const entry = buckets.get(key);
     if (!entry) continue;
     if (event.kind === "settle") {

@@ -1,6 +1,7 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { Source } from "./types";
 import type { ContextReplayResponse } from "./labs/context-types";
+import { useMarkPlaceholder } from "./lib/staleness";
 
 export const RANGES = [
   { id: "24h", label: "24h" },
@@ -173,14 +174,31 @@ export async function fetchJson<T>(path: string, params?: Record<string, unknown
   return value;
 }
 
+/**
+ * The filters a selection summary depends on. `/api/scope` and `/api/projects` ignore chart
+ * controls, so changing `groupBy`, `metric` or `bucket` must not refetch them.
+ */
+export const selectionFilters = (filters: Filters): Filters => ({ ...filters, groupBy: "", metric: "", bucket: "auto" });
+
+export interface EndpointOptions {
+  enabled?: boolean;
+  staleTime?: number;
+  refetchInterval?: number | false;
+  /**
+   * Keep showing the previous selection's response while a new one loads (default true).
+   * It is marked as not yet updated. Views whose state belongs to one exact selection opt out.
+   */
+  keepPrevious?: boolean;
+}
+
 export function useEndpoint<T>(
   path: string,
   filters: Filters,
   extra: Record<string, unknown> = {},
-  options: { enabled?: boolean; staleTime?: number; refetchInterval?: number | false } = {},
+  options: EndpointOptions = {},
 ): UseQueryResult<T> {
   const params = filtersToParams(filters, extra);
-  return useQuery<T>({
+  const query = useQuery<T>({
     queryKey: [path, params],
     queryFn: () => fetchJson<T>(path, params),
     staleTime: options.staleTime ?? 15_000,
@@ -188,18 +206,24 @@ export function useEndpoint<T>(
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     enabled: options.enabled ?? true,
+    placeholderData: options.keepPrevious === false ? undefined : keepPreviousData,
   });
+  useMarkPlaceholder(query.isPlaceholderData);
+  return query;
 }
 
 export function exportUrl(filters: Filters, dataset: string): string {
   return `/api/export?${filtersToParams(filters, { dataset })}`;
 }
 
-/** Mount only when Labs is enabled; extra accepts resolved bounds and source/project scope. */
+/**
+ * Mount only when Labs is enabled; extra accepts resolved bounds and source/project scope.
+ * Its evidence belongs to one exact cohort, so it never shows a previous selection's response.
+ */
 export function useContextReplay(
   filters: Filters,
   extra: Record<string, unknown> = {},
-  options: { enabled?: boolean; staleTime?: number; refetchInterval?: number | false } = {},
+  options: EndpointOptions = {},
 ): UseQueryResult<ContextReplayResponse> {
-  return useEndpoint<ContextReplayResponse>("/api/labs/context", filters, extra, options);
+  return useEndpoint<ContextReplayResponse>("/api/labs/context", filters, extra, { ...options, keepPrevious: false });
 }

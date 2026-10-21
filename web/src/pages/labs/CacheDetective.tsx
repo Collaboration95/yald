@@ -42,7 +42,8 @@ export function cacheFinding(totals: CacheEconomicsTotals) {
 
 export function CacheDetective() {
   const { filters } = useFilters();
-  const query = useEndpoint<CacheEconomicsResponse>("/api/labs/cache", filters, { limit: SESSION_LIMIT });
+  // A finding belongs to one exact cohort: never show a previous selection's response.
+  const query = useEndpoint<CacheEconomicsResponse>("/api/labs/cache", filters, { limit: SESSION_LIMIT }, { keepPrevious: false });
   if (!query.data) {
     if (query.isError) return <InvestigationState kind="error" title="Cache comparison unavailable" detail={query.error.message} onRetry={() => { void query.refetch(); }} />;
     return <InvestigationState kind="loading" title="Loading Cache Detective" />;
