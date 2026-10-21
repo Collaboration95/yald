@@ -14,7 +14,7 @@ Yald listens on `http://127.0.0.1:4318` and opens your browser after its own ser
 
 The persistent **Demo / synthetic data** label identifies the demo on every page. All usage, projects, session metadata, quota and rates are invented examples. **Prices are illustrative, not live rates**; amounts show API list-price equivalents, not subscription bills or proof of savings. No provider credentials, requests or network pricing are needed. The demo uses Yald's normal ingestion, calculations and exact evidence selectors.
 
-Labs starts enabled in a separate demo preference. Explore **Project Radar** for current/prior project changes, **Cache Detective** for read discounts and write premiums (including zero and unavailable comparisons), and **Context Replay** for input sequences with gaps and observed zero. Open each finding's evidence link to inspect its exact source, window and requests. You can disable Labs or hide Yaldi's artwork; the synthetic-data and pricing labels remain visible.
+Labs starts enabled in a separate demo preference. Explore **Project Radar** for current/prior project changes, **Cache Detective** for read discounts and write premiums (including zero and unavailable comparisons), **Context Replay** for input sequences with gaps and observed zero, and **Spend spikes** for unusually expensive days and what changed on them. Open each finding's evidence link to inspect its exact source, window and requests. You can disable Labs or hide Yaldi's artwork; the synthetic-data and pricing labels remain visible.
 
 Each launch creates fresh examples relative to the current wall clock, including both 30-day comparison periods. For repeatable screenshots, freeze the sample, API windows and relative UI labels together:
 

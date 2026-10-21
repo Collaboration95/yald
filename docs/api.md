@@ -358,6 +358,24 @@ Like `/api/projects`, Radar validates before a conditional response and hashes
 its resolved payload, so changes in on-disk git roots invalidate a pinned ETag
 without a ledger edit.
 
+### `GET /api/labs/spend` — Spend spikes
+
+Shared window and filters, plus optional `day=YYYY-MM-DD` (a local date inside
+the window in its time zone; otherwise 400 `invalid_day`) selecting which day to
+decompose; by default the costliest spike. Response: `{ ok, analysis:
+"spend-changes", version, window, cohort, rule, pricingBasis, history,
+coverage, days, selected }`. `rule` echoes the detection rule and parameters
+(`baselineActiveDays`, `minBaselineActiveDays`, `spikeMultiple`). Each of `days`
+has `state` (`spike`, `normal`, `insufficient`, `partial`, `no-priced`), `pricedCostUsd`
+(null without a priced request), request counts, and a `baseline` with
+`medianUsd`, `thresholdUsd` and `ratio` (null when unavailable). `selected` has
+the day, its `decomposition` (null unless the day is a spike with a baseline:
+`cuts` for project/model/tokenClass/session with `groups`, `new` and `other`,
+a `drilldown`, `unpriced` and `attribution` coverage), `baselineDays`, an
+`evidence` link to a fixed case and `limitations`. Like Radar, it resolves
+repository roots on disk, so the body is hashed after validation. See
+[metrics](metrics.md#labs-spend-spikes).
+
 ### Labs Context Replay
 
 `GET /api/labs/context` returns fixed window/cohort, request and eligibility
@@ -457,7 +475,7 @@ exported `cacheEligibility` from `server/src/labs/cache.ts`.
 ### `GET /api/labs/evidence` — fixed case evidence
 
 The sibling `/labs/evidence` page is inside the existing Labs preference gate.
-The API takes `investigation=project-radar|cache-detective|context-replay` and a
+The API takes `investigation=project-radar|cache-detective|context-replay|spend-changes` and a
 complete `selector` JSON from a finding. The selector's `version:1`, fixed
 `window:{from,to,tz,label}`, typed `cohort` arrays, exact `selection`, and
 `eligibility` are authoritative. `selectorVersion=1`, readable `from`/`to`/`tz`,
@@ -471,7 +489,11 @@ must have equal elapsed length, touch at current `from`, use the same timezone,
 cohort, exact selection and `eligibility:all`. Prior inspection never rebases the
 comparison. Radar supports scope or exact project key. Cache supports scope,
 source-qualified session, or actual null-ID unnamed selection with
-`eligibility:cache`. Context uses the same selections with `eligibility:all` so
+`eligibility:cache`. Spend spikes uses `spend-changes` with the same paired-selector
+rule as Radar: `selector` is the one local day and `priorSelector` the baseline
+window just before it, each with `eligibility:all` and a scope, project or
+session selection. The case recomputes detection and decomposition from only those
+two windows, so it matches the finding it was opened from. Context uses the same selections with `eligibility:all` so
 excluded rows remain inspectable. An unnamed selection can carry an exact source.
 An unavailable exact group remains empty; it never falls back to another group.
 

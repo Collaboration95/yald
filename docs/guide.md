@@ -101,6 +101,21 @@ valid. Shorter sequences stay inspectable without ranked growth. An input drop
 or adjacent model change establishes no compaction, cause or answer quality.
 See [context metrics](labs-context.md).
 
+**Spend spikes** marks local days whose priced cost is unusually high against
+your own recent loaded history, then shows what changed on one of them. The rule
+is stated on the page: a day is a spike when its priced cost is above 2.5 times
+the median daily priced cost over the previous 14 active days (days with at
+least one priced request). With fewer than 7 baseline days, or a $0 median, the
+day is "insufficient", never "normal"; partial days (today, or cut by the window
+edge) get a hollow bar with the reason. Pick a spike day to see its change
+against the baseline mean as a waterfall by project, model, token class or
+session, with new contributors marked, an exact-values table, a drill-down from
+project to model to token class, and the day's coverage (priced requests,
+unpriced requests, known project folders). Dollars are API list-price
+equivalents of priced requests at today's prices. A spike is not a budget
+breach, and a share of dollars says where they landed, not why. "Open this
+day's requests as a fixed case" shows the exact day and baseline rows.
+
 Each finding's evidence action opens a **fixed case**. It retains the exact
 original half-open window, timezone, full cohort and source-qualified selection
 through reload, pagination and global-toolbar changes. Radar keeps its original

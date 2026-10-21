@@ -314,6 +314,19 @@ cohort limits and all excluded requests are disclosed. See the
 [Context Replay contract](labs-context.md) for denominators and history coverage.
 These request observations do not infer turns, compaction, waste or answer quality.
 
+## Labs spend spikes
+
+`GET /api/labs/spend` judges each local day of the window (in the window's time
+zone) against a trailing baseline. Parameters, echoed in every response as
+`rule`: `baselineActiveDays` 14, `minBaselineActiveDays` 7, `spikeMultiple` 2.5.
+
+- **Cost** is the sum of `cost` over priced rows (API list-price equivalents at the loaded prices). Unpriced rows add requests and tokens, never dollars; a day with no priced row has `pricedCostUsd: null`.
+- **Baseline** is the median daily priced cost over the previous 14 active days (a day with at least one priced request) before that day in the same cohort, read from loaded history even before the window. A day is a **spike** when it is complete and its cost is above 2.5 times that median.
+- **Insufficient** is fewer than 7 baseline days or a $0 median; it is never reported as normal. **Partial** is a day still in progress or cut by the window edge. A day with no priced request is `no-priced`.
+- **Decomposition** compares the day with the mean daily cost over the baseline days, leaving out baseline days above 2.5 times their own median (earlier spikes) so they do not mask the change. Each cut (project, model, token class, session) sums exactly to day minus baseline mean. Groups with no baseline cost are "new". Token-class parts use the engine's cost parts, as on the Cost page.
+- **Coverage** is shown beside it: priced over total requests, the unpriced change in requests and tokens, and the share of requests with a known project folder.
+- **Interpretation.** Unusual is relative to loaded history, which is not necessarily history that happened (`history.completeness` is `unknown`). It is not a budget, a judgement or a cause.
+
 ## Fixed case evidence
 
 Each Labs finding opens a [fixed case](labs-evidence.md) with the exact original
