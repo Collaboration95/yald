@@ -31,6 +31,7 @@ import { OverviewPage } from "../src/pages/Overview";
 import { UsagePage } from "../src/pages/Usage";
 import { CostPage } from "../src/pages/Cost";
 import { PerformancePage } from "../src/pages/Performance";
+import { ContextPage } from "../src/pages/Context";
 import { ReliabilityPage } from "../src/pages/Reliability";
 import { ModelsPage } from "../src/pages/Models";
 import { QuotaPage } from "../src/pages/Quota";
@@ -141,6 +142,14 @@ const PAGES: PageSpec[] = [
     queries: [{ path: "/api/performance", params: filtersToParams(DEFAULT_FILTERS, {}) }],
     expect: ["TTFT p50", "Latency and first-token timeline", "Slowest requests", "Performance by model"],
     expectFrom: payloads => [payloads[0]?.byModel?.[0]?.key],
+  },
+  {
+    name: "Context",
+    route: "/context",
+    Component: ContextPage,
+    queries: [{ path: "/api/context", params: filtersToParams(DEFAULT_FILTERS, {}) }],
+    expect: ["Context length by model", "Per-model summary", "Model by band", "Context tax by band", "Session growth", "Share above a threshold"],
+    expectFrom: payloads => [payloads[0]?.models?.[0]?.model],
   },
   {
     name: "Reliability",

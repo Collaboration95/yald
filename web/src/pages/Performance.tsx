@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Timer, Waves, Zap } from "lucide-react";
 import { useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
@@ -6,10 +7,11 @@ import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, ModelTag, OutcomeDot, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, scatterChart } from "../components/chartOptions";
-import { formatCoverage, formatCompact, formatDateTime, formatDuration, formatPercent } from "../lib/format";
+import { formatCoverage, formatCompact, formatDateTime, formatDuration } from "../lib/format";
 import type { PerformanceResponse } from "../types";
 
 export function PerformancePage() {
+  const { search } = useLocation();
   const { filters } = useFilters();
   const { chartTheme } = useTheme();
   const query = useEndpoint<PerformanceResponse>("/api/performance", filters);
@@ -192,7 +194,7 @@ export function PerformancePage() {
       </div>
 
       <Card>
-        <CardHeader title="Context pressure" subtitle="Input tokens per request — long context prices differently" />
+        <CardHeader title="Context pressure" subtitle="Input tokens per request — long context prices differently" action={<Link to={{ pathname: "/context", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
         <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
             <div className="flex items-end gap-2">

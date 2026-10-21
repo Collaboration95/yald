@@ -706,3 +706,96 @@ export interface CacheEconomicsResponse {
   unnamed: CacheEconomicsTotals;
   notes: string[];
 }
+
+export interface ContextSpread {
+  n: number;
+  mean: number | null;
+  p10: number | null;
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  p90: number | null;
+  p99: number | null;
+  max: number | null;
+}
+
+export interface ContextModelRow extends ContextSpread {
+  /** Null on the folded "Other" row. */
+  source: Source | null;
+  model: string | null;
+  totalRequests: number;
+  pricedRequests: number;
+  bandCounts: number[];
+  bandShares: number[];
+}
+
+export interface ContextThresholdRow {
+  at: number | null;
+  label: string;
+  requests: number;
+  requestShare: number | null;
+  pricedRequests: number;
+  cost: number | null;
+  costShare: number | null;
+}
+
+export interface ContextTaxRow {
+  id: string;
+  label: string;
+  min: number;
+  max: number | null;
+  requests: number;
+  requestShare: number | null;
+  cost: number | null;
+  costShare: number | null;
+  pricedRequests: number;
+  costPerPricedRequest: number | null;
+  ttftP50: number | null;
+  ttftMeasured: number;
+  cancelRate: number | null;
+  outcomesObserved: number;
+  cancelled: number;
+  belowMinimum: boolean;
+  topModels: { source: Source; model: string; share: number }[];
+}
+
+export interface ContextResponse {
+  ok: boolean;
+  window: { from: number; to: number; bucket: "hour" | "day" | "week"; label: string };
+  coverage?: ProjectCoverage;
+  bands: { id: string; label: string; min: number; max: number | null }[];
+  minimums: { box: number; p90: number; p99: number; band: number };
+  eligibility: {
+    totalRequests: number;
+    eligibleRequests: number;
+    excludedRequests: number;
+    pricedEligibleRequests: number;
+    unpricedEligibleRequests: number;
+    unnamedRequests: number;
+  };
+  overall: ContextSpread;
+  bySource: (ContextSpread & { source: Source })[];
+  models: ContextModelRow[];
+  modelsOmitted: number;
+  box: ContextModelRow[];
+  modelBands: ContextModelRow[];
+  thresholds: ContextThresholdRow[];
+  tax: ContextTaxRow[];
+  sources: { source: Source; totalRequests: number; eligibleRequests: number; ttftMeasured: number; outcomesObserved: number }[];
+  timeline: {
+    bucket: "hour" | "day" | "week";
+    buckets: { ts: number; label: string }[];
+    series: { source: Source; n: number[]; p50: (number | null)[]; p90: (number | null)[] }[];
+  };
+  growth: {
+    sessions: number;
+    ranked: number;
+    unranked: number;
+    noRatio: number;
+    clippedRanked: number;
+    medianRatio: number | null;
+    histogram: { name: string; value: number }[];
+    minEligible: number;
+  };
+  histogram: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
+}

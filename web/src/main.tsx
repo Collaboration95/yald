@@ -16,6 +16,7 @@ import { loadingQuip } from "./components/ui";
 const OverviewPage = lazy(() => import("./pages/Overview").then(m => ({ default: m.OverviewPage })));
 const UsagePage = lazy(() => import("./pages/Usage").then(m => ({ default: m.UsagePage })));
 const CostPage = lazy(() => import("./pages/Cost").then(m => ({ default: m.CostPage })));
+const ContextPage = lazy(() => import("./pages/Context").then(m => ({ default: m.ContextPage })));
 const PerformancePage = lazy(() => import("./pages/Performance").then(m => ({ default: m.PerformancePage })));
 const ReliabilityPage = lazy(() => import("./pages/Reliability").then(m => ({ default: m.ReliabilityPage })));
 const ModelsPage = lazy(() => import("./pages/Models").then(m => ({ default: m.ModelsPage })));
@@ -59,6 +60,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="cost" element={<CostPage />} />
                 <Route path="performance" element={<PerformancePage />} />
+                <Route path="context" element={<ContextPage />} />
                 <Route path="reliability" element={<ReliabilityPage />} />
                 <Route path="models" element={<ModelsPage />} />
                 <Route path="quota" element={<QuotaPage />} />
