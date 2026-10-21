@@ -1,7 +1,8 @@
-import { keepPreviousData, useQuery, type UseQueryResult } from "@tanstack/react-query";
-import type { Source } from "./types";
+import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import type { MetaResponse, Source } from "./types";
 import type { ContextReplayResponse } from "./labs/context-types";
-import { useMarkPlaceholder } from "./lib/staleness";
+import { savedResponse, savedTime, saveResponse } from "./lib/persist";
+import { useMarkPlaceholder, useMarkSaved } from "./lib/staleness";
 
 export const RANGES = [
   { id: "24h", label: "24h" },
@@ -143,21 +144,35 @@ export class ApiError extends Error {
   }
 }
 
-const responseCache = new Map<string, { etag: string; value: unknown }>();
+const responseCache = new Map<string, { etag: string; value: unknown; size: number }>();
 
-export async function fetchJson<T>(path: string, params?: Record<string, unknown> | string): Promise<T> {
+function requestUrl(path: string, params?: Record<string, unknown> | string): string {
   const query = typeof params === "string" ? params : params ? new URLSearchParams(
     Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
       if (value !== undefined && value !== null) acc[key] = String(value);
       return acc;
     }, {}),
   ).toString() : "";
-  const url = query ? `${path}?${query}` : path;
-  const cached = responseCache.get(url);
+  return query ? `${path}?${query}` : path;
+}
+
+/**
+ * GET one API response. With `persist`, a successful response is also kept in this browser
+ * (lib/persist.ts) for the next page load, and a saved ETag can turn that load's first
+ * request into a 304. Errors are never kept.
+ */
+export async function fetchJson<T>(path: string, params?: Record<string, unknown> | string, options: { persist?: boolean } = {}): Promise<T> {
+  const url = requestUrl(path, params);
+  const saved = options.persist ? savedResponse(url) : undefined;
+  const cached = responseCache.get(url) ?? (saved?.etag ? { etag: saved.etag, value: saved.body, size: saved.size } : undefined);
   const response = await fetch(url, {
     headers: { accept: "application/json", ...(cached ? { "if-none-match": cached.etag } : {}) },
   });
-  if (response.status === 304 && cached) return cached.value as T;
+  if (response.status === 304 && cached) {
+    // Confirmed current: keep it, and date it now.
+    if (options.persist) saveResponse(url, cached.value, cached.etag, cached.size);
+    return cached.value as T;
+  }
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     let message = body.slice(0, 200) || `Request failed with ${response.status}`;
@@ -168,10 +183,55 @@ export async function fetchJson<T>(path: string, params?: Record<string, unknown
     } catch { /* A non-JSON error response still has the bounded fallback above. */ }
     throw new ApiError(message, response.status);
   }
-  const value = await response.json() as T;
+  const text = await response.text();
+  const value = JSON.parse(text) as T;
   const etag = response.headers.get("etag");
-  if (etag) responseCache.set(url, { etag, value });
+  if (etag) responseCache.set(url, { etag, value, size: text.length });
+  if (options.persist) saveResponse(url, value, etag, text.length);
   return value;
+}
+
+/**
+ * One persisted GET query. On the first mount after a page load it starts from the response
+ * saved by an earlier load (with its save time as the data time), so the page shows at once
+ * while the fresh request runs; the layout labels it "as of" until fresh data replaces it.
+ */
+function useSavedQuery<T>(
+  queryKey: readonly unknown[],
+  path: string,
+  params: string | undefined,
+  options: { persist: boolean; staleTime: number; refetchInterval: number | false; enabled: boolean; keepPrevious: boolean },
+): UseQueryResult<T> {
+  const queryClient = useQueryClient();
+  const saved = options.persist && queryClient.getQueryData(queryKey) === undefined ? savedResponse(requestUrl(path, params)) : undefined;
+  const query = useQuery<T>({
+    queryKey,
+    queryFn: () => fetchJson<T>(path, params, { persist: options.persist }),
+    initialData: saved?.body as T | undefined,
+    initialDataUpdatedAt: saved?.savedAt,
+    // A saved response is never the fresh answer, however recently it was saved.
+    refetchOnMount: query => (showsSaved(query.state.data, query.state.dataUpdatedAt) ? "always" : true),
+    staleTime: options.staleTime,
+    refetchInterval: options.refetchInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    enabled: options.enabled,
+    placeholderData: options.keepPrevious ? keepPreviousData : undefined,
+  });
+  useMarkPlaceholder(query.isPlaceholderData);
+  useMarkSaved(showsSaved(query.data, query.dataUpdatedAt) ? query.dataUpdatedAt : null, query.isError);
+  return query;
+}
+
+/** Still the body saved by an earlier page load, neither replaced nor reconfirmed since (a refresh moves dataUpdatedAt). */
+function showsSaved(data: unknown, dataUpdatedAt: number): boolean {
+  const savedAt = savedTime(data);
+  return savedAt !== undefined && savedAt === dataUpdatedAt;
+}
+
+/** `/api/meta`, shared by the layout and the chart palette; persisted like the views. */
+export function useMeta(): UseQueryResult<MetaResponse> {
+  return useSavedQuery<MetaResponse>(["/api/meta"], "/api/meta", undefined, { persist: true, staleTime: 60_000, refetchInterval: false, enabled: true, keepPrevious: false });
 }
 
 /**
@@ -189,6 +249,12 @@ export interface EndpointOptions {
    * It is marked as not yet updated. Views whose state belongs to one exact selection opt out.
    */
   keepPrevious?: boolean;
+  /**
+   * Keep the last successful response in this browser and show it, labelled with its save
+   * time, on the next page load (default true). Labs findings opt out: their evidence
+   * identities belong to the dataset they were computed from.
+   */
+  persist?: boolean;
 }
 
 export function useEndpoint<T>(
@@ -198,18 +264,13 @@ export function useEndpoint<T>(
   options: EndpointOptions = {},
 ): UseQueryResult<T> {
   const params = filtersToParams(filters, extra);
-  const query = useQuery<T>({
-    queryKey: [path, params],
-    queryFn: () => fetchJson<T>(path, params),
+  return useSavedQuery<T>([path, params], path, params, {
+    persist: options.persist ?? true,
     staleTime: options.staleTime ?? 15_000,
     refetchInterval: options.refetchInterval ?? 30_000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: false,
     enabled: options.enabled ?? true,
-    placeholderData: options.keepPrevious === false ? undefined : keepPreviousData,
+    keepPrevious: options.keepPrevious ?? true,
   });
-  useMarkPlaceholder(query.isPlaceholderData);
-  return query;
 }
 
 export function exportUrl(filters: Filters, dataset: string): string {
@@ -225,5 +286,5 @@ export function useContextReplay(
   extra: Record<string, unknown> = {},
   options: EndpointOptions = {},
 ): UseQueryResult<ContextReplayResponse> {
-  return useEndpoint<ContextReplayResponse>("/api/labs/context", filters, extra, { ...options, keepPrevious: false });
+  return useEndpoint<ContextReplayResponse>("/api/labs/context", filters, extra, { ...options, keepPrevious: false, persist: false });
 }

@@ -57,6 +57,7 @@ bill or proof of savings.
 | `$CLAUDE_PROJECTS_DIR/**/*.jsonl` | Claude Code transcripts, including nested subagent files |
 | `$CODEX_HOME/sessions/**/rollout-*.jsonl` and `$CODEX_HOME/archived_sessions/rollout-*.jsonl` | First-line Codex session metadata for opencodex project attribution |
 | `$OCX_HOME/yald-claude-usage.jsonl` | **Yald-owned archive, written locally** from Claude usage metadata |
+| Browser IndexedDB, database `yald` | **Written by the dashboard page**: the last successful API response per view and selection, so a reload shows it at once |
 
 Defaults are `OCX_HOME=~/.opencodex`,
 `CLAUDE_PROJECTS_DIR=~/.claude/projects` and `CODEX_HOME=~/.codex`.
@@ -70,6 +71,14 @@ entries. Usage remains after transcripts are deleted or `CLAUDE_PROJECTS_DIR`
 is changed to an empty directory. Source filtering changes the displayed
 population; it neither deletes this archive nor stops ingestion from the
 configured transcript directory.
+
+The dashboard keeps the last successful response for each view and selection in
+this browser profile's IndexedDB (database `yald`, at most 40 responses, none
+older than 7 days or from another Yald build). The responses are the same JSON the
+local API returns, so they include project folder names, model names and
+conversation ids, but no prompt or response text. They never leave the browser
+profile; clearing the site's data for the Yald address removes them. Error
+responses and the demo's synthetic data are never stored.
 
 To run without previously archived Claude usage, choose a **new, separate
 `OCX_HOME`** as well as an empty transcript directory. This also selects a

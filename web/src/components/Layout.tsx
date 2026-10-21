@@ -1,6 +1,6 @@
 import { clsx } from "clsx";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BatteryCharging,
@@ -16,16 +16,16 @@ import {
   Sun,
   Timer,
 } from "lucide-react";
-import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, selectionFilters, useEndpoint } from "../api";
-import { usePlaceholderShown } from "../lib/staleness";
+import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, selectionFilters, useEndpoint, useMeta } from "../api";
+import { usePlaceholderShown, useSavedShown } from "../lib/staleness";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { CheckList, Popover, Segmented } from "./ui";
 import { Wordmark } from "./Wordmark";
 import { Delight } from "./Delight";
 import { NoScopeMatches, ProjectFilter, ScopeStatus, SourceFilter } from "./ScopeControls";
-import { formatCompact, formatRelative } from "../lib/format";
-import type { MetaResponse, ScopeResponse } from "../types";
+import { formatCompact, formatDateTime, formatRelative } from "../lib/format";
+import type { ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
 import { DEMO, displayNow } from "../lib/demo";
 import { YaldiDemoArtwork } from "./YaldiArtwork";
@@ -59,16 +59,13 @@ export function Layout() {
   const location = useLocation();
   const queryClient = useQueryClient();
 
-  const meta = useQuery<MetaResponse>({
-    queryKey: ["/api/meta"],
-    queryFn: () => fetchJson<MetaResponse>("/api/meta"),
-    staleTime: 60_000,
-  });
+  const meta = useMeta();
 
   const scope = useEndpoint<ScopeResponse>("/api/scope", selectionFilters(filters));
   // The previous selection's summary is not this one's: never count it as a match or a zero.
   const scopeData = scope.isPlaceholderData ? undefined : scope.data;
   const updating = usePlaceholderShown();
+  const saved = useSavedShown();
   const activeFilters = activeFilterCount(filters);
   const isLabs = location.pathname === "/labs" || location.pathname.startsWith("/labs/");
   const heading = isLabs ? { title: "Labs", subtitle: "Follow patterns in your usage" }
@@ -220,6 +217,11 @@ export function Layout() {
           <ScopeStatus data={scopeData} loading={scope.isLoading || scope.isPlaceholderData} error={scope.error} />
           {updating ? <p role="status" data-updating-notice className="mb-3 rounded-xl border border-line bg-warn-soft px-3 py-2 text-[11.5px] leading-5 text-warn">
             Updating: the numbers below are from the previous selection and are not this selection's result yet.
+          </p> : null}
+          {saved ? <p role="status" data-saved-notice className="mb-3 rounded-xl border border-line bg-info-soft px-3 py-2 text-[11.5px] leading-5 text-info">
+            {saved.failed
+              ? `Could not refresh. Showing saved results as of ${formatDateTime(saved.savedAt)}.`
+              : `Showing saved results as of ${formatDateTime(saved.savedAt)} while they refresh.`}
           </p> : null}
           {hasScope(filters) && scopeData?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
             ? <NoScopeMatches /> : <Outlet />}
