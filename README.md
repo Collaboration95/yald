@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="web/public/yaldi/state-investigating-dark.svg">
-    <img src="web/public/yaldi/state-investigating.svg" width="160" alt="Yaldi, a small robot detective with a coral cap, looking through a magnifying glass">
-  </picture>
+  <img src="docs/brand/yaldi/readme-hero.png" width="100%" alt="Yaldi, a small robot detective with a coral cap, in four poses: looking through a magnifying glass, reading a bar chart, surprised by a clue, and resting">
 </p>
 <h1 align="center">Yald — Yet Another LLM Dashboard</h1>
 <p align="center"><strong>Follow the tokens. Find the story.</strong></p>
@@ -16,12 +13,6 @@ and empty states, and you can hide the artwork from the sidebar.
 Dollar amounts are **API list-price equivalents**: what the same tokens would cost at list price.
 They don't reflect your subscription bill and don't prove savings. Missing input or price is
 unavailable, not zero or free.
-
-![Installed 0.2.0 Overview with Yaldi and labeled synthetic demo data](docs/screenshots/meet-yaldi-0.2.0/overview-light.png)
-
-*The installed demo, with synthetic usage and illustrative prices. Overview's "cache savings" is the
-gross cache-read discount before write premiums; Cache Detective has the net comparison
-([metric definitions](docs/metrics.md#net-cache-economics)).*
 
 ## Install Yald 0.2.0
 
@@ -102,6 +93,12 @@ You don't need personal usage records. In the installed package, run `yald demo 
 checkout, run `node scripts/yald.mjs demo --open` after
 [development setup](docs/install.md#development-checkout). Example prices are illustrative, not live
 rates. The [demo guide](docs/demo.md) covers the sample clock and cleanup.
+
+![Installed 0.2.0 Overview with Yaldi and labeled synthetic demo data](docs/screenshots/meet-yaldi-0.2.0/overview-light.png)
+
+*The installed demo, with synthetic usage and illustrative prices. Overview's "cache savings" is the
+gross cache-read discount before write premiums; Cache Detective has the net comparison
+([metric definitions](docs/metrics.md#net-cache-economics)).*
 
 ## Write a report
 
