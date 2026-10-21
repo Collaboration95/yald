@@ -36,6 +36,7 @@ import {
   summarize,
   topN,
   type Bucket,
+  type ConversationSort,
   type Metric,
   type RowFilter,
 } from "./analytics";
@@ -567,13 +568,15 @@ api.get("/api/cost", async c => {
     window: { ...query.window, bucket: query.bucket },
     summary: summarize(rows),
     composition: costComposition(rows),
+    /** Tokens of priced requests: the denominator for a blended price (unpriced tokens carry no dollars). */
+    pricedTokens: rows.reduce((sum, row) => (row.priced ? sum + row.totalTokens : sum), 0),
     series: buildSeries(rows, { bucket: query.bucket, metric: "cost", groupBy: query.groupBy, from: query.from, to: query.to, tz: query.tz, limit: 8 }),
     cumulative: cumulativeSeries(rows, query.bucket, query.from, query.to, "cost", query.tz),
     cache: cacheTimeline(rows, query.bucket, query.from, query.to, query.tz),
     byModel: breakdown(rows, row => row.model),
     byProvider: breakdown(rows, row => row.provider),
     byEffort: breakdown(rows, row => row.effort ?? "unknown"),
-    topConversations: conversations(rows, 50).sort((a, b) => b.cost - a.cost).slice(0, 10),
+    topConversations: conversations(rows, 10, "cost"),
     daily: cumulativeSeries(rows, "day", query.from, query.to, "cost", query.tz),
   });
 });
@@ -710,17 +713,10 @@ api.get("/api/conversations", async c => {
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const limit = numberParam(c.req.query("limit")) ?? 100;
-  const list = conversations(rows, limit);
-  const sort = c.req.query("sort") ?? "tokens";
-  const sorted = [...list].sort((a, b) => {
-    switch (sort) {
-      case "cost": return b.cost - a.cost;
-      case "requests": return b.requests - a.requests;
-      case "recent": return b.endedAt - a.endedAt;
-      case "errors": return b.errors - a.errors;
-      default: return b.tokens - a.tokens;
-    }
-  });
+  const requested = c.req.query("sort");
+  const sort: ConversationSort = requested === "cost" || requested === "requests" || requested === "recent" || requested === "errors" ? requested : "tokens";
+  // Ranked across every session, then cut: a costly low-token session is never lost to the cut.
+  const sorted = conversations(rows, limit, sort);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),

@@ -536,6 +536,8 @@ export interface BreakdownRow {
   successRate: number | null;
   cacheHitRate: number | null;
   outputTokensPerSecond: number | null;
+  /** Tokens of priced requests only: the denominator of the blended prices below. */
+  pricedTokens: number;
   costPer1kTokens: number | null;
   costPer1MTokens: number | null;
   firstSeen: number;
@@ -558,6 +560,8 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
   const result: BreakdownRow[] = [];
   for (const [key, list] of map) {
     const summary = summarize(list);
+    let pricedTokens = 0;
+    for (const row of list) if (row.priced) pricedTokens += row.totalTokens;
     result.push({
       key,
       requests: summary.requests,
@@ -576,8 +580,9 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
       cacheHitRate: summary.cache.hitRate,
       // summarize reads the same throughput-eligible rows with the same formula.
       outputTokensPerSecond: summary.throughput.p50,
-      costPer1kTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1000, 4) : null,
-      costPer1MTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1_000_000, 2) : null,
+      pricedTokens,
+      costPer1kTokens: pricedTokens > 0 ? round((summary.cost / pricedTokens) * 1000, 4) : null,
+      costPer1MTokens: pricedTokens > 0 ? round((summary.cost / pricedTokens) * 1_000_000, 2) : null,
       firstSeen: summary.firstRequestAt ?? 0,
       lastSeen: summary.lastRequestAt ?? 0,
       unpricedRequests: summary.unpricedRequests,
@@ -588,11 +593,39 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
   return result.sort((a, b) => b.tokens - a.tokens);
 }
 
+export interface ClassCost {
+  freshInput: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  /** Row cost not explained by the four classes; 0 whenever the engine's own split is on the row. */
+  adjustment: number;
+}
+
+/**
+ * The four token-class costs of one priced row. They are the engine's own split when the row carries
+ * it, so they add up to `row.cost` on long-context-tier and priority rows too. Without it (rows from
+ * before the split was kept) they are tokens times the table rates, and `adjustment` holds whatever
+ * the tier or priority multiplier added on top, so the parts still add up to `row.cost`.
+ */
+export function classCost(row: RequestRow): ClassCost {
+  const parts = row.costParts;
+  if (parts) return { freshInput: parts.input, cacheRead: parts.cacheRead, cacheWrite: parts.cacheWrite, output: parts.output, adjustment: 0 };
+  const fresh = Math.max(0, row.inputTokens - row.cacheReadTokens - row.cacheWriteTokens);
+  const freshInput = row.rateIn !== null ? (fresh * row.rateIn) / 1e6 : 0;
+  const cacheRead = row.rateCacheRead !== null ? (row.cacheReadTokens * row.rateCacheRead) / 1e6 : 0;
+  const cacheWrite = row.rateCacheWrite !== null ? (row.cacheWriteTokens * row.rateCacheWrite) / 1e6 : 0;
+  const output = row.rateOut !== null ? (row.outputTokens * row.rateOut) / 1e6 : 0;
+  return { freshInput, cacheRead, cacheWrite, output, adjustment: row.cost - (freshInput + cacheRead + cacheWrite + output) };
+}
+
 export function costComposition(rows: RequestRow[]): {
   freshInput: number;
   cacheRead: number;
   cacheWrite: number;
   output: number;
+  /** Tier or priority cost the class split could not place; 0 when every row carries the engine's split. */
+  adjustment: number;
   total: number;
   cacheSavingsUsd: number;
   unpricedRequests: number;
@@ -602,6 +635,7 @@ export function costComposition(rows: RequestRow[]): {
   let cacheRead = 0;
   let cacheWrite = 0;
   let output = 0;
+  let adjustment = 0;
   let savings = 0;
   let unpriced = 0;
   let unmetered = 0;
@@ -611,21 +645,21 @@ export function costComposition(rows: RequestRow[]): {
       if (row.totalTokens === 0) unmetered++;
       continue;
     }
-    if (row.rateIn !== null) {
-      const freshTokens = Math.max(0, row.inputTokens - row.cacheReadTokens - row.cacheWriteTokens);
-      freshInput += (freshTokens * row.rateIn) / 1e6;
-    }
-    if (row.rateCacheRead !== null) cacheRead += (row.cacheReadTokens * row.rateCacheRead) / 1e6;
-    if (row.rateCacheWrite !== null) cacheWrite += (row.cacheWriteTokens * row.rateCacheWrite) / 1e6;
-    if (row.rateOut !== null) output += (row.outputTokens * row.rateOut) / 1e6;
+    const parts = classCost(row);
+    freshInput += parts.freshInput;
+    cacheRead += parts.cacheRead;
+    cacheWrite += parts.cacheWrite;
+    output += parts.output;
+    adjustment += parts.adjustment;
     if (row.priced && row.rateIn !== null && row.rateCacheRead !== null) savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
   }
-  const total = freshInput + cacheRead + cacheWrite + output;
+  const total = freshInput + cacheRead + cacheWrite + output + adjustment;
   return {
     freshInput: round(freshInput, 4),
     cacheRead: round(cacheRead, 4),
     cacheWrite: round(cacheWrite, 4),
     output: round(output, 4),
+    adjustment: round(adjustment, 4),
     total: round(total, 4),
     cacheSavingsUsd: round(savings, 4),
     unpricedRequests: unpriced,
@@ -845,7 +879,19 @@ export interface ConversationRow {
   intensity: number;
 }
 
-export function conversations(rows: RequestRow[], limit = 200): ConversationRow[] {
+export type ConversationSort = "tokens" | "cost" | "requests" | "recent" | "errors";
+
+const tieBreak = (a: ConversationRow, b: ConversationRow) => b.tokens - a.tokens || a.source.localeCompare(b.source) || a.id.localeCompare(b.id);
+const CONVERSATION_ORDER: Record<ConversationSort, (a: ConversationRow, b: ConversationRow) => number> = {
+  tokens: tieBreak,
+  cost: (a, b) => b.cost - a.cost || tieBreak(a, b),
+  requests: (a, b) => b.requests - a.requests || tieBreak(a, b),
+  recent: (a, b) => b.endedAt - a.endedAt || tieBreak(a, b),
+  errors: (a, b) => b.errors - a.errors || tieBreak(a, b),
+};
+
+/** Sessions ranked by `order` across every session in `rows`, then cut to `limit`: the cut never decides the ranking. */
+export function conversations(rows: RequestRow[], limit = 200, order: ConversationSort = "tokens"): ConversationRow[] {
   const map = new Map<string, RequestRow[]>();
   for (const row of rows) {
     if (!row.conversationId) continue;
@@ -902,7 +948,7 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
       intensity: round(tokens / (spanMs / 3_600_000), 1),
     });
   }
-  return result.sort((a, b) => b.tokens - a.tokens || a.source.localeCompare(b.source) || a.id.localeCompare(b.id)).slice(0, limit);
+  return result.sort(CONVERSATION_ORDER[order]).slice(0, limit);
 }
 
 export function conversationTimeline(rows: RequestRow[], id: string): {

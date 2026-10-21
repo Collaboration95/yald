@@ -35,11 +35,11 @@ function usageEntry(id: string, timestamp: number, tokens = 100) {
 }
 
 /** One fixture home served by an isolated probe process with the given process TZ and server zone. */
-async function serve(entries: object[], env: { TZ?: string; YALD_TZ?: string } = {}) {
+async function serve(entries: object[], env: { TZ?: string; YALD_TZ?: string } = {}, engine = COST_ENGINE) {
   const dir = await mkdtemp(join(tmpdir(), "yald-api-test-")); owned.push(dir);
   const home = join(dir, "home"), pricing = join(dir, "pricing");
   await mkdir(home); await mkdir(join(home, "codex")); await mkdir(join(pricing, "src/usage"), { recursive: true });
-  await writeFile(join(pricing, "src/usage/cost.ts"), COST_ENGINE);
+  await writeFile(join(pricing, "src/usage/cost.ts"), engine);
   await writeFile(join(home, "usage.jsonl"), entries.map(entry => JSON.stringify(entry)).join("\n") + "\n");
   const child = spawn(process.execPath, [helper, root], {
     cwd: root, stdio: "pipe",
@@ -345,4 +345,46 @@ test("F01 metadata and outcome cohorts agree across overview, reliability, perfo
   expect(csv!.body).toContain("unobserved");
   expect(csv!.body).not.toContain("proxy-ok");
   expect(conversation!.body.requests[0].outcome).toBe("unobserved");
+});
+
+// An engine with a long-context tier (twice the rates from 200k input) and one model priced 1,000,000x.
+const TIER_ENGINE = `export function estimateRequestCost(input) {
+  if (input.model === "unpriced") return null;
+  const u = input.usage ?? {};
+  const cacheRead = u.cacheReadInputTokens ?? 0, cacheWrite = u.cacheCreationInputTokens ?? 0;
+  const long = (u.inputTokens ?? 0) >= 200000;
+  const m = (long ? 2 : 1) * (input.model === "pricey" ? 1000000 : 1);
+  const cost = { input: Math.max(0, (u.inputTokens ?? 0) - cacheRead - cacheWrite) * 10 * m / 1e6, output: (u.outputTokens ?? 0) * 20 * m / 1e6, cacheRead: cacheRead * m / 1e6, cacheWrite: cacheWrite * 5 * m / 1e6 };
+  return { cost: { ...cost, total: cost.input + cost.output + cost.cacheRead + cost.cacheWrite }, estimated: false, contextTier: long ? "long" : undefined,
+    price: { cost4: { input: 10, output: 20, cacheRead: 1, cacheWrite: 5 } } };
+}
+`;
+
+test("session cost ranking covers every session, and token-class costs reconcile with cost on tiered rows", async () => {
+  const entry = (id: string, conversationId: string, model: string, inputTokens: number, extra: Record<string, unknown> = {}) => ({
+    requestId: id, timestamp: now - 3_600_000, provider: "p", model, conversationId, status: 200, usageStatus: "reported",
+    usage: { inputTokens, outputTokens: 10, cacheReadInputTokens: Math.floor(inputTokens / 2), cacheCreationInputTokens: Math.floor(inputTokens / 10) }, ...extra,
+  });
+  const entries = [
+    // 60 sessions of ~1000 tokens fill the old "50 largest by tokens" cut; the costly one has far fewer tokens.
+    ...Array.from({ length: 60 }, (_, i) => entry(`cheap-${i}`, `cheap-${i}`, "cheap", 1000 + i)),
+    entry("costly", "costly", "pricey", 10),
+    entry("long", "long-session", "cheap", 300_000),
+  ];
+  const request = await serve(entries, {}, TIER_ENGINE);
+  const [cost, byCost, byTokens, byRequests] = await request(
+    "/api/cost?range=all", "/api/conversations?range=all&sort=cost&limit=3", "/api/conversations?range=all&sort=tokens&limit=2", "/api/conversations?range=all&sort=requests&limit=1",
+  );
+  expect(cost!.body.topConversations[0].id).toBe("costly");
+  expect(cost!.body.topConversations).toHaveLength(10);
+  const costs = cost!.body.topConversations.map((c: any) => c.cost);
+  expect(costs).toEqual([...costs].sort((a: number, b: number) => b - a));
+  expect(byCost!.body.conversations.map((c: any) => c.id)).toEqual(["costly", "long-session", expect.any(String)]);
+  expect(byTokens!.body.conversations[0].id).toBe("long-session");
+  expect(byRequests!.body.conversations).toHaveLength(1);
+  // Classes add up to the engine's total on every row, including the long-context-tier one.
+  const { composition, summary } = cost!.body;
+  expect(composition.adjustment).toBe(0);
+  expect(composition.freshInput + composition.cacheRead + composition.cacheWrite + composition.output).toBeCloseTo(summary.cost, 3);
+  expect(composition.total).toBeCloseTo(summary.cost, 3);
 });

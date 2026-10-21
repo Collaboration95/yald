@@ -240,3 +240,36 @@ test("API routes return their documented payloads and range-scoped quota and led
   const invalidHeatmapDate = await api.request("/api/usage/heatmap-dates?weekday=7&hour=24");
   expect(invalidHeatmapDate.status).toBe(400);
 });
+
+test("class costs use the engine split, or keep an explicit adjustment so they always add up to the row cost", () => {
+  // A long-context-tier row: the engine charged double the table rates.
+  const tokens = { inputTokens: 10_000_000, cacheReadTokens: 4_000_000, cacheWriteTokens: 1_000_000, outputTokens: 2_000_000 };
+  const tiered = row({ ...tokens, cost: 19.2, contextTier: "long" });
+  const withParts = row({ ...tiered, costParts: { input: 10, cacheRead: 0.8, cacheWrite: 0.4, output: 8 } });
+  const total = (list: RequestRow[]) => analytics.costComposition(list);
+  expect(total([withParts]).adjustment).toBe(0);
+  const exact = total([withParts]);
+  expect(exact.freshInput + exact.cacheRead + exact.cacheWrite + exact.output).toBeCloseTo(withParts.cost, 8);
+  // Without the split, the tier uplift is its own line, never folded into a class.
+  const fallback = total([tiered]);
+  expect(fallback.total).toBeCloseTo(tiered.cost, 8);
+  expect(fallback.adjustment).toBeCloseTo(9.6, 8);
+  expect(fallback.freshInput).toBeCloseTo(5, 8);
+  // Unpriced rows add no dollars to any class.
+  expect(total([row({ priced: false, cost: 0 })]).total).toBe(0);
+});
+
+test("blended price per model divides priced cost by priced tokens only", () => {
+  const mixed = [row({ id: "a", cost: 1, totalTokens: 1_000_000 }), row({ id: "b", priced: false, cost: 0, totalTokens: 9_000_000 })];
+  const [model] = analytics.breakdown(mixed, r => r.model);
+  expect(model).toMatchObject({ tokens: 10_000_000, pricedTokens: 1_000_000, costPer1MTokens: 1, costPer1kTokens: 0.001 });
+});
+
+test("conversations rank by the requested order across every session before the cut", () => {
+  const list = [
+    ...Array.from({ length: 5 }, (_, i) => row({ id: `t${i}`, conversationId: `t${i}`, totalTokens: 1000 + i, cost: 0.01 })),
+    row({ id: "c", conversationId: "costly", totalTokens: 5, cost: 9 }),
+  ];
+  expect(analytics.conversations(list, 2, "tokens").map(c => c.id)).toEqual(["t4", "t3"]);
+  expect(analytics.conversations(list, 2, "cost").map(c => c.id)).toEqual(["costly", "t4"]);
+});
