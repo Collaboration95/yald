@@ -4,6 +4,27 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Changed
+
+- **Pages open in a fraction of the time** ([#95](https://github.com/Collaboration95/yald/issues/95)). On a real history of about 157k requests, the 30-day Cost page went from 4.5 s to under 0.2 s and Usage from 3.5 s to under 0.2 s; a repeat open answers in about 10 ms. Time buckets are now worked out once per bucket instead of once per request, and samples are sorted once per series. Every number is unchanged: API responses were compared byte for byte against the previous version on real data ([#98](https://github.com/Collaboration95/yald/issues/98), [#113](https://github.com/Collaboration95/yald/pull/113)).
+- **Your numbers stay on screen while new ones load.** Changing a range or filter keeps the previous numbers visible, dimmed under an "Updating" notice, instead of blanking the page. After a reload, each view first shows its last results under "Showing saved results as of …" while fresh numbers load. They are kept in this browser's IndexedDB (at most 40 responses, none older than 7 days or from another Yald build). Errors and demo data are never saved, and unavailable values stay unavailable ([#99](https://github.com/Collaboration95/yald/issues/99), [#115](https://github.com/Collaboration95/yald/pull/115)).
+- **New log lines are read on their own.** When `usage.jsonl` or a Claude Code transcript grows, only the appended bytes are read. One new line now costs about 20 ms instead of re-reading a 250 MB file. A replaced, shrunk or rewritten file, or a price change, is still read whole, with the same result as before ([#100](https://github.com/Collaboration95/yald/issues/100), [#116](https://github.com/Collaboration95/yald/pull/116)).
+- **The request clock for rolling windows is rounded down to 10 seconds** (`YALD_CLOCK_QUANTUM_MS`). A rolling window's `to` can lag the real time by up to one quantum, and repeat requests within it are answered from memory or with `304 Not Modified`. ETags now also include the pricing generation. See [API reference](docs/api.md).
+- Source files are checked for changes at most once a second (`YALD_FRESHNESS_MS`); Refresh still re-reads at once.
+- The project list in the toolbar is refreshed every 5 minutes or on Refresh, instead of on every 30-second poll.
+- The README opens with Yaldi and reads more plainly ([#92](https://github.com/Collaboration95/yald/pull/92)).
+
+### Added
+
+- A `Server-Timing` header on every `/api/*` response, splitting dataset build and route compute time and marking memo hits. It carries durations only, never data.
+- `scripts/bench-endpoints.ts` and `scripts/compare-endpoints.ts`, which time page loads and compare API responses between two checkouts on a copy of your data. Both refuse to run against the live `~/.opencodex`.
+
+### Fixed
+
+- The default dashboard view (a rolling window) never got a `304`, because its ETag included the request time to the millisecond, so every 30-second poll recomputed the whole page.
+- A health check, or the header's metadata and project requests, no longer waits several seconds behind a heavy page query.
+- The test suite can no longer touch your real data. Every `bun test` run uses a throwaway data home, and server code refuses to load under `bun test` without one.
+
 ### Removed
 
 - Hosted Ubuntu/macOS test CI and its required branch checks. Verification runs locally.
