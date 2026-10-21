@@ -15,7 +15,12 @@ The desktop dashboard supports light and dark themes. Visible views poll every
 30 seconds, unchanged responses use ETags, and hidden tabs pause polling.
 Refresh forces a re-read. After a filter or range change, the previous numbers
 stay on screen, dimmed under an "Updating" notice, until the new selection's
-numbers arrive. The project list in the toolbar is not polled; Refresh reloads it. Recorded usage is available with the proxy stopped;
+numbers arrive. The project list in the toolbar is not polled; Refresh reloads it.
+After a reload, each view first shows the results it last received for the same
+selection, under a "Showing saved results as of …" notice with the time they were
+saved, while fresh numbers load; if that refresh fails, the notice stays and says
+so. Unavailable values stay unavailable in saved results. See
+[data locations](install.md#data-locations-and-local-archive) for what the browser keeps. Recorded usage is available with the proxy stopped;
 quota then remains the last captured account observation.
 
 - **Overview:** period comparisons, usage by model/provider/effort, token-class

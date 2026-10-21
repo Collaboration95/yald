@@ -167,7 +167,7 @@ test("demo without web assets fails before readiness and cleans only its data", 
   } finally { await demo.stop(); }
 }, 15000);
 
-test("default sample anchor is fresh wall time and API windows continue advancing", async () => {
+test("default sample anchor is fresh wall time and API windows follow the wall clock to the quantum", async () => {
   const n = await port(), started = Date.now(), demo = start({ port: n, now: null });
   try {
     await demo.ready();
@@ -178,9 +178,14 @@ test("default sample anchor is fresh wall time and API windows continue advancin
     expect(meta.demo.sampleAt).toBeLessThanOrEqual(Date.now());
     expect(meta.lastRequestAt).toBe(meta.demo.sampleAt - 60000);
     await delay(30);
+    const asked = Date.now();
     const second = await get(base, "/api/window");
-    expect(second.window.to).toBeGreaterThan(first.window.to);
+    // A wall-clock demo is not pinned: rolling windows end on the wall clock rounded down to
+    // the 10 s quantum (docs/api.md), so they never run ahead of it and lag it by under 10 s.
+    expect(second.window.to).toBeGreaterThanOrEqual(first.window.to);
+    expect(second.window.to % 10_000).toBe(0);
     expect(second.window.to).toBeLessThanOrEqual(Date.now());
+    expect(asked - second.window.to).toBeLessThan(10_000);
   } finally { await demo.stop(); }
 }, 15000);
 
