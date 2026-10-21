@@ -141,6 +141,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/models` | Shared | Model/provider/effort breakdowns, scatter points, effort matrix |
 | `GET /api/usage` | Shared | Summary, token composition, cache timeline, series, heatmap, context, breakdowns |
 | `GET /api/usage/heatmap-dates` | Shared; `weekday` (0–6, Monday first), `hour` (0–23), `limit`, `offset` | Ranked local dates for one heatmap cell in `tz` |
+| `GET /api/context` | Shared | Context length per `(source, model)`, over time, by band, above thresholds and as session growth, each with eligible coverage; see [`GET /api/context`](#get-apicontext) |
 | `GET /api/cost` | Shared | Summary, cost composition, cost series/cumulative totals, cache savings, breakdowns |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
 | `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
@@ -156,6 +157,26 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
 
 `GET /api/dataset/refresh` is an operational endpoint used by local tooling. It rebuilds immediately and returns `{ok, rows, parseMs, builtAt}`. The application server serves the built web app at `/` and its client routes.
+
+### `GET /api/context`
+
+Context length of a request is its `inputTokens`, which already include cache reads and writes. Only requests whose input was measured as one logical request count (`contextEligible`); the rest are reported in `eligibility`. Takes the shared parameters and `bucket`. Counts and token totals only. See [Context length](metrics.md#context-length).
+
+| Field | Meaning |
+| --- | --- |
+| `eligibility` | `totalRequests`, `eligibleRequests`, `excludedRequests`, `pricedEligibleRequests`, `unpricedEligibleRequests`, `unnamedRequests` |
+| `bands`, `minimums` | The fixed band edges (`Under 50k`, `50-150k`, `150-300k`, `300k+`) and the minimum samples: `box` 10, `p90` 10, `p99` 100, `band` 10 |
+| `overall`, `bySource` | `{ n, mean, p10, p25, p50, p75, p90, p99, max }`; a statistic below its minimum sample is `null`, never 0 |
+| `models` | Up to 30 rows by eligible requests: the spread above plus `source`, `model`, `totalRequests`, `pricedRequests`, `bandCounts`, `bandShares`; `modelsOmitted` counts the rest |
+| `box` | The top 12 rows of `models`, for the box plot |
+| `modelBands` | The top 12 plus an `Other` row (`source` and `model` `null`); `bandShares` are row-normalised |
+| `thresholds` | Requests and priced cost at or above 50k, 150k and 300k, and for the engine long-context tier (`at: null`): `requests`, `requestShare`, `pricedRequests`, `cost`, `costShare`; cost is `null` when no priced request is above |
+| `tax` | Per band: requests and share, priced cost and share, `costPerPricedRequest`, `ttftP50` with `ttftMeasured`, `cancelRate` with `outcomesObserved`, `belowMinimum`, `topModels`. TTFT and outcomes are opencodex only; with none observed the count is 0 and the value `null` |
+| `timeline` | `buckets` and, per source, aligned `n`, `p50` and `p90` arrays; an empty bucket is `null` |
+| `growth` | Session growth through the helper Context Replay uses: `sessions`, `ranked`, `unranked`, `noRatio`, `clippedRanked`, `medianRatio`, a ratio `histogram` |
+| `histogram` | The `contextPressure` buckets, kept for continuity |
+
+Rows also carry `contextTier` in `publicRow` (`"long"` or `null`).
 
 ### Dashboard scope and navigation
 

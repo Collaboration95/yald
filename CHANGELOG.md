@@ -16,6 +16,7 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ### Added
 
+- **A Context page** ([#102](https://github.com/Collaboration95/yald/issues/102)). See how long your contexts are, per model: median, p90, p99 and maximum, a box plot, how each model's requests spread across context bands, how much of your requests and list-price cost sits at or above 50k, 150k and 300k, and how cost per request, time to first token and cancel rate look by band. Session growth shows how much a session's context grew between its first and last requests. Figures that need more requests than you have read "too few requests", and opencodex-only columns read "not recorded" for Claude Code. The context cards on Overview, Usage and Performance now link to it.
 - A `Server-Timing` header on every `/api/*` response, splitting dataset build and route compute time and marking memo hits. It carries durations only, never data.
 - `scripts/bench-endpoints.ts` and `scripts/compare-endpoints.ts`, which time page loads and compare API responses between two checkouts on a copy of your data. Both refuse to run against the live `~/.opencodex`.
 
