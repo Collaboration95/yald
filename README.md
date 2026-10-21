@@ -1,7 +1,5 @@
 # Yald — Yet Another LLM Dashboard
 
-[![Yald CI](https://github.com/Collaboration95/yald/actions/workflows/ci.yml/badge.svg)](https://github.com/Collaboration95/yald/actions/workflows/ci.yml)
-
 **Follow the tokens. Find the story.** Yald turns local usage records into a
 desktop dashboard for investigating token volume, estimated cost, cache use and
 submitted context. **Yaldi** is its detective companion in optional Labs.

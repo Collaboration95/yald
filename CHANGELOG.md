@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Removed
+
+- Hosted Ubuntu/macOS test CI and its required branch checks. Verification runs locally.
+
 ## [0.2.0] - 2026-10-20 — Meet Yaldi
 
 ### Added

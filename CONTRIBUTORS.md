@@ -14,7 +14,7 @@ For an existing checkout with dependencies installed, run `make hooks` (or
 `scripts/bun run hooks:install`). The tracked pre-commit hook runs Oxlint and the
 quick unit/API and chart tests, stopping on failure. It checks the working tree,
 so unstaged code changes also affect the result. It leaves snapshot integration
-tests, typechecking, builds, and smoke checks to `make check` and GitHub CI.
+tests, typechecking, builds, and smoke checks to local `make check` runs.
 
 ## Branch workflow
 
@@ -22,13 +22,16 @@ Start work from `dev`. Feature branches merge into `dev`; releases merge from
 this repository's `dev` branch into `main` through a pull request. Fork branches
 named `dev` do not satisfy the source policy.
 
-`main` requires the `dev-to-main` source check, Linux and macOS CI, an up-to-date
+`main` requires the `dev-to-main` source check, an up-to-date
 branch, and resolved review conversations. Direct pushes, force pushes, and
 branch deletion are blocked, including for administrators. Reviewer approval
 is optional. The source check runs from the trusted `main` workflow without
 checking out pull request code.
 
 ## Verification
+
+Verification runs locally. There is no hosted Ubuntu/macOS test workflow or
+required platform-test matrix.
 
 ```bash
 make test

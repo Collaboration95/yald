@@ -1,6 +1,15 @@
 # Package qualification evidence
 
-R01 uses the existing `make check` and CI unit/API, three-timezone, report and
+Hosted Ubuntu/macOS test CI was removed on 2026-10-21. Run `make check` locally;
+the package-verification helpers remain available for optional local archive
+checks, as described in [releasing](releasing.md#check-locally).
+
+## Historical R01/R02 procedure
+
+The following records the earlier CI-based preparation. It is historical
+evidence, not a current platform-test requirement or merge/release gate.
+
+R01 used the existing `make check` and CI unit/API, three-timezone, report and
 synthetic smoke checks. Both required jobs retain their names:
 `verify (ubuntu-latest)` and `verify (macos-latest)`. Their source builds check
 source behavior; installed checks use only the producer's tarball.
@@ -68,7 +77,7 @@ platform failures block R02. The selected release version is now `0.2.0`, with
 archive `yald-dashboard-0.2.0.tgz`; the accepted R01 development archive saying
 `0.1.0` does not qualify these changed inputs. See the
 [0.2.0 candidate packet](release-candidate-v0.2.0.md). Node `>=18` and Bun `^1.4.0`
-are declarations, not a claim that every permitted runtime was tested. CI
-currently selects Node 22 and Bun latest; receipts record what actually ran.
+are declarations, not a claim that every permitted runtime was tested. That CI
+selected Node 22 and Bun latest; receipts record what actually ran.
 Version selection, release inputs and requalification belong to R02; promotion,
 tags and publication belong to R03.
