@@ -548,10 +548,31 @@ async function build(force: boolean): Promise<Dataset> {
   throw new Error("Usage, spend, quota, or pricing changed repeatedly during dataset rebuild; retry the request");
 }
 
-/** Returns the parsed dataset, rebuilding only when the ledgers changed on disk. */
+/** Default minimum time between two checks of the sources on disk. */
+const FRESHNESS_INTERVAL_MS = 1_000;
+let checkedAt = Number.NEGATIVE_INFINITY;
+
+/**
+ * How long a published dataset is served without looking at the disk again: YALD_FRESHNESS_MS
+ * (read per call, so tests that append and read back at once can set 0), else one second.
+ */
+function freshnessIntervalMs(): number {
+  const configured = Number(process.env.YALD_FRESHNESS_MS);
+  return process.env.YALD_FRESHNESS_MS?.trim() && Number.isFinite(configured) && configured >= 0 ? configured : FRESHNESS_INTERVAL_MS;
+}
+
+/**
+ * Returns the parsed dataset, rebuilding only when the ledgers changed on disk. The disk
+ * is checked (readdir and stat of every source) at most once per freshness interval;
+ * `force` (Refresh) always rebuilds.
+ */
 export async function getDataset(options: { force?: boolean } = {}): Promise<Dataset> {
   if (inFlight) return inFlight;
-  inFlight = build(options.force ?? false).finally(() => {
+  if (!options.force && dataset && performance.now() - checkedAt < freshnessIntervalMs()) return dataset;
+  inFlight = build(options.force ?? false).then(result => {
+    checkedAt = performance.now();
+    return result;
+  }).finally(() => {
     inFlight = null;
   });
   return inFlight;

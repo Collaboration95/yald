@@ -163,6 +163,11 @@ function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
 
 const newestFirst = (a: RequestRow, b: RequestRow) => b.ts - a.ts;
 
+/** `Server-Timing` durations in milliseconds; never data-dependent values. */
+function serverTiming(build: number, compute: number): string {
+  return `build;dur=${build.toFixed(1)}, compute;dur=${compute.toFixed(1)}`;
+}
+
 
 function toCsv(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return "";
@@ -186,11 +191,16 @@ api.onError((error, c) => {
 });
 
 api.use("/api/*", async (c, next) => {
+  const started = performance.now();
   if (c.req.path === "/api/dataset/refresh") {
+    // The forced rebuild is the whole of this route's work.
     await next();
+    c.header("Server-Timing", serverTiming(performance.now() - started, 0));
     return;
   }
   const dataset = await getDataset();
+  const built = performance.now();
+  const timing = () => serverTiming(built - started, performance.now() - built);
   const now = requestNow();
   c.set("dataset", dataset);
   c.set("now", now);
@@ -205,8 +215,12 @@ api.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
   // a ledger revision. These routes hash the resolved payload after validation.
-  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) return c.body(null, 304);
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) {
+    c.header("Server-Timing", timing());
+    return c.body(null, 304);
+  }
   await next();
+  c.header("Server-Timing", timing());
 });
 
 api.get("/api/health", async c => {

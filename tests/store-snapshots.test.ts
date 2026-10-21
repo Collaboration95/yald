@@ -24,8 +24,8 @@ class Probe {
   lines: string[] = [];
   waiters: { resolve: (line: string) => void; reject: (error: Error) => void }[] = [];
   stderr = "";
-  constructor(checkout: string, home: string, pricing: string, syntheticGeneration = false) {
-    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), CODEX_HOME: join(home, "codex"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC" }, stdio: "pipe" });
+  constructor(checkout: string, home: string, pricing: string, syntheticGeneration = false, env: Record<string, string> = {}) {
+    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), CODEX_HOME: join(home, "codex"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC", ...env }, stdio: "pipe" });
     createInterface({ input: this.child.stdout }).on("line", line => {
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(line); else this.lines.push(line);
@@ -650,4 +650,27 @@ test("external Claude archive cwd rewrites refresh dataset rows and project ETag
   expect(afterApi.status).toBe(200);
   expect(afterApi.etag).not.toBe(beforeApi.etag);
   expect(afterApi.body.summary.requests).toBe(0);
+}, 30_000);
+
+test("the disk is checked at most once per freshness interval, Refresh always rebuilds, and Server-Timing reports both phases", async () => {
+  const f = await fixture();
+  const probe = await new Probe(root, f.home, f.pricing, true, { YALD_FRESHNESS_MS: "60000" }).ready();
+  const first: View = await probe.ask({ op: "get" });
+  const lookups = await probe.ask({ op: "lookups" });
+  expect(lookups.stat).toBeGreaterThan(0);
+  await appendFile(f.usage, JSON.stringify(entry("inside-interval")) + "\n");
+  // Within the interval: the published dataset, without a readdir or a stat.
+  const within: View = await probe.ask({ op: "get" });
+  expect(within.ids.dataset).toBe(first.ids.dataset);
+  const [health] = await probe.ask({ op: "api", paths: ["/api/health"], timing: true });
+  expect(health.body.rows).toBe(first.dataset.rows.length);
+  expect(health.timing).toMatch(/^build;dur=\d+\.\d, compute;dur=\d+\.\d$/);
+  const [notModified] = await probe.ask({ op: "api", paths: ["/api/health"], etag: health.etag, timing: true });
+  expect(notModified.status).toBe(304);
+  expect(notModified.timing).toMatch(/^build;dur=\d+\.\d, compute;dur=\d+\.\d$/);
+  expect(await probe.ask({ op: "lookups" })).toEqual(lookups);
+  // Refresh forces the check and the rebuild.
+  const forced: View = await probe.ask({ op: "get", force: true });
+  expect(forced.dataset.rows.map(row => row.id)).toContain("inside-interval");
+  expect((await probe.ask({ op: "lookups" })).stat).toBeGreaterThan(lookups.stat);
 }, 30_000);

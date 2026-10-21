@@ -41,7 +41,9 @@ unavailable for context, including attempt-summed usage; measured zero is valid.
 The analytics layer uses half-open windows and shared source/project/cohort
 filters. The dashboard polls visible views every 30 seconds; hidden tabs pause
 polling. ETags and parsed snapshots avoid repeated work when inputs are unchanged.
-Refresh forces a re-read. Account quota/send data declare their account scope
+The server checks the source files at most once per second, and time-bucketed
+series resolve each local bucket once rather than once per row; `Server-Timing`
+headers report build and compute time. Refresh forces a re-read. Account quota/send data declare their account scope
 rather than claiming project attribution. See [metrics](metrics.md) and the
 [API reference](api.md).
 
