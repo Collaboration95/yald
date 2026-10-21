@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { renderToString } from "react-dom/server";
-import { conversationLink, DEFAULT_FILTERS, escapeGlob, fetchJson, filtersFromParams, filtersToParams } from "../src/api";
+import { conversationLink, DEFAULT_FILTERS, escapeGlob, fetchJson, filtersFromParams, filtersToParams, selectionFilters } from "../src/api";
 import { OutcomeDot } from "../src/components/ui";
 import { Layout } from "../src/components/Layout";
 import { ThemeProvider } from "../src/lib/theme";
@@ -356,7 +356,8 @@ async function checkDashboardScope() {
     const params = filtersToParams(filters);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
     client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
-    for (const [url, query] of [["/api/scope", params], ["/api/projects", filtersToParams({ ...filters, projects: [] })], [endpoint, filtersToParams(filters, extra)]] as const) {
+    // The toolbar's scope and project queries leave out chart controls (selectionFilters), as the app does.
+    for (const [url, query] of [["/api/scope", filtersToParams(selectionFilters(filters))], ["/api/projects", filtersToParams(selectionFilters({ ...filters, projects: [] }))], [endpoint, filtersToParams(filters, extra)]] as const) {
       client.setQueryData([url, query], await fetchJson(url, query));
     }
     const html = renderPage(Component, client, `${path}?${params}`, path.startsWith("/conversations/") ? "/conversations/:id" : path, layout);
@@ -413,7 +414,8 @@ async function checkLabsShell() {
     search: "fixture", selectorVersion: "1", selector, priorSelector: selector });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const filters = filtersFromParams(params);
-  client.setQueryData(["/api/scope", filtersToParams(filters)], await fetchJson("/api/scope", filtersToParams(filters)));
+  const scopeParams = filtersToParams(selectionFilters(filters));
+  client.setQueryData(["/api/scope", scopeParams], await fetchJson("/api/scope", scopeParams));
   client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
   const disabledChild = () => { throw new Error("Disabled Labs mounted an investigation"); };
   for (const path of ["/labs", "/labs/project-radar", "/labs/cache-detective", "/labs/context-replay", "/labs/evidence", "/labs/unknown/deep"]) {
