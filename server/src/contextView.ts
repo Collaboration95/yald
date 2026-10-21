@@ -5,7 +5,7 @@
 import {
   bucketer, bucketLabel, bucketStarts, outcome, percentileOfSorted, round, sortedSample, type Bucket,
 } from "./analytics";
-import { orderedRequests, sessionGrowth } from "./labs/scope";
+import { countClippedSessions, orderedRequests, sessionGrowth } from "./labs/scope";
 import type { RequestRow } from "./ocx/store";
 import { ALL_SOURCES, contextEligible, sourceOf } from "./report/source";
 import type { Source } from "./report/types";
@@ -360,14 +360,7 @@ export function contextBreakdown(
       else ratios.push(growth.ratio);
     }
   }
-  const clipped = new Set<string>();
-  if (options.datasetRows && rankedCount > 0) {
-    for (const row of options.datasetRows) {
-      if (!row.conversationId || (row.ts >= from && row.ts < to)) continue;
-      const source = sourceOf(row);
-      if (rankedIds.get(source)?.has(row.conversationId)) clipped.add(JSON.stringify([source, row.conversationId]));
-    }
-  }
+  const clippedRanked = options.datasetRows && rankedCount > 0 ? countClippedSessions(rankedIds, options.datasetRows, from, to) : 0;
   const histogram = RATIO_LABELS.map(name => ({ name, value: 0 }));
   for (const ratio of ratios) {
     const i = RATIO_EDGES.findIndex((edge, index) => ratio >= edge && ratio < RATIO_EDGES[index + 1]!);
@@ -408,7 +401,7 @@ export function contextBreakdown(
       bucket, buckets: ordered.map(ts => ({ ts, label: bucketLabel(ts, bucket, tz) })), series: timelineSeries,
     },
     growth: {
-      sessions: sessionCount, ranked: rankedCount, unranked: sessionCount - rankedCount, noRatio, clippedRanked: clipped.size,
+      sessions: sessionCount, ranked: rankedCount, unranked: sessionCount - rankedCount, noRatio, clippedRanked,
       medianRatio: ratios.length ? round(percentileOfSorted(sortedSample(ratios), 0.5)!, 3) : null,
       histogram, minEligible: 6,
     },

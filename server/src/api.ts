@@ -44,6 +44,7 @@ import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputElig
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
 import { contextBreakdown } from "./contextView";
+import { spendStructure } from "./spendStructure";
 import { buildCacheEconomics } from "./labs/cache";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
@@ -578,6 +579,22 @@ api.get("/api/cost", async c => {
     byEffort: breakdown(rows, row => row.effort ?? "unknown"),
     topConversations: conversations(rows, 10, "cost"),
     daily: cumulativeSeries(rows, "day", query.from, query.to, "cost", query.tz),
+  });
+});
+
+/**
+ * Spend structure (#103): session concentration, blended price by price tier over time, and the
+ * token-class cost mix per source. A separate route so /api/cost stays fast; priced rows only.
+ */
+api.get("/api/cost/structure", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { ...query.window, bucket: query.bucket },
+    ...spendStructure(rows, { bucket: query.bucket, from: query.from, to: query.to, tz: query.tz, datasetRows: dataset.rows }),
   });
 });
 

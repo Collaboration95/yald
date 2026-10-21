@@ -68,7 +68,7 @@ afterAll(async () => {
   await Promise.all(owned.splice(0).map(path => rm(path, { recursive: true, force: true })));
 });
 
-const ROUTES = ["overview", "timeseries", "models", "usage", "usage/heatmap-dates", "cost", "performance", "reliability", "quota", "ledger", "conversations", "export", "filters", "context"];
+const ROUTES = ["overview", "timeseries", "models", "usage", "usage/heatmap-dates", "cost", "performance", "reliability", "quota", "ledger", "conversations", "export", "filters", "context", "cost/structure"];
 const route = (name: string, query: string) => `/api/${name}?${name === "usage/heatmap-dates" ? "weekday=0&hour=0&" : ""}${query}`;
 
 const sgt = (wall: string) => Date.parse(`${wall}+08:00`);
