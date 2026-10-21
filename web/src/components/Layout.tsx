@@ -16,7 +16,8 @@ import {
   Sun,
   Timer,
 } from "lucide-react";
-import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, useEndpoint } from "../api";
+import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, selectionFilters, useEndpoint } from "../api";
+import { usePlaceholderShown } from "../lib/staleness";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { CheckList, Popover, Segmented } from "./ui";
@@ -64,7 +65,10 @@ export function Layout() {
     staleTime: 60_000,
   });
 
-  const scope = useEndpoint<ScopeResponse>("/api/scope", filters);
+  const scope = useEndpoint<ScopeResponse>("/api/scope", selectionFilters(filters));
+  // The previous selection's summary is not this one's: never count it as a match or a zero.
+  const scopeData = scope.isPlaceholderData ? undefined : scope.data;
+  const updating = usePlaceholderShown();
   const activeFilters = activeFilterCount(filters);
   const isLabs = location.pathname === "/labs" || location.pathname.startsWith("/labs/");
   const heading = isLabs ? { title: "Labs", subtitle: "Follow patterns in your usage" }
@@ -145,7 +149,7 @@ export function Layout() {
                 onChange={range => set({ range })}
               />
               {hasCustomWindow(filters) ? <span className="px-1 text-[11px] text-accent">Custom window</span> : null}
-              <SourceFilter scope={scope.data} />
+              <SourceFilter scope={scopeData} />
               <ProjectFilter />
               <Popover
                 label={filters.providers.length ? `Provider · ${filters.providers.length}` : "Provider"}
@@ -206,15 +210,18 @@ export function Layout() {
             </div>
           </div>
         </header>
-        <main className="relay-content" data-page={page} id="main-content">
+        <main className="relay-content" data-page={page} id="main-content" data-updating={updating ? "true" : undefined} aria-busy={updating || undefined}>
           <div className="relay-heading">
             <span className="relay-eyebrow">{isLabs ? "09" : String(NAV.findIndex(item => item.to === location.pathname) + 1 || 8).padStart(2, "0")} / DASHBOARD</span>
             <h1>{heading.title}<span className="relay-title-stop">.</span></h1>
             <p>{heading.subtitle}</p>
           </div>
           {isLabs ? <p className="mb-1 text-[11.5px] font-medium text-ink-soft">Dashboard selection</p> : null}
-          <ScopeStatus data={scope.data} loading={scope.isLoading} error={scope.error} />
-          {hasScope(filters) && scope.data?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
+          <ScopeStatus data={scopeData} loading={scope.isLoading || scope.isPlaceholderData} error={scope.error} />
+          {updating ? <p role="status" data-updating-notice className="mb-3 rounded-xl border border-line bg-warn-soft px-3 py-2 text-[11.5px] leading-5 text-warn">
+            Updating: the numbers below are from the previous selection and are not this selection's result yet.
+          </p> : null}
+          {hasScope(filters) && scopeData?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
             ? <NoScopeMatches /> : <Outlet />}
           <footer className="relay-footer"><span>{new Date(displayNow()).getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
         </main>

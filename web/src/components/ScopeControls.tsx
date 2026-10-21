@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { escapeGlob, sourceLabel, SOURCES, unescapeGlob, useEndpoint } from "../api";
+import { escapeGlob, selectionFilters, sourceLabel, SOURCES, unescapeGlob, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { formatCompact, formatInteger } from "../lib/format";
 import type { ProjectsResponse, ScopeResponse } from "../types";
 import { Popover } from "./ui";
+
+const PROJECTS_STALE_MS = 5 * 60_000;
 
 export function SourceFilter({ scope }: { scope?: ScopeResponse }) {
   const { filters, set, toggleIn } = useFilters();
@@ -27,7 +29,8 @@ export function SourceFilter({ scope }: { scope?: ScopeResponse }) {
 export function ProjectFilter() {
   const { filters, set, toggleIn } = useFilters();
   // Omit only the project selection: otherwise choosing one project removes all the other choices.
-  const query = useEndpoint<ProjectsResponse>("/api/projects", { ...filters, projects: [] });
+  // The list changes with the window and the data, not over seconds: no polling. Refresh refetches it.
+  const query = useEndpoint<ProjectsResponse>("/api/projects", selectionFilters({ ...filters, projects: [] }), {}, { refetchInterval: false, staleTime: PROJECTS_STALE_MS });
   const choices = query.data?.projects.filter(project => project.project !== "(unattributed)") ?? [];
   const unattributed = query.data?.projects.find(project => project.project === "(unattributed)");
   const missing = filters.projects.filter(glob => !choices.some(choice => escapeGlob(choice.project) === glob));

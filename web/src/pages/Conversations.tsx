@@ -105,7 +105,8 @@ export function ConversationDetailPage() {
   const { filters } = useFilters();
   const sessionSource = new URLSearchParams(search).get("sessionSource") ?? undefined;
   const ROW_LIMIT = 150;
-  const query = useEndpoint<ConversationDetailResponse>("/api/conversations/" + encodeURIComponent(id ?? ""), filters, { sessionSource });
+  // Another session's requests must never stand in for this one's.
+  const query = useEndpoint<ConversationDetailResponse>("/api/conversations/" + encodeURIComponent(id ?? ""), filters, { sessionSource }, { keepPrevious: false });
   const data = query.data;
 
   const cumulativeOption = useMemo(() => {
