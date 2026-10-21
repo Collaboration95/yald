@@ -156,13 +156,26 @@ async function loadArchive(path: string): Promise<Map<string, Record<string, unk
   return byRequest;
 }
 
+type ClaudeEntries = { entries: Record<string, unknown>[]; signature: string };
+
+/** The last merged result. Identical inputs (file list, every file and archive signature) return it as is. */
+let lastEntries: ClaudeEntries | null = null;
+
+/** Every input of the merge: the archive's and each transcript's file signature. */
+function inputSignature(archivePath: string, files: string[], signatures: Map<string, string>): string {
+  return createHash("sha256")
+    .update(JSON.stringify([archivePath, archive?.info?.signature ?? null, files.map(path => [path, signatures.get(path) ?? null])]))
+    .digest("hex");
+}
+
 /**
  * Usage entries from every transcript under `dir` (subagents live in `<session>/subagents/`),
  * plus every entry ever archived. Claude Code deletes old transcripts, so new or changed
  * entries are appended to `archivePath` and keep counting after their transcript is gone.
- * `signature` changes whenever any transcript is added, removed, or appended to.
+ * `signature` changes whenever any transcript is added, removed, or appended to. When no
+ * input changed, the previous result (the same `entries` array) comes back without a merge pass.
  */
-export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLAUDE_ARCHIVE): Promise<{ entries: Record<string, unknown>[]; signature: string }> {
+export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLAUDE_ARCHIVE): Promise<ClaudeEntries> {
   let files: string[] = [];
   try {
     files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl")).map(f => join(dir, f)).sort();
@@ -183,14 +196,18 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
     return entries;
   }));
   // Files that disappeared drop out of the cache.
-  for (const path of fileCache.keys()) if (!files.includes(path)) fileCache.delete(path);
+  const listed = new Set(files);
+  for (const path of fileCache.keys()) if (!listed.has(path)) fileCache.delete(path);
 
   // Cached transcripts also back-fill when a different archive is opened. Entries
   // archived before cwd was kept are re-appended once with the cwd from their live transcript.
   let archived = await loadArchive(archivePath);
+  // Same transcripts, same bytes, same archive: the merge below would rebuild the same result.
+  if (lastEntries && lastEntries.signature === inputSignature(archivePath, files, signatures)) return lastEntries;
   const candidates = new Map(archived);
   for (const entries of perFile) for (const entry of entries) retainEntry(candidates, entry);
   const changed = [...candidates.values()].filter(entry => entry !== archived.get(String(entry.requestId)));
+  let writeFailed = false;
   if (changed.length) {
     try {
       await mkdir(dirname(archivePath), { recursive: true });
@@ -207,14 +224,15 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
     } catch {
       // Forget parses so the next refresh retries the write.
       fileCache.clear();
+      writeFailed = true;
     }
   }
 
   // Resumed copies can have zeroed usage. Apply the same selection to live and archived entries.
   const byRequest = new Map(archived);
   for (const entry of perFile.flat()) retainEntry(byRequest, entry);
-  const signature = createHash("sha256")
-    .update(JSON.stringify([archivePath, archive?.info?.signature ?? null, files.map(path => [path, signatures.get(path) ?? null])]))
-    .digest("hex");
-  return { entries: [...byRequest.values()], signature };
+  const result = { entries: [...byRequest.values()], signature: inputSignature(archivePath, files, signatures) };
+  // A failed archive write is retried by the next call, so it must not short-circuit.
+  lastEntries = writeFailed ? null : result;
+  return result;
 }
