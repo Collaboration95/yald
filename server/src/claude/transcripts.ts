@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { CLAUDE_ARCHIVE, CLAUDE_PROJECTS } from "../env";
+import { readTail, type TailCursor } from "../ingest/tail";
 
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -106,24 +107,40 @@ function retainEntry(byRequest: Map<string, Record<string, unknown>>, entry: Rec
   return true;
 }
 
-export function collectEntries(texts: string[]): Record<string, unknown>[] {
-  const byRequest = new Map<string, Record<string, unknown>>();
-  for (const text of texts) {
-    for (const raw of text.split("\n")) {
-      if (!raw.includes('"assistant"')) continue;
-      try {
-        const entry = toUsageEntry(JSON.parse(raw));
-        if (entry) retainEntry(byRequest, entry);
-      } catch {
-        // Live sessions can leave a torn tail line.
-      }
+/** Retains the usage entries of `text`'s lines into `byRequest`, in line order. */
+function collectInto(byRequest: Map<string, Record<string, unknown>>, text: string): void {
+  for (const raw of text.split("\n")) {
+    if (!raw.includes('"assistant"')) continue;
+    try {
+      const entry = toUsageEntry(JSON.parse(raw));
+      if (entry) retainEntry(byRequest, entry);
+    } catch {
+      // Live sessions can leave a torn tail line.
     }
   }
+}
+
+export function collectEntries(texts: string[]): Record<string, unknown>[] {
+  const byRequest = new Map<string, Record<string, unknown>>();
+  for (const text of texts) collectInto(byRequest, text);
   return [...byRequest.values()];
 }
 
-/** Parsed entries per transcript, reused until the file's size or mtime changes. */
-const fileCache = new Map<string, { signature: string; entries: Record<string, unknown>[] }>();
+/**
+ * Per transcript: its entries, reused until the file's size or mtime changes, and what its
+ * complete lines held (`committed`) up to `cursor`, so an append is read and retained from
+ * there. An unterminated last line is retained into the entries but not into `committed`.
+ */
+const fileCache = new Map<string, {
+  signature: string;
+  entries: Record<string, unknown>[];
+  cursor: TailCursor;
+  committed: ReadonlyMap<string, Record<string, unknown>>;
+}>();
+
+let transcriptBytes = 0;
+/** Transcript bytes read since the process started; for diagnostics and tests. */
+export const transcriptBytesRead = (): number => transcriptBytes;
 
 interface ArchiveInfo { signature: string; bytes: number; identity: string }
 
@@ -174,8 +191,10 @@ function inputSignature(archivePath: string, files: string[], signatures: Map<st
  * entries are appended to `archivePath` and keep counting after their transcript is gone.
  * `signature` changes whenever any transcript is added, removed, or appended to. When no
  * input changed, the previous result (the same `entries` array) comes back without a merge pass.
+ * A transcript that grew is read from its last complete line, unless `full` (Refresh) asks
+ * for whole files or it was replaced, shrunk or rewritten before that line (ingest/tail.ts).
  */
-export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLAUDE_ARCHIVE): Promise<ClaudeEntries> {
+export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLAUDE_ARCHIVE, options: { full?: boolean } = {}): Promise<ClaudeEntries> {
   let files: string[] = [];
   try {
     files = (await readdir(dir, { recursive: true })).filter(f => f.endsWith(".jsonl")).map(f => join(dir, f)).sort();
@@ -190,9 +209,19 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
     signatures.set(path, signature);
     const cached = fileCache.get(path);
     if (cached?.signature === signature) return cached.entries;
-    // ponytail: a changed file is re-parsed whole; read from the last byte offset if a live session gets huge.
-    const entries = collectEntries([await readFile(path, "utf8")]);
-    fileCache.set(path, { signature, entries });
+    const read = await readTail(path, { dev: String(info.dev), ino: String(info.ino), size: Number(info.size) }, options.full ? null : cached?.cursor ?? null);
+    transcriptBytes += read.bytesRead;
+    // retainEntry can replace an earlier snapshot of a request, so appended lines are retained
+    // into a copy of what the complete lines held, in order, exactly as a whole-file pass would.
+    const committed = new Map<string, Record<string, unknown>>(read.reset || !cached ? [] : cached.committed);
+    collectInto(committed, read.complete);
+    let byRequest = committed;
+    if (read.partial) {
+      byRequest = new Map(committed);
+      collectInto(byRequest, read.partial);
+    }
+    const entries = [...byRequest.values()];
+    fileCache.set(path, { signature, entries, cursor: read.cursor, committed });
     return entries;
   }));
   // Files that disappeared drop out of the cache.
