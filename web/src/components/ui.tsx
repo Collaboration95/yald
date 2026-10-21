@@ -1,6 +1,6 @@
 import { useChartStyle } from "../lib/chartStyle";
 import { clsx } from "clsx";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, ChevronDown, Loader2 } from "lucide-react";
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
@@ -136,6 +136,8 @@ export function Segmented<T extends string>({ value, options, onChange, size = "
 export function Popover({ label, children, active, width = 280, align = "right" }: { label: ReactNode; children: ReactNode; active?: boolean; width?: number; align?: "left" | "right" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const id = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -143,7 +145,10 @@ export function Popover({ label, children, active, width = 280, align = "right" 
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+      }
     };
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKey);
@@ -156,7 +161,10 @@ export function Popover({ label, children, active, width = 280, align = "right" 
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={trigger}
         type="button"
+        aria-expanded={open}
+        aria-controls={id}
         onClick={() => setOpen(current => !current)}
         className={clsx(
           "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11.5px] font-medium transition",
@@ -168,6 +176,7 @@ export function Popover({ label, children, active, width = 280, align = "right" 
       </button>
       {open ? (
         <div
+          id={id}
           className={clsx("fade-in absolute z-40 mt-1.5 max-h-[380px] overflow-auto rounded-xl border border-line bg-surface p-2 shadow-xl", align === "right" ? "right-0" : "left-0")}
           style={{ width }}
         >
@@ -188,6 +197,7 @@ export function CheckList({ items, selected, onToggle, empty = "No options" }: {
           <li key={item}>
             <button
               type="button"
+              aria-pressed={checked}
               onClick={() => onToggle(item)}
               className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-ink-soft transition hover:bg-surface-3"
             >
@@ -295,8 +305,8 @@ export function ModelTag({ model, provider, className }: { model: string; provid
 }
 
 export function OutcomeDot({ outcome }: { outcome: string }) {
-  const tone = outcome === "ok" ? "bg-accent" : outcome === "cancelled" ? "bg-warn" : "bg-bad";
-  return <span className={clsx("inline-block h-1.5 w-1.5 rounded-full", tone)} />;
+  const tone = outcome === "ok" ? "bg-accent" : outcome === "cancelled" ? "bg-warn" : outcome === "unobserved" ? "bg-muted" : "bg-bad";
+  return <span role="img" aria-label={outcome} title={outcome} className={clsx("inline-block h-1.5 w-1.5 rounded-full", tone)} />;
 }
 
 export function Legend({ items }: { items: { label: string; color: string; value?: ReactNode }[] }) {

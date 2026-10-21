@@ -2,6 +2,7 @@
 // through that issue so buildReport (#36), the renderer (#37), the CLI (#38)
 // and the endpoint (#39) stay compatible.
 
+import type { AttributionCoverage } from "../attribution";
 import type { Instant, Phase, TimeWindow } from "../time/window";
 
 export type Source = "claude-code" | "ocx";
@@ -68,5 +69,8 @@ export interface ReportData {
     ledgerStartsAt: Instant | null;          // set when the spend ledger begins after window.from
     pricing: "ok" | "unavailable";
     unattributedRows: number | null;         // null when no project filter was applied
+    unattributedTokens: number | null;       // same population as unattributedRows
+    /** Additive (#55): kept / elsewhere / no-folder split, with reasons and models for the last. Null without a project filter. */
+    attribution: AttributionCoverage | null;
   };
 }

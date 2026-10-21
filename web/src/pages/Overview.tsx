@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Activity, CircleDollarSign, Flame, Gauge, Layers, Timer, TrendingUp, Zap } from "lucide-react";
-import { useEndpoint } from "../api";
+import { conversationLink, filtersKey, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Legend, MiniSpark, ModelTag, OutcomeDot, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
+import { AccountScopeNotice } from "../components/AccountScopeNotice";
 import { barChart, donutChart, heatmapChart, stackedAreaChart } from "../components/chartOptions";
 import { COMPOSITION_COLORS } from "../lib/palette";
-import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
+import { formatCoverage, formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
 import type { OverviewResponse } from "../types";
 
 export function OverviewPage() {
@@ -19,7 +20,7 @@ export function OverviewPage() {
   const groupBy = filters.groupBy === "provider" || filters.groupBy === "effort" ? filters.groupBy : "model";
   const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
   const [minimumActivity, setMinimumActivity] = useState(0);
-  const heatmapFilterKey = JSON.stringify([filters.range, filters.providers, filters.models, filters.efforts, filters.statuses, filters.metric, filters.groupBy, filters.bucket, filters.search]);
+  const heatmapFilterKey = filtersKey(filters);
   useEffect(() => setMinimumActivity(0), [heatmapMetric, heatmapFilterKey]);
 
   const query = useEndpoint<OverviewResponse>("/api/overview", filters, { metric, groupBy });
@@ -84,7 +85,7 @@ export function OverviewPage() {
         <Stat
           label="Requests"
           value={summary ? formatInteger(summary.requests) : "—"}
-          hint={summary ? `${formatInteger(summary.ok)} ok · ${formatInteger(summary.errors)} failed` : undefined}
+          hint={summary ? `${formatInteger(summary.ok)} ok · ${formatInteger(summary.errors)} failed · ${formatInteger(summary.unobserved)} unobserved` : undefined}
           delta={data?.deltas.requests}
           deltaTone="none"
           spark={data?.sparkline.requests}
@@ -101,7 +102,7 @@ export function OverviewPage() {
         />
         <Stat
           label="Estimated cost"
-          value={summary ? formatUsd(summary.cost) : "—"}
+          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cost) : "—"}
           hint={summary ? `${formatInteger(summary.pricedRequests)} priced · ${formatInteger(summary.unpricedRequests)} unpriced` : undefined}
           delta={data?.deltas.cost}
           deltaTone="none"
@@ -112,7 +113,7 @@ export function OverviewPage() {
         <Stat
           label="Success rate"
           value={summary ? formatPercent(summary.successRate) : "—"}
-          hint={summary ? `${formatInteger(summary.cancelled)} client-closed` : undefined}
+          hint={summary ? formatCoverage(summary.measurementCoverage.outcomes) : undefined}
           delta={data?.deltas.successRate}
           tone={summary && summary.successRate !== null && summary.successRate < 0.95 ? "warn" : "neutral"}
           icon={<Gauge size={13} />}
@@ -120,7 +121,7 @@ export function OverviewPage() {
         <Stat
           label="Median TTFT"
           value={summary ? formatDuration(summary.ttft.p50) : "—"}
-          hint={summary ? `p95 ${formatDuration(summary.ttft.p95)} · ${formatPercent(summary.ttft.coverage, 0)} measured` : undefined}
+          hint={summary ? formatCoverage(summary.measurementCoverage.ttft) : undefined}
           delta={data?.deltas.ttftP50}
           deltaTone="inverse"
           tone="info"
@@ -128,8 +129,8 @@ export function OverviewPage() {
         />
         <Stat
           label="Cache savings"
-          value={summary ? formatUsd(summary.cache.savingsUsd) : "—"}
-          hint={summary ? `${formatPercent(summary.cache.hitRate)} of input served from cache` : undefined}
+          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cache.savingsUsd) : "—"}
+          hint={summary ? `${formatPercent(summary.cache.hitRate)} of eligible input · ${formatCoverage(summary.measurementCoverage.cache)}` : undefined}
           delta={data?.deltas.cacheHitRate}
           deltaTone="none"
           tone="good"
@@ -189,7 +190,7 @@ export function OverviewPage() {
                         <ModelTag model={model.key} className="leaderboard-model" />
                         <div className="leaderboard-totals">
                           <span className="leaderboard-volume">{formatCompact(model.tokens)} <span>tokens</span></span>
-                          <span className="leaderboard-cost">{formatUsd(model.cost)}</span>
+                          <span className="leaderboard-cost">{model.pricedRequests > 0 ? formatUsd(model.cost) : "unpriced"}</span>
                         </div>
                       </div>
                       <ProgressBar value={model.share} max={data.topModels[0]?.share ?? 1} className="leaderboard-bar" />
@@ -231,8 +232,9 @@ export function OverviewPage() {
                 </div>
               </Card>
               <Card className="overview-quota overview-open-panel">
-                <CardHeader title="Quota" subtitle="Plan windows reported by the provider" action={<Link to={{ pathname: "/quota", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
-                <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.quota.windows.length === 0} emptyLabel="No quota samples recorded">
+                <CardHeader title="Quota" subtitle="Account-wide opencodex plan windows" action={<Link to={{ pathname: "/quota", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
+                {data?.quotaScope ? <AccountScopeNotice scope={data.quotaScope} /> : null}
+                {data?.quotaScope.available !== false ? <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.quota.windows.length === 0} emptyLabel="No quota samples recorded">
                   <ul className="space-y-3">
                     {data?.quota.windows.map(window => {
                       const burn = data.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
@@ -263,7 +265,7 @@ export function OverviewPage() {
                       );
                     })}
                   </ul>
-                </StateBlock>
+                </StateBlock> : null}
               </Card>
             </div>
           </div>
@@ -289,12 +291,12 @@ export function OverviewPage() {
                       <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[210px]" /></Td>
                       <Td align="right">{formatCompact(row.totalTokens)}</Td>
                       <Td align="right">{row.priced ? formatUsd(row.cost) : <span className="text-muted">unpriced</span>}</Td>
-                      <Td align="right">{formatDuration(row.ttftMs)}</Td>
-                      <Td align="right">{formatDuration(row.durationMs)}</Td>
+                      <Td align="right">{formatDuration(row.measurements.ttft ? row.ttftMs : null)}</Td>
+                      <Td align="right">{formatDuration(row.measurements.duration ? row.durationMs : null)}</Td>
                       <Td align="center">
                         <span className="inline-flex items-center gap-1.5">
                           <OutcomeDot outcome={row.outcome} />
-                          <span className="num text-[10.5px] text-muted">{row.status}</span>
+                          <span className="num text-[10.5px] text-muted">{row.outcome === "unobserved" ? "unobserved" : row.status}</span>
                         </span>
                       </Td>
                     </tr>
@@ -343,13 +345,13 @@ export function OverviewPage() {
             </StateBlock>
           </Card>
           <Card>
-            <CardHeader title="Context pressure" subtitle="Input size distribution per request" />
+            <CardHeader title="Context pressure" subtitle={summary ? `${formatCoverage(summary.measurementCoverage.context)} · logical input only` : "Logical input size distribution"} />
             <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
               {contextOption ? <Chart option={contextOption} height={148} /> : null}
               <div className="mt-2 flex justify-between text-[10.5px] text-muted">
-                <span>p50 {formatCompact(data?.context.p50Input ?? 0)}</span>
-                <span>p95 {formatCompact(data?.context.p95Input ?? 0)}</span>
-                <span>max {formatCompact(data?.context.maxInput ?? 0)}</span>
+                <span>p50 {formatCompact(data?.context.p50Input)}</span>
+                <span>p95 {formatCompact(data?.context.p95Input)}</span>
+                <span>max {formatCompact(data?.context.eligibleRequests ? data.context.maxInput : null)}</span>
               </div>
             </StateBlock>
           </Card>
@@ -358,9 +360,9 @@ export function OverviewPage() {
             <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
               <ul className="space-y-2">
                 {data?.topConversations.map(conversation => (
-                  <li key={conversation.id} className="flex items-center justify-between gap-2">
-                    <Link to={{ pathname: `/conversations/${conversation.id}`, search }} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
-                      {shortId(conversation.id, 12)}
+                  <li key={JSON.stringify([conversation.source, conversation.id])} className="flex items-center justify-between gap-2">
+                    <Link to={conversationLink(conversation, search)} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
+                      {shortId(conversation.id, 12)} <span className="font-sans text-[10.5px] text-muted">{sourceLabel(conversation.source)}</span>
                     </Link>
                     <span className="num shrink-0 text-[11px] text-muted">
                       {formatCompact(conversation.tokens)} · {formatInteger(conversation.requests)} req
@@ -386,7 +388,7 @@ export function OverviewPage() {
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                <Badge tone="info"><TrendingUp size={10} /> {formatInteger(summary?.retries.sends ?? 0)} upstream sends</Badge>
+                <Badge tone="info"><TrendingUp size={10} /> {summary?.measurementCoverage.retries.eligibleRequests ? `${formatInteger(summary.retries.sends)} upstream sends` : "Retry history unavailable"}</Badge>
                 {summary && summary.retryOverhead.tokens > 0 ? (
                   <Badge tone="warn">{formatCompact(summary.retryOverhead.tokens)} tokens re-sent on retries</Badge>
                 ) : null}

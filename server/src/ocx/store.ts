@@ -1,10 +1,12 @@
 import { stat, readFile } from "node:fs/promises";
 import { readClaudeEntries } from "../claude/transcripts";
 import { readCodexSessionIndex, type CodexSession } from "../codex/sessions";
+import { SOURCE_CAPABILITIES, sourceOf, type Measurements } from "../report/source";
 import { PATHS } from "../env";
-import { loadPricing, priceEntry, pricingGeneration } from "./pricing";
+import { loadPricing, priceWithCacheCounterfactual, pricingGeneration, type CacheEconomics } from "./pricing";
 
 export interface RequestRow {
+  measurements: Measurements;
   id: string;
   ts: number;
   provider: string;
@@ -51,6 +53,13 @@ export interface RequestRow {
   attemptTokens: number;
   /** Working directory the request came from; null when it cannot be attributed. */
   cwd: string | null;
+  /** True when a Codex rollout index was read and held no session for this row's conversationId. */
+  rolloutMiss?: boolean;
+  /**
+   * The same recorded workload priced with and without its cache counters, under the
+   * engine's own tier/service decisions (L04). Null/absent: unpriced or not computed.
+   */
+  cacheEconomics?: CacheEconomics | null;
 }
 
 export interface QuotaSample {
@@ -114,9 +123,16 @@ function finiteOrNull(value: unknown): number | null {
 }
 
 export function normalizeRow(entry: Record<string, any>): RequestRow {
+  const present = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const presence = (usage: Record<string, any>) => ({
+    input: present(usage.inputTokens), output: present(usage.outputTokens),
+    cacheRead: present(usage.cacheReadInputTokens ?? usage.cachedInputTokens),
+    cacheWrite: present(usage.cacheCreationInputTokens ?? usage.cacheWriteInputTokens),
+  });
   let usage = entry.usage ?? {};
+  let usagePresence = presence(usage);
   let usageFromAttempts = false;
-  if (num(usage.inputTokens) === 0 && num(usage.outputTokens) === 0 && Array.isArray(entry.attempts)) {
+  if (!usagePresence.input && !usagePresence.output && Array.isArray(entry.attempts)) {
     // A failed logical request often carries no top-level usage while its attempts do.
     // Summing them recovers the tokens actually burned upstream (retries, half-streams).
     const summed: Record<string, number> = {
@@ -130,15 +146,19 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
       totalTokens: 0,
     };
     let found = false;
+    let summedPresence = { input: true, output: true, cacheRead: true, cacheWrite: true };
     for (const attempt of entry.attempts) {
       const attemptUsage = attempt?.usage;
       if (!attemptUsage) continue;
       found = true;
+      const fields = presence(attemptUsage);
+      summedPresence = { input: summedPresence.input && fields.input, output: summedPresence.output && fields.output,
+        cacheRead: summedPresence.cacheRead && fields.cacheRead, cacheWrite: summedPresence.cacheWrite && fields.cacheWrite };
       summed.inputTokens += num(attemptUsage.inputTokens);
       summed.outputTokens += num(attemptUsage.outputTokens);
       summed.cachedInputTokens += num(attemptUsage.cachedInputTokens);
-      summed.cacheReadInputTokens += num(attemptUsage.cacheReadInputTokens);
-      summed.cacheCreationInputTokens += num(attemptUsage.cacheCreationInputTokens);
+      summed.cacheReadInputTokens += num(attemptUsage.cacheReadInputTokens ?? attemptUsage.cachedInputTokens);
+      summed.cacheCreationInputTokens += num(attemptUsage.cacheCreationInputTokens ?? attemptUsage.cacheWriteInputTokens);
       summed.cacheWriteInputTokens += num(attemptUsage.cacheWriteInputTokens);
       summed.reasoningOutputTokens += num(attemptUsage.reasoningOutputTokens);
       summed.totalTokens += num(attemptUsage.totalTokens);
@@ -146,6 +166,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     if (found) {
       usage = summed;
       usageFromAttempts = true;
+      usagePresence = summedPresence;
     }
   }
   const inputTokens = num(usage.inputTokens);
@@ -158,7 +179,8 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     ? num(storedTotal)
     : Math.max(storedTotal ?? 0, inputTokens + outputTokens);
 
-  const estimate = priceEntry({ ...entry, usage });
+  // Attempt-summed usage is not one priced request; it never gets a counterfactual.
+  const { estimate, cache: cacheEconomics } = priceWithCacheCounterfactual({ ...entry, usage }, !usageFromAttempts);
   const routedKind = str(entry.routeDecision?.routeKind);
   const attempts = Array.isArray(entry.attempts) ? entry.attempts.length : 1;
   const spend = entry.spend ?? {};
@@ -175,7 +197,24 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     }
   }
 
+  const capabilities = SOURCE_CAPABILITIES[sourceOf({ protocol: str(entry.inboundProtocol) })];
+  // Transcript converters supply presence before their arithmetic supplies zero defaults.
+  // Older archive entries without that evidence cannot prove input/cache presence.
+  if (sourceOf({ protocol: str(entry.inboundProtocol) }) === "claude-code") {
+    const saved = entry.usagePresence ?? {};
+    usagePresence = { input: saved.input === true, output: saved.output === true,
+      cacheRead: saved.cacheRead === true, cacheWrite: saved.cacheWrite === true };
+  }
+  const measurements: Measurements = {
+    ...usagePresence,
+    outcome: capabilities.outcomes && ((present(entry.status) && entry.status > 0) || !!str(entry.errorCode) || entry.closeReason === "client_closed"),
+    duration: capabilities.timing && present(entry.durationMs),
+    ttft: capabilities.timing && present(entry.firstOutputMs),
+    retries: capabilities.retries && Array.isArray(entry.attempts),
+    usage: usageFromAttempts ? "attempt-sum" : usagePresence.input || usagePresence.output ? "logical" : "missing",
+  };
   return {
+    measurements,
     id: String(entry.requestId),
     ts: num(entry.timestamp),
     provider: String(entry.provider ?? "unknown"),
@@ -193,13 +232,13 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     cacheWriteTokens,
     reasoningTokens,
     totalTokens,
-    cost: estimate?.cost.total ?? 0,
+    cost: estimate?.cost?.total ?? 0,
     priced: estimate !== null,
     estimated: estimate?.estimated ?? false,
-    rateIn: estimate?.price?.cost4.input ?? null,
-    rateOut: estimate?.price?.cost4.output ?? null,
-    rateCacheRead: estimate?.price?.cost4.cacheRead ?? null,
-    rateCacheWrite: estimate?.price?.cost4.cacheWrite ?? null,
+    rateIn: estimate?.price?.cost4?.input ?? null,
+    rateOut: estimate?.price?.cost4?.output ?? null,
+    rateCacheRead: estimate?.price?.cost4?.cacheRead ?? null,
+    rateCacheWrite: estimate?.price?.cost4?.cacheWrite ?? null,
     conversationId: str(entry.conversationId),
     errorCode: str(entry.errorCode),
     closeReason: str(entry.closeReason),
@@ -218,6 +257,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     usageStatus: String(entry.usageStatus ?? "unknown"),
     attemptTokens: attemptTokens || totalTokens,
     cwd: str(entry.cwd),
+    cacheEconomics,
   };
 }
 
@@ -356,8 +396,9 @@ function codexSignature(index: CodexIndex): string {
 
 /**
  * opencodex rows carry no cwd; their conversationId is the hashed Codex session id, so the
- * rollout index supplies one. Matched rows are copied (published rows may be frozen) and
- * the array is reused untouched when nothing matches, including when ~/.codex is absent.
+ * rollout index supplies one. Rows are copied (published rows may be frozen): matched ones get
+ * the folder, unmatched ones with an id are marked `rolloutMiss`. The array is reused untouched
+ * when ~/.codex has no sessions, so no miss is claimed without an index to miss in.
  */
 function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[] {
   if (!index.size) return rows;
@@ -366,9 +407,8 @@ function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[]
     const row = rows[i]!;
     if (row.cwd !== null || row.protocol === "claude-code" || !row.conversationId) continue;
     const session = index.get(row.conversationId);
-    if (!session) continue;
     attributed ??= rows.slice();
-    attributed[i] = { ...row, cwd: session.cwd };
+    attributed[i] = session ? { ...row, cwd: session.cwd } : { ...row, rolloutMiss: true };
   }
   return attributed ?? rows;
 }

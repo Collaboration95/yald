@@ -1,197 +1,134 @@
-# yald - YetAnotherLlmDashboard
+# Yald — Yet Another LLM Dashboard
 
-[![yald CI](https://github.com/Collaboration95/yald/actions/workflows/ci.yml/badge.svg)](https://github.com/Collaboration95/yald/actions/workflows/ci.yml)
+**Follow the tokens. Find the story.** Yald turns local usage records into a
+desktop dashboard for investigating token volume, estimated cost, cache use and
+submitted context. **Yaldi** is its detective companion in optional Labs.
 
-A read-only analytics dashboard for [opencodex](https://github.com/lidge-jun/opencodex) and
-[Claude Code](https://docs.claude.com/en/docs/claude-code/overview). Both already record everything worth charting — this
-puts it on one screen: token volume, estimated spend, cache economics, latency, reliability, quota burn, model comparison
-and per-conversation drill-down.
+Dollar amounts are **API list-price equivalents**, not subscription bills or
+proof of savings. Missing input or price is unavailable, not zero or free.
 
-## Supported tools
+![Installed 0.2.0 Overview with Yaldi and labeled synthetic demo data](docs/screenshots/meet-yaldi-0.2.0/overview-light.png)
 
-<table>
-  <tr>
-    <td align="center" width="140">
-      <a href="https://github.com/lidge-jun/opencodex">
-        <picture>
-          <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lidge-jun/opencodex/main/assets/logo-dark.png">
-          <img src="https://raw.githubusercontent.com/lidge-jun/opencodex/main/assets/logo-light.png" alt="opencodex logo" width="64" height="64">
-        </picture>
-      </a>
-      <br><b>opencodex</b>
-    </td>
-    <td>Every request routed through the proxy (Codex, OpenAI-compatible providers, API-key Claude routes), read from
-    <code>~/.opencodex</code>. Full metrics: latency, TTFT, effort, retries, quota windows and the spend ledger.</td>
-  </tr>
-  <tr>
-    <td align="center" width="140">
-      <a href="https://docs.claude.com/en/docs/claude-code/overview">
-        <img src="https://cdn.simpleicons.org/claude/D97757" alt="Claude Code logo" width="64" height="64">
-      </a>
-      <br><b>Claude Code</b>
-    </td>
-    <td>Subscription sessions that never pass through opencodex, read from the session transcripts in
-    <code>~/.claude/projects</code> (subagents included). Rows appear as provider <code>anthropic</code> and are priced by
-    the same opencodex cost engine. Transcripts have no latency, TTFT, effort, quota or failure data.</td>
-  </tr>
-</table>
+*Actual installed 0.2.0 demo, with synthetic usage and illustrative prices.
+Overview's “cache savings” is the gross cache-read discount before write premiums;
+use Cache Detective for the net fixed-workload comparison. See
+[metric definitions](docs/metrics.md#net-cache-economics).*
 
-Both sources normalize to the same request rows, so every view, filter and export covers them together.
+## Install Meet Yaldi 0.2.0
 
-The dashboard reads the ledgers directly, so it works whether or not the proxy is running. Visible pages poll every 30
-seconds, unchanged responses use ETags, and polling pauses in background tabs. The Refresh button forces an immediate re-read.
+The selected release candidate is **0.2.0 — Meet Yaldi** (2026-10-20), distributed
+as `yald-dashboard-0.2.0.tgz`. Confirm that the
+[v0.2.0 release page](https://github.com/Collaboration95/yald/releases/tag/v0.2.0)
+contains the package and `SHA256SUMS` before running these commands. A versioned
+link in this checkout does not establish publication. npm registry and Homebrew
+distribution remain **unverified**; use the GitHub tarball.
 
-The desktop UI uses Relay: paper surfaces, ink and coral charts, open numerical summaries, and consistent model colors.
-All eight views and conversation detail retain their original data, filters, tables, and drilldowns. Light and dark themes
-use your saved preference. Mobile and tablet layouts are outside the supported design scope.
+The earlier [v0.1.0 prerelease](https://github.com/Collaboration95/yald/releases/tag/v0.1.0)
+is an opencodex-only preview without Claude ingestion, reports, Yaldi, Labs or demo.
 
-![yald Overview dashboard](docs/screenshots/overview.png)
-
-## Quick start
+On macOS or Linux, use Node.js 18+, npm, an authenticated `gh` CLI and `shasum`:
 
 ```bash
-make install  # install workspace dependencies
-make run      # build the web app, then serve API + UI on one port
-# → http://127.0.0.1:4318
-```
-
-Run `make` or `make help` to see the available commands. `make dev` starts the API with Vite HMR; `make test`, `make lint`,
-`make typecheck`, `make build`, and `make smoke` run the matching checks. `make check` runs the full local verification set.
-These Make targets are for a repository checkout; the npm install command below works without Make or a source clone.
-
-The scripts resolve a Bun runtime on their own: `BUN_BIN`, then `bun` on `PATH`, then the runtime bundled inside the
-opencodex npm package. Nothing else needs installing beyond `bun install` for dependencies.
-
-Environment variables:
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `YALD_PORT` (`PORT` fallback) | `4318` | API / UI port |
-| `YALD_HOST` (`HOST` fallback) | `127.0.0.1` | Bind address |
-| `OCX_HOME` | `~/.opencodex` | Where the ledgers live |
-| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Claude Code transcripts; point at an empty directory to leave Claude out |
-| `CODEX_HOME` | `~/.codex` | Codex rollouts, read to attribute opencodex requests to project folders; missing is fine |
-| `OCX_PACKAGE_DIR` | auto-detected | Location of the installed `@bitkyc08/opencodex` package |
-| `YALD_TZ` (`OCX_OBSERVATORY_TZ` fallback) | system timezone | Default timezone for time windows, calendar bucketing and labels; a request's `tz` overrides it |
-
-## Install
-
-The first GitHub preview is `v0.1.0`. Install its tested, prebuilt package:
-
-```bash
-gh release download v0.1.0 --repo Collaboration95/yald --pattern 'yald-dashboard-0.1.0.tgz'
-npm install -g ./yald-dashboard-0.1.0.tgz
+release_dir="$(mktemp -d)"
+yald_prefix="$HOME/.local"
+gh release download v0.2.0 --repo Collaboration95/yald \
+  --pattern 'yald-dashboard-0.2.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
+(cd "$release_dir" && shasum -a 256 -c SHA256SUMS) && \
+npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.2.0.tgz"
+export PATH="$yald_prefix/bin:$PATH"
 yald --version
-yald --open
+yald --help
+yald demo --open
 ```
 
-After npm registry publication, users can also run:
+The version should be exactly `0.2.0`. The installed demo opens
+**http://127.0.0.1:4318** with synthetic examples and illustrative prices; stop
+with Ctrl+C to remove its temporary data. Run `yald --open` for your normal local
+sources instead. Source files stay untouched; normal Claude ingestion writes
+Yald's own archive with no automatic expiry, as explained below.
+Choose another user-writable `yald_prefix` if needed; keep its `bin` on `PATH`.
+See [installation, data locations and development setup](docs/install.md).
+
+## Sources and capabilities
+
+The following describes **0.2.0**. Supply existing opencodex
+ledgers or Claude Code transcripts; Yald does not collect new model usage.
+Pricing needs a discoverable installed opencodex cost engine, including for
+Claude rows. [Exact paths and pricing discovery](docs/install.md#data-locations-and-local-archive).
+
+| Recorded capability | opencodex (`ocx`) | Claude transcripts (`claude-code`) |
+| --- | --- | --- |
+| Tokens and cache counters | When recorded | When recorded; subagents included |
+| API price equivalent | When usage and price are available | When usage and price are available |
+| Outcomes / failures and retries | When observed | Unavailable |
+| Duration / time to first token | When measured | Unavailable |
+| Quota | Recorded account snapshots | Unavailable |
+| Project folder | Joined Codex rollout metadata | Recorded `cwd` |
+
+**Source is the ingestion protocol, not the provider.** Anthropic traffic through
+opencodex remains `ocx`. Sessions use `(source, conversationId)`. Capability does
+not guarantee that a row has a measurement. [Coverage definitions](docs/metrics.md#source-capabilities-and-measurement-coverage).
+
+## Three questions for Labs
+
+Enable **Labs** in the sidebar (already enabled in the isolated demo):
+
+- **Project Radar:** Which projects account for activity and priced cost, and
+  what changed against the immediately preceding equal-duration window?
+- **Cache Detective:** For the identical recorded workload, do cache-read
+  discounts outweigh cache-write premiums?
+- **Context Replay:** How did recorded submitted input change within a
+  source-qualified session?
+
+Each finding opens a **fixed evidence case** with its original window, complete
+cohort, source identity, coverage and request metadata. Toolbar changes do not
+move that case; Radar retains both original periods. [Investigation guide](docs/guide.md#labs-investigations)
+and [case evidence](docs/labs-evidence.md).
+
+![Installed Cache Detective demo in dark theme, showing write premiums exceeding read discounts](docs/screenshots/meet-yaldi-0.2.0/cache-detective-dark.png)
+
+*Synthetic example, not measured savings. More actual candidate
+[screenshots and capture procedure](docs/release-candidate-v0.2.0.md#synthetic-screenshots).*
+
+Explore without personal usage records in the installed package:
 
 ```bash
-npx -p yald-dashboard yald --port 4318 --host 127.0.0.1 --ocx-home ~/.opencodex --open
+yald demo --open
 ```
 
-The npm package is named `yald-dashboard` because the unscoped `yald` name is already published by an unrelated package. It exposes the `yald` executable, installs its Bun runtime, and includes the prebuilt web app. Alternatively, clone this repository and run `bun install && ./scripts/serve.sh`. See [distribution steps](docs/releasing.md) for npm publishing and a Homebrew tap.
+From a checkout, use `node scripts/yald.mjs demo --open` after
+[development setup](docs/install.md#development-checkout). Example prices are illustrative, not
+live rates. See [the demo guide](docs/demo.md) for its sample clock and cleanup.
 
-## Where the numbers come from
+## One report
 
-| Source | What it gives |
-| --- | --- |
-| `~/.opencodex/usage.jsonl` | One row per logical request: provider, model, effort, status, TTFT, duration, token classes, attempts, cache provenance, route decision |
-| `~/.opencodex/spend-ledger.jsonl` | Physical send accounting — `reserve` → `dispatch` → `settle`, plus `lost` sends |
-| `~/.opencodex/codex-quota-cache.json` | Current quota windows and every sample ever captured from provider response headers |
-| `~/.opencodex/routing-history.sqlite` | Indexed mirror of the usage rows (not read by default; the JSONL is fresher) |
-| `~/.claude/projects/**/*.jsonl` | Claude Code session transcripts: one row per API response with model, token classes, cache reads/writes, thinking tokens and stop reason |
-
-Pricing is not reinvented here. The server imports `@bitkyc08/opencodex/src/usage/cost.ts` at runtime, so every dollar
-figure matches `ocx usage` exactly, including your own `ocx models set-price` overlays and long-context rate bands.
-If the package cannot be found, the UI keeps working and marks cost as unavailable.
-
-## Views
-
-- **Overview** — KPI row with period-over-period deltas, stacked usage chart (tokens / cost / requests × model /
-  provider / effort), cost composition donut, cache savings, model leaderboard, weekday × hour heatmap, quota gauges,
-  context pressure, throughput, recent requests.
-- **Usage** — token composition over time (cache read vs fresh input vs output vs reasoning), cache hit rate and
-  dollars saved, grouped volume by any dimension, large activity heatmap, context-size histogram and breakdown tables.
-- **Cost & spend** — spend stacked by model/provider/effort, cost split by token class, cumulative spend, cache savings
-  timeline, blended price per 1M tokens, most expensive sessions, cost table with unpriced coverage.
-- **Performance** — latency and TTFT percentiles over time, throughput timeline, duration / TTFT / throughput
-  histograms, TTFT vs output length scatter, slowest requests, per-model latency table.
-- **Reliability** — outcome split, HTTP status codes, attempts-per-request, outcomes over time, error-code table with
-  tokens burned, failure rate by model, metering coverage, recent failures.
-- **Models** — price vs TTFT scatter (bubble = volume), tokens by provider and model, effort mix, sortable comparison
-  table with $/1M, TTFT p50, latency, tok/s, success rate and cache hit rate, effort × model matrix.
-- **Quota** — per-window gauges, measured burn rate (%/day), projected exhaustion vs reset time, utilisation history
-  per account and window, spend-ledger send/token flow, and a burn table flagging windows that will exhaust before they
-  reset. The range selector scopes the history chart, the burn rate and the ledger; current utilisation stays
-  point-in-time because that is what the provider reports.
-- **Conversations** — sessions ranked by tokens, cost, requests, recency or errors, plus a detail view with cumulative
-  token growth against submitted context size, model mix and the request list.
-
-## Reports
-
-`yald report` writes one self-contained HTML file (and, with `--json`, its JSON payload) for an exact time window. It
-reads the same ledgers as the dashboard but starts no server and opens no port, so it works anywhere `yald` is
-installed and the file can be shared or attached as is.
+The installed 0.2.0 CLI also writes standalone reports:
 
 ```bash
-yald report --last 8h --open
-yald report --from yesterday --to today --tz Asia/Singapore --out yesterday.html
-yald report --tz Asia/Singapore \
-  --phase "Prep=2026-10-10 23:30..2026-10-11 09:00" \
-  --phase "Build=2026-10-11 09:00..+6h" \
-  --phase "Demo=2026-10-11 15:00..2026-10-11 18:00" \
-  --project '~/personal/common-grounds-makeathon*' \
-  --out makeathon.html --json
+yald report --from '2026-10-11 09:00' --to '2026-10-11 18:00' \
+  --tz Asia/Singapore --out investigation.html --json
 ```
 
-Windows are half-open (`[from, to)`), naive times are read in `--tz` (default `YALD_TZ`, then the system zone), and
-phases split the window into named rows that add up to the total. Without `--out` the file is named for the window's
-local start, e.g. `yald-report-2026-10-11T0900+0800.html`; `--out -` and `--json -` write to stdout, and progress goes
-to stderr. Reports are redacted by default: conversation ids are cut to 8 characters, your home directory is shown as
-`~` and account labels are left out; `--no-redact` keeps them. Dollar figures are the **API list-price equivalent**
-from the opencodex cost engine, not what a subscription actually bills; unpriced requests are excluded from dollars
-and counted in the coverage notes. `--dry-run` prints the resolved window, phases and row counts without writing
-anything; `yald report --help` lists every option. Invalid input exits with status 2, runtime failures with 1.
+This writes a standalone HTML file and JSON without starting a server. Reports
+redact IDs and home paths by default; review files before sharing. More
+[report examples and window rules](docs/guide.md#reports).
 
-## Ideas worth building next
+## Limits and local storage
 
-These came out of the same ledgers and would be straightforward additions:
+- Source files stay untouched. Yald **writes its own local Claude archive** at
+  `$OCX_HOME/yald-claude-usage.jsonl` (default
+  `~/.opencodex/yald-claude-usage.jsonl`), with no automatic expiry. An empty
+  transcript folder does **not** remove archived usage; source filters do **not**
+  delete archives. [Archive behavior](docs/install.md#data-locations-and-local-archive).
+- Claude transcripts do not measure failures, retries, timing or quota; a
+  compatibility HTTP 200 is not evidence of success. [Measurement limits](docs/metrics.md#source-capabilities-and-measurement-coverage).
+- Price coverage and project attribution coverage are separate. Unpriced rows
+  still count toward activity; project filters exclude unknown folders and
+  disclose that exclusion. [Pricing](docs/metrics.md#metering-and-cost) · [Attribution](docs/metrics.md#project-attribution).
+- Quota is account-wide and can be stale while the proxy is stopped. Loaded
+  history may be incomplete. The desktop UI makes no claim about productivity,
+  answer quality, compaction or cache-miss causes.
 
-- **Cache break-even analysis** — for each conversation, how much of the prompt prefix survived between turns, and what
-  a different turn cadence would have cost.
-- **Model switch timeline** — when a conversation moved between models and what the move cost or saved.
-- **Retry cost attribution** — attribute re-sent tokens to the error code that caused the retry.
-- **Budget guardrails** — daily/weekly spend targets with projected month-end spend and an alert threshold.
-- **Quota simulator** — "what happens to my weekly window if I run this workload", derived from measured tokens/minute.
-- **Latency regression detection** — compare each model's p95 against its own trailing baseline and flag shifts.
-- **Conversation fingerprints** — cluster sessions by tool-call shape and tokens per turn to find expensive patterns.
-- **Hub aggregation** — opencodex supports a remote hub; the same views could aggregate multiple machines.
-
-See [Architecture](docs/architecture.md) for how data flows through the application.
-
-Contributor setup and verification commands are in [CONTRIBUTORS.md](CONTRIBUTORS.md).
-
-## License
-
-MIT — see [LICENSE](./LICENSE).
-
-## Reference
-
-- [Metric definitions](docs/metrics.md)
-- [API reference](docs/api.md)
-- [Architecture](docs/architecture.md)
-- [Changelog](CHANGELOG.md)
-- [Release procedure](docs/releasing.md)
-
-## Known limits
-
-- Claude Code subscription usage appears separately as provider `anthropic`.
-- Claude Code transcripts record no latency, TTFT, effort, quota or failed calls, so those views stay empty for Claude
-  rows and its success rate is always 100%.
-- Requests that failed before any tokens were metered carry no usage, so failure cost shows as zero rather than a guess.
-  The Reliability page reports metering coverage instead of inventing numbers.
-- Unpriced models (subscription or free routes) are excluded from cost totals and surfaced as an explicit share.
-- Quota samples only refresh while the proxy is running; with the proxy stopped you see the last known values.
-- Claude Code subscription quota is unavailable: Claude Code writes no readable file with its 5-hour/weekly limits. See [Claude Code quota](docs/metrics.md#claude-code-quota).
+[Views and reports](docs/guide.md) · [Metrics](docs/metrics.md) · [API](docs/api.md) ·
+[Architecture](docs/architecture.md) · [Contributing](CONTRIBUTORS.md) ·
+[Changelog](CHANGELOG.md) · [Release procedure](docs/releasing.md) · [MIT license](LICENSE)

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Coins, Percent, PiggyBank, Zap } from "lucide-react";
-import { exportUrl, useEndpoint } from "../api";
+import { conversationLink, exportUrl, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Card, CardHeader, Legend, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
@@ -56,7 +56,7 @@ export function CostPage() {
 
   const perModelOption = useMemo(() => {
     if (!data) return null;
-    const models = data.byModel.filter(model => (model.costPer1MTokens ?? 0) > 0).slice(0, 10);
+    const models = data.byModel.filter(model => model.costPer1MTokens !== null).slice(0, 10);
     return barChart(chartTheme, models.map(model => model.key), models.map(model => model.costPer1MTokens ?? 0), {
       formatter: value => `$${value.toFixed(2)}`,
       horizontal: true,
@@ -78,15 +78,15 @@ export function CostPage() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <Stat
           label="Estimated cost"
-          value={summary ? formatUsd(summary.cost) : "—"}
+          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cost) : "—"}
           hint={data ? `${formatInteger(summary?.pricedRequests ?? 0)} priced requests` : undefined}
           delta={undefined}
           tone="good"
           icon={<Coins size={13} />}
         />
-        <Stat label="Cost / 1M tokens" value={summary && summary.tokens.total > 0 ? `$${(summary.cost / summary.tokens.total * 1e6).toFixed(2)}` : "—"} hint="Blended rate across every token class" tone="info" />
-        <Stat label="Cache savings" value={summary ? formatUsd(summary.cache.savingsUsd) : "—"} hint={summary ? `vs paying full input price` : undefined} tone="good" icon={<PiggyBank size={13} />} />
-        <Stat label="Output spend" value={data ? formatUsd(data.composition.output) : "—"} hint={data ? `${formatPercent(data.composition.output / Math.max(1, data.composition.total), 1)} of total` : undefined} tone="warn" icon={<Zap size={13} />} />
+        <Stat label="Cost / 1M tokens" value={summary && summary.pricedRequests > 0 && summary.tokens.total > 0 ? `$${(summary.cost / summary.tokens.total * 1e6).toFixed(2)}` : "—"} hint="Blended rate across every token class" tone="info" />
+        <Stat label="Cache savings" value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cache.savingsUsd) : "—"} hint={summary ? `vs paying full input price` : undefined} tone="good" icon={<PiggyBank size={13} />} />
+        <Stat label="Output spend" value={data && data.summary.pricedRequests > 0 ? formatUsd(data.composition.output) : "—"} hint={data ? `${formatPercent(data.composition.output / Math.max(1, data.composition.total), 1)} of total` : undefined} tone="warn" icon={<Zap size={13} />} />
         <Stat
           label="Unpriced share"
           value={summary ? formatPercent(unpricedShare) : "—"}
@@ -159,7 +159,7 @@ export function CostPage() {
         <Card className="xl:col-span-2">
           <CardHeader title="Blended price per 1M tokens" subtitle="Cheapest to most expensive model actually used" />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.byModel.length === 0}>
-            {perModelOption ? <Chart option={perModelOption} height={Math.max(180, (data?.byModel.filter(m => (m.costPer1MTokens ?? 0) > 0).slice(0, 10).length ?? 0) * 26 + 40)} /> : null}
+            {perModelOption ? <Chart option={perModelOption} height={Math.max(180, (data?.byModel.filter(m => m.costPer1MTokens !== null).slice(0, 10).length ?? 0) * 26 + 40)} /> : null}
           </StateBlock>
         </Card>
         <Card>
@@ -167,16 +167,16 @@ export function CostPage() {
           <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
             <ul className="space-y-2.5">
               {data?.topConversations.map(conversation => (
-                <li key={conversation.id}>
+                <li key={JSON.stringify([conversation.source, conversation.id])}>
                   <div className="flex items-center justify-between gap-2">
-                    <Link to={{ pathname: `/conversations/${conversation.id}`, search }} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline">
+                    <Link to={conversationLink(conversation, search)} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline" title={sourceLabel(conversation.source)}>
                       {shortId(conversation.id, 12)}
                     </Link>
-                    <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{formatUsd(conversation.cost)}</span>
+                    <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{conversation.pricedRequests > 0 ? formatUsd(conversation.cost) : "unpriced"}</span>
                   </div>
                   <ProgressBar value={conversation.cost} max={data.topConversations[0]?.cost ?? 1} className="mt-1.5" />
                   <p className="mt-1 text-[10.5px] text-muted">
-                    {formatInteger(conversation.requests)} requests · {formatCompact(conversation.tokens)} tokens
+                    {sourceLabel(conversation.source)} · {formatInteger(conversation.requests)} requests · {formatCompact(conversation.tokens)} tokens
                   </p>
                 </li>
               ))}
@@ -214,8 +214,8 @@ export function CostPage() {
                   <Td className="max-w-[220px] truncate font-medium text-ink">{model.key}</Td>
                   <Td align="right">{formatInteger(model.requests)}</Td>
                   <Td align="right">{formatCompact(model.tokens)}</Td>
-                  <Td align="right">{formatUsd(model.cost)}</Td>
-                  <Td align="right">{model.costPer1MTokens ? `$${model.costPer1MTokens.toFixed(2)}` : "—"}</Td>
+                  <Td align="right">{model.pricedRequests > 0 ? formatUsd(model.cost) : "unpriced"}</Td>
+                  <Td align="right">{model.costPer1MTokens !== null ? `$${model.costPer1MTokens.toFixed(2)}` : "—"}</Td>
                   <Td align="right">{formatPercent(model.costShare)}</Td>
                   <Td align="right">{model.unpricedRequests > 0 ? formatInteger(model.unpricedRequests) : "—"}</Td>
                 </tr>

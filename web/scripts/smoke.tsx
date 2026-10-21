@@ -8,14 +8,24 @@
  *
  * Run with: ./scripts/smoke.sh  (add --fixtures to force the synthetic ledger)
  */
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { renderToString } from "react-dom/server";
-import { DEFAULT_FILTERS, fetchJson, filtersToParams } from "../src/api";
+import { conversationLink, DEFAULT_FILTERS, escapeGlob, fetchJson, filtersFromParams, filtersToParams } from "../src/api";
+import { OutcomeDot } from "../src/components/ui";
+import { Layout } from "../src/components/Layout";
 import { ThemeProvider } from "../src/lib/theme";
+import { decodePreferences, PREFERENCES_STORAGE_KEY, PreferencesProvider, usePreferences, type Preferences } from "../src/lib/preferences";
+import { LabsPage, LabsInvestigationPage } from "../src/pages/labs/LabsPage";
+import { LabsLayout } from "../src/pages/labs/LabsLayout";
+import { InvestigationScope } from "../src/pages/labs/InvestigationScope";
+import { InvestigationState, type InvestigationStateKind } from "../src/pages/labs/InvestigationState";
+import { EvidenceCase } from "../src/pages/labs/EvidenceCase";
+import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
 import { FiltersProvider } from "../src/lib/useFilters";
 import { OverviewPage } from "../src/pages/Overview";
 import { UsagePage } from "../src/pages/Usage";
@@ -25,16 +35,40 @@ import { ReliabilityPage } from "../src/pages/Reliability";
 import { ModelsPage } from "../src/pages/Models";
 import { QuotaPage } from "../src/pages/Quota";
 import { ConversationDetailPage, ConversationsPage } from "../src/pages/Conversations";
-import { materializeFixtureHome } from "./fixtureHome";
+import { materializeFixtureHome, materializeFixturePricing } from "./fixtureHome";
+import { addContextReplayFixtures } from "./context-replay-fixtures";
+import { checkContextReplaySmoke } from "./context-replay-smoke";
+import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
+import { checkYaldiArtwork } from "./yaldi-smoke";
 
 type AnyComponent = () => React.ReactElement | null;
 
 const ocxHome = process.env.OCX_HOME ?? join(homedir(), ".opencodex");
 const useFixtures = process.argv.includes("--fixtures") || !existsSync(join(ocxHome, "usage.jsonl"));
+let fixturePricing = "";
 if (useFixtures) {
-  process.env.OCX_HOME = await materializeFixtureHome();
+  fixturePricing = await materializeFixturePricing();
+  const pricePath = join(fixturePricing, "src/usage/cost.ts");
+  await writeFile(pricePath, (await readFile(pricePath, "utf8")).replace("const RATES = {", 'const RATES = { "f01-free": [0, 0, 0, 0],'));
+  process.env.OCX_PACKAGE_DIR = fixturePricing;
+  process.env.OCX_HOME = await materializeFixtureHome({ dashboardScope: true });
   process.env.CLAUDE_PROJECTS_DIR = join(process.env.OCX_HOME, "claude-projects");
   process.env.CODEX_HOME = join(process.env.OCX_HOME, "codex");
+  const ts = Date.now() - 60_000;
+  const common = { timestamp: ts, provider: "anthropic", model: "f01-proxy", inboundProtocol: "messages", status: 200, usageStatus: "reported", cacheProvenance: "observed", durationMs: 100, firstOutputMs: 10, attempts: [{}] };
+  const synthetic = [
+    { ...common, requestId: "f01-failure", status: 502, errorCode: "synthetic_failure", usage: { inputTokens: 10, outputTokens: 1, cacheReadInputTokens: 0 } },
+    { ...common, requestId: "f01-input-missing", model: "f01-presence", usage: { outputTokens: 1 } },
+    { ...common, requestId: "f01-input-zero", model: "f01-presence", usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 } },
+    ...["free", "unpriced"].map(kind => ({ ...common, requestId: `f01-${kind}`, model: `f01-${kind}`, conversationId: `f01-${kind}-session`,
+      usage: { inputTokens: 100, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } })),
+  ];
+  await appendFile(join(process.env.OCX_HOME, "usage.jsonl"), synthetic.map(row => JSON.stringify(row)).join("\n") + "\n");
+  const folder = join(process.env.CLAUDE_PROJECTS_DIR, "f01");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "f01.jsonl"), JSON.stringify({ type: "assistant", requestId: "f01-transcript", sessionId: "f01-session", timestamp: new Date(ts).toISOString(),
+    message: { model: "f01-transcript", usage: { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }) + "\n");
+  await addContextReplayFixtures(process.env.OCX_HOME, fixturePricing);
 }
 console.log(useFixtures ? "source: synthetic fixtures" : `source: ${join(ocxHome, "usage.jsonl")}`);
 
@@ -67,11 +101,12 @@ interface PageSpec {
 }
 
 const detailFilters = { ...DEFAULT_FILTERS, range: "all" };
-const conversationsSeed = await fetchJson<{ conversations: { id: string }[] }>(
+const conversationsSeed = await fetchJson<{ conversations: { id: string; source: "ocx" | "claude-code" }[] }>(
   "/api/conversations",
   filtersToParams(DEFAULT_FILTERS, { sort: "tokens", limit: 5 }),
 );
 const sampleConversation = conversationsSeed.conversations[0]?.id ?? "";
+const sampleSource = conversationsSeed.conversations[0]?.source;
 const shorten = (value: string) => (value.length <= 14 ? value : value.slice(0, 14));
 
 const PAGES: PageSpec[] = [
@@ -144,10 +179,10 @@ const PAGES: PageSpec[] = [
   },
   {
     name: "ConversationDetail",
-    route: "/conversations/" + sampleConversation,
+    route: "/conversations/" + sampleConversation + `?range=all&sessionSource=${sampleSource}`,
     pattern: "/conversations/:id",
     Component: ConversationDetailPage,
-    queries: [{ path: "/api/conversations/" + sampleConversation, params: filtersToParams(detailFilters, {}) }],
+    queries: [{ path: "/api/conversations/" + sampleConversation, params: filtersToParams(detailFilters, { sessionSource: sampleSource }) }],
     expect: ["Token growth", "Models used", "Requests in this conversation"],
     expectFrom: payloads => [sampleConversation, payloads[0]?.models?.[0]?.name],
   },
@@ -157,15 +192,22 @@ const SUSPECT = ["NaN", "Invalid Date", "undefined", "Infinity", "[object Object
 let failures = 0;
 let warnings = 0;
 
-function renderPage(Component: AnyComponent, client: QueryClient, route: string, pattern?: string) {
+function renderPage(Component: AnyComponent, client: QueryClient, route: string, pattern?: string, withLayout = false, preferences: Preferences = { labsEnabled: false, hideArtwork: false }) {
+  const content = route.split("?")[0]!.startsWith("/labs")
+    ? <Route path="/labs" element={<LabsLayout />}>
+        <Route index element={<Component />} /><Route path=":investigation" element={<Component />} /><Route path="*" element={<Component />} />
+      </Route>
+    : <Route path={pattern ?? route} element={<Component />} />;
   return renderToString(
     <QueryClientProvider client={client}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[route]}>
           <FiltersProvider>
+          <PreferencesProvider storage={{ getItem: () => JSON.stringify({ version: 1, ...preferences }), setItem: () => { throw new Error("SSR must not write preferences"); } }}>
             <Routes>
-              <Route path={pattern ?? route} element={<Component />} />
+              {withLayout ? <Route element={<Layout />}>{content}</Route> : content}
             </Routes>
+          </PreferencesProvider>
           </FiltersProvider>
         </MemoryRouter>
       </ThemeProvider>
@@ -238,6 +280,187 @@ async function checkQuotaRange(): Promise<void> {
 }
 
 await checkQuotaRange();
+
+/** Exercise source/presence policy through real API data and the rendered consumers. */
+async function checkMeasurementCohorts() {
+  const check = (condition: boolean, label: string) => {
+    if (!condition) failures++;
+    console.log(`${condition ? "PASS" : "FAIL"}  F01 ${label}`);
+  };
+  const params = filtersToParams(DEFAULT_FILTERS, {});
+  const claudeFilters = { ...DEFAULT_FILTERS, models: ["f01-transcript"] };
+  const claudeParams = filtersToParams(claudeFilters, {});
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+  const reliability = await fetchJson<any>("/api/reliability", claudeParams);
+  const overview = await fetchJson<any>("/api/overview", claudeParams);
+  client.setQueryData(["/api/reliability", claudeParams], reliability);
+  client.setQueryData(["/api/overview", claudeParams], overview);
+  client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
+  const html = renderPage(ReliabilityPage, client, "/reliability?models=f01-transcript", "/reliability");
+  const overviewHtml = renderPage(OverviewPage, client, "/?models=f01-transcript", "/");
+  check(reliability.successRate === null && reliability.measurementCoverage.outcomes.eligibleRequests === 0 && reliability.outcomes[0]?.name === "unobserved", "Claude-only outcome denominator");
+  check(html.includes("0 of 1 requests observed") && html.includes("Retry history unavailable"), "Claude-only reliability rendering");
+  check(overviewHtml.includes("unobserved") && overviewHtml.includes("Retry history unavailable"), "transcript request badge");
+  const badge = renderToString(<OutcomeDot outcome="unobserved" />);
+  check(badge.includes('aria-label="unobserved"') && !badge.includes("bg-bad"), "unobserved badge accessibility");
+  const layout = renderPage(Layout, client, "/", "/");
+  check(layout.includes("Outcome"), "shared outcome control renders");
+  // Every outcome cohort is queried through the same shared statuses parameter.
+  for (const status of ["ok", "error", "cancelled", "unobserved"]) {
+    const filtered = await fetchJson<any>("/api/overview", filtersToParams({ ...claudeFilters, statuses: [status] }, {}));
+    check(filtered.summary.requests === (status === "unobserved" ? 1 : 0), `Claude-only ${status} cohort`);
+  }
+  const mixed = await fetchJson<any>("/api/overview", filtersToParams({ ...DEFAULT_FILTERS, models: ["f01-transcript", "f01-proxy"] }, {}));
+  check(mixed.summary.requests === 2 && mixed.summary.successRate === 0 && mixed.summary.measurementCoverage.outcomes.eligibleRequests === 1 && mixed.recent.find((r: any) => r.id === "f01-failure")?.source === "ocx", "mixed failure and Anthropic proxy source");
+  const presence = await fetchJson<any>("/api/overview", filtersToParams({ ...DEFAULT_FILTERS, models: ["f01-presence"] }, {}));
+  check(presence.recent.find((r: any) => r.id === "f01-input-missing")?.measurements.input === false && presence.recent.find((r: any) => r.id === "f01-input-zero")?.measurements.input === true && presence.context.eligibleRequests === 1, "missing input versus observed zero");
+  // Ensure mixed production data retains unobserved volume while rates stay eligible.
+  const full = await fetchJson<any>("/api/reliability", params);
+  check(full.outcomes.reduce((n: number, x: any) => n + x.value, 0) === full.measurementCoverage.totalRequests, "outcome totals reconcile");
+
+  const priceFilters = { ...DEFAULT_FILTERS, models: ["f01-free", "f01-unpriced"] };
+  const priceParams = filtersToParams(priceFilters);
+  for (const [path, route, Component, extra] of [
+    ["/api/overview", "/", OverviewPage, {}],
+    ["/api/usage", "/usage", UsagePage, {}],
+    ["/api/cost", "/cost", CostPage, {}],
+    ["/api/conversations", "/conversations", ConversationsPage, { sort: "tokens", limit: 200 }],
+  ] as const) {
+    const queryParams = filtersToParams(priceFilters, extra);
+    const payload = await fetchJson<any>(path, queryParams);
+    const priceClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+    priceClient.setQueryData([path, queryParams], payload);
+    const rendered = renderPage(Component, priceClient, `${route}?${priceParams}`, route);
+    const entries = rendered.match(path === "/api/overview" ? /<li class="leaderboard-row"[\s\S]*?<\/li>/g : /<tr\b[\s\S]*?<\/tr>/g) ?? [];
+    const free = entries.find(entry => entry.replace(/<[^>]*>/g, "").includes("f01-free"));
+    const unknown = entries.find(entry => entry.replace(/<[^>]*>/g, "").includes("f01-unpriced"));
+    check(Boolean(free?.includes("$0.00") && unknown?.includes("unpriced") && !unknown.includes("$0.00")), `${path} priced zero versus unavailable`);
+    priceClient.clear();
+  }
+}
+if (useFixtures) await checkMeasurementCohorts();
+
+/** F02: real scoped queries, toolbar/status rendering and source-qualified links on synthetic data. */
+async function checkDashboardScope() {
+  const check = (condition: boolean, label: string) => {
+    if (!condition) failures++;
+    console.log(`${condition ? "PASS" : "FAIL"}  F02 ${label}`);
+  };
+  const appA = join(process.env.OCX_HOME!, "work", "app-a");
+  const combined = { ...DEFAULT_FILTERS, sources: ["ocx"], projects: [escapeGlob(appA)], providers: ["openai"], models: ["gpt-6-luna"],
+    efforts: ["high"], statuses: ["ok"], search: "fixture", routeKinds: ["native"], from: "now-24h", to: "now", tz: "UTC", bucket: "hour", groupBy: "effort", metric: "requests" };
+  check(JSON.stringify(filtersFromParams(new URLSearchParams(filtersToParams(combined)))) === JSON.stringify(combined), "complete URL cohort round trip");
+  check(!new URLSearchParams(filtersToParams({ ...DEFAULT_FILTERS, sources: ["claude", "codex", "ocx"] })).has("sources"), "aliases and both-source default");
+
+  const renderScoped = async (Component: AnyComponent, path: string, filters: typeof DEFAULT_FILTERS, endpoint: string, extra = {}, layout = true) => {
+    const params = filtersToParams(filters);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+    client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
+    for (const [url, query] of [["/api/scope", params], ["/api/projects", filtersToParams({ ...filters, projects: [] })], [endpoint, filtersToParams(filters, extra)]] as const) {
+      client.setQueryData([url, query], await fetchJson(url, query));
+    }
+    const html = renderPage(Component, client, `${path}?${params}`, path.startsWith("/conversations/") ? "/conversations/:id" : path, layout);
+    client.clear();
+    return html;
+  };
+  const html = await renderScoped(ConversationsPage, "/conversations", combined, "/api/conversations", { sort: "tokens", limit: 200 });
+  const payload = await fetchJson<any>("/api/conversations", filtersToParams(combined));
+  check(payload.totals.requests > 0 && payload.conversations.every((c: any) => c.source === "ocx"), "combined cohort has matching source-qualified sessions");
+  check(html.includes("Source · 1") && html.includes("Project · 1") && html.includes("Project selection excludes") && html.includes("Custom window"), "toolbar, attribution and custom-window status");
+  const links = [...html.matchAll(/href="([^"]+)"/g)].map(match => match[1]!.replace(/&amp;/g, "&"));
+  const cohort = new URLSearchParams(filtersToParams(combined));
+  const routeLinks = links.filter(link => link.startsWith("/") && !link.startsWith("/api/"));
+  check(routeLinks.length >= 9 && routeLinks.every(link => [...cohort].every(([key, value]) => new URL(link, "http://localhost").searchParams.get(key) === value)), "all navigation retains every cohort parameter");
+  check(routeLinks.some(link => link.includes("/conversations/") && new URL(link, "http://localhost").searchParams.get("sessionSource") === "ocx"), "session links add source identity");
+  check(!html.includes("Could not load data") && !html.includes("No requests match these filters"), "combined dashboard renders without an error or false empty state");
+
+  const none = await renderScoped(UsagePage, "/usage", { ...combined, projects: ["/no/such/synthetic/project"] }, "/api/usage");
+  check(none.includes("No requests match these filters") && none.includes("Reset all filters") && none.includes("unattributed requests"), "no-match result offers reset and explains exclusions");
+  const claudeFilters = { ...DEFAULT_FILTERS, sources: ["claude-code"] };
+  const unavailable = await renderScoped(QuotaPage, "/quota", claudeFilters, "/api/quota");
+  check(unavailable.includes("Quota and send ledger unavailable for Claude Code") && !unavailable.includes("Burn table") && !unavailable.includes("Send accounting"), "Claude-only account observations hidden and explained");
+  const overview = await renderScoped(OverviewPage, "/", { ...DEFAULT_FILTERS, sources: ["claude-code"], projects: [escapeGlob(appA)] }, "/api/overview", { metric: "tokens", groupBy: "model" });
+  check(overview.includes("Quota and send ledger unavailable for Claude Code") && !overview.includes("81%"), "Claude-only overview does not show Codex quota");
+  const quota = await renderScoped(QuotaPage, "/quota", combined, "/api/quota");
+  check(quota.includes("Account-wide opencodex observation") && quota.includes("not a project&#x27;s own usage") && quota.includes("projects, providers, models, efforts, statuses, routeKinds, search"), "project-filtered quota declares every ignored dimension");
+
+  const literal = await fetchJson<any>("/api/scope", filtersToParams({ ...DEFAULT_FILTERS, projects: [escapeGlob(join(process.env.OCX_HOME!, "work", "literal[app]*"))] }));
+  check(literal.matched.requests === 2, "picker escapes literal glob metacharacters");
+  const detail = conversationsSeed.conversations[0]!;
+  const link = conversationLink(detail, `?${filtersToParams({ ...combined, projects: ["/no/match"] })}`);
+  const detailParams = new URLSearchParams(link.search);
+  const detailFilters = filtersFromParams(detailParams);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } });
+  const params = filtersToParams(detailFilters, { sessionSource: detail.source });
+  const scoped = await fetchJson<any>(`/api${link.pathname}`, params);
+  client.setQueryData([`/api${link.pathname}`, params], scoped);
+  const rendered = renderPage(ConversationDetailPage, client, `${link.pathname}?${params}`, "/conversations/:id");
+  check(scoped.scope.matched === 0 && rendered.includes("No requests in this session match") && !rendered.includes("NaN") && !rendered.includes("Could not load data"), "empty scoped detail renders without leaking session history or crashing");
+  client.clear();
+}
+if (useFixtures) await checkDashboardScope();
+async function checkLabsShell() {
+  const check = (condition: boolean, label: string) => {
+    if (!condition) failures++;
+    console.log(`${condition ? "PASS" : "FAIL"}  L01 ${label}`);
+  };
+  const fixed = { from: Date.parse("2026-09-01T00:00:00Z"), to: Date.parse("2026-09-02T00:00:00Z"), tz: "Asia/Singapore", label: "Fixed day" };
+  const cohort = { sources: ["ocx" as const], projects: ["/synthetic/{one,two}"], providers: ["synthetic-provider"], models: ["synthetic,model"],
+    efforts: ["high"], statuses: ["ok" as const], routeKinds: ["native"], conversationId: "synthetic-session", search: "fixture" };
+  const selector = JSON.stringify({ version: 1, window: fixed, cohort, selection: { kind: "scope" }, eligibility: "all" });
+  const params = new URLSearchParams({ range: "7d", sources: "ocx", projects: "/no/synthetic/matches", providers: "openai", models: "gpt-6-luna",
+    efforts: "high", statuses: "ok", routeKinds: "native", conversationId: "synthetic-session", from: "2026-09-01", to: "2026-09-02", tz: "UTC",
+    search: "fixture", selectorVersion: "1", selector, priorSelector: selector });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const filters = filtersFromParams(params);
+  client.setQueryData(["/api/scope", filtersToParams(filters)], await fetchJson("/api/scope", filtersToParams(filters)));
+  client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
+  const disabledChild = () => { throw new Error("Disabled Labs mounted an investigation"); };
+  for (const path of ["/labs", "/labs/project-radar", "/labs/cache-detective", "/labs/context-replay", "/labs/evidence", "/labs/unknown/deep"]) {
+    const html = renderPage(disabledChild, client, `${path}?${params}`, "/labs/*", true);
+    const links = [...html.matchAll(/href="([^"]+)"/g)].map(match => match[1]!.replace(/&amp;/g, "&")).filter(link => link.startsWith("/"));
+    check(html.includes("Labs is off") && html.includes("Enable Labs") && html.includes("Return to Overview") && !html.includes("No requests match these filters"), `${path} recovers even when the cohort is empty; child never mounts`);
+    check(links.length >= 9 && links.every(link => [...params].every(([key, value]) => new URL(link, "http://localhost").searchParams.get(key) === value)), `${path} links preserve the complete cohort and comma-bearing selector JSON`);
+  }
+  const enabledPreferences = { labsEnabled: true, hideArtwork: true };
+  const home = renderPage(LabsPage, client, `/labs?${params}`, "/labs", true, enabledPreferences);
+  check(["Project Radar", "Cache Detective", "Context Replay", "Disable Labs"].every(text => home.includes(text))
+    && home.includes("Not available yet.") === LABS_INVESTIGATIONS.some(entry => !entry.Component), "enabled shell exposes the three independent component slots");
+  for (const path of [...LABS_INVESTIGATIONS.filter(entry => !entry.Component).map(entry => entry.path), "unknown/deep"]) {
+    const html = renderPage(LabsInvestigationPage, client, `/labs/${path}?${params}`, "/labs/*", true, enabledPreferences);
+    check(html.includes("not available yet") && html.includes("All investigations") && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
+  }
+  const invalidEvidence = renderPage(EvidenceCase, client, "/labs/evidence?investigation=unknown&selector=%7B%7D", "/labs/*", false, enabledPreferences);
+  check(invalidEvidence.includes("Invalid case link") && invalidEvidence.includes("Choose an investigation"), "evidence route explains invalid intent without issuing an experiment query");
+  check(!client.getQueryCache().getAll().some(query => String(query.queryKey[0]).startsWith("/api/labs/")), "disabled and enabled empty shell create no experiment queries");
+  const cacheParams = filtersToParams(filters, { limit: 100 });
+  client.setQueryData(["/api/labs/cache", cacheParams], await fetchJson("/api/labs/cache", cacheParams));
+  const cache = renderPage(LabsInvestigationPage, client, `/labs/cache-detective?${params}`, "/labs/*", true, enabledPreferences);
+  check(["Cache Detective", "No requests to investigate", "Read discount", "Write premium", "Net · Unavailable", "Unnamed requests", "Investigation scope"].every(text => cache.includes(text)), "registered Cache Detective renders the real empty API payload without treating missing money as zero");
+  for (const kind of ["loading", "error", "empty", "insufficient"] as InvestigationStateKind[]) {
+    const html = renderToString(<ThemeProvider><PreferencesProvider storage={{ getItem: () => JSON.stringify({ version: 1, ...enabledPreferences }), setItem: () => {} }}>
+      <InvestigationState kind={kind} onRetry={() => {}} /></PreferencesProvider></ThemeProvider>);
+    check(html.includes(`role="${kind === "error" ? "alert" : "status"}"`) && html.includes("aria-describedby") && !html.includes("<img")
+      && html.includes("Try again") === (kind === "error"), `${kind} state has complete text and accessible semantics`);
+  }
+  const scope = renderToString(<InvestigationScope window={fixed} cohort={cohort} sample={{ eligibleRequests: 0, totalRequests: 4 }}
+    unpricedRequests={0} unattributedRequests={2} notes={["Only measured inputs are eligible."]} />).replace(/<!--.*?-->/g, "");
+  check(["2026-09-01T00:00:00.000Z", "2026-09-02T00:00:00.000Z", "From (included)", "Until (excluded)", "Asia/Singapore", "/synthetic/{one,two}",
+    "synthetic,model", "0 of 4", "0 requests without a price", "2 requests without project attribution", "Only measured inputs are eligible."].every(text => scope.includes(text)), "fixed scope presents exact bounds, lossless cohort, observed zero and separate coverage notes");
+  const defaults = JSON.stringify({ labsEnabled: false, hideArtwork: false });
+  for (const raw of [null, "{broken", "null", "true", "[]", '{"labsEnabled":true}', '{"version":2,"labsEnabled":true}', '{"version":1,"labsEnabled":"true","hideArtwork":1}']) {
+    check(JSON.stringify(decodePreferences(raw)) === defaults, `invalid or unsupported preferences use defaults: ${raw}`);
+  }
+  const Probe = () => { const { labsEnabled, hideArtwork } = usePreferences(); return <p>{`${labsEnabled}/${hideArtwork}`}</p>; };
+  check(renderToString(<PreferencesProvider storage={null}><Probe /></PreferencesProvider>).includes("false/false"), "SSR without browser storage uses defaults");
+  check(renderToString(<PreferencesProvider storage={{ getItem: () => { throw new Error("blocked"); }, setItem: () => {} }}><Probe /></PreferencesProvider>).includes("false/false"), "blocked storage uses defaults");
+  check(PREFERENCES_STORAGE_KEY === "yald.preferences", "single documented preference storage key");
+  client.clear();
+}
+await checkLabsShell();
+if (useFixtures) await checkContextReplaySmoke();
+failures += checkYaldiArtwork();
+if (useFixtures) await Promise.all([process.env.OCX_HOME!, fixturePricing].map(path => rm(path, { recursive: true, force: true })));
 
 globalThis.fetch = realFetch;
 console.log(`\n${PAGES.length - failures}/${PAGES.length} pages rendered, ${warnings} with suspicious tokens`);

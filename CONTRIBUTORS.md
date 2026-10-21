@@ -14,7 +14,7 @@ For an existing checkout with dependencies installed, run `make hooks` (or
 `scripts/bun run hooks:install`). The tracked pre-commit hook runs Oxlint and the
 quick unit/API and chart tests, stopping on failure. It checks the working tree,
 so unstaged code changes also affect the result. It leaves snapshot integration
-tests, typechecking, builds, and smoke checks to `make check` and GitHub CI.
+tests, typechecking, builds, and smoke checks to local `make check` runs.
 
 ## Branch workflow
 
@@ -22,13 +22,16 @@ Start work from `dev`. Feature branches merge into `dev`; releases merge from
 this repository's `dev` branch into `main` through a pull request. Fork branches
 named `dev` do not satisfy the source policy.
 
-`main` requires the `dev-to-main` source check, Linux and macOS CI, an up-to-date
+`main` requires the `dev-to-main` source check, an up-to-date
 branch, and resolved review conversations. Direct pushes, force pushes, and
 branch deletion are blocked, including for administrators. Reviewer approval
 is optional. The source check runs from the trusted `main` workflow without
 checking out pull request code.
 
 ## Verification
+
+Verification runs locally. There is no hosted Ubuntu/macOS test workflow or
+required platform-test matrix.
 
 ```bash
 make test
@@ -40,5 +43,11 @@ make smoke
 make screenshots                   # requires Chrome or Chromium
 make check                         # typecheck, lint, test, build, and smoke
 ```
+
+Demo API and lifecycle tests copy the runtime into a private temporary package
+with a minimal HTML test fixture, removed after the suite. They run without a UI
+build, including with raw `bun test`, and never write to the checkout's `web/dist`.
+The build and smoke checks cover the UI; `scripts/verify-demo-package.mjs` checks
+a built, installed tarball with real assets and the missing-assets failure.
 
 The smoke check exercises the pages with synthetic fixture data when no usage ledger is available. It checks for runtime errors, missing sections, invalid rendered values, and quota range-selector behavior.

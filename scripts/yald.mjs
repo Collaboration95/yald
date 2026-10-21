@@ -27,7 +27,17 @@ function bunRuntime() {
 // `yald report …` writes a report and exits; it never starts the server. Bun runs from
 // the package folder (so a .env or bunfig.toml in the caller's folder is not picked up)
 // and the report CLI changes back to the caller's folder (YALD_CWD) for relative paths.
-if (args[0] === "report") {
+if (args[0] === "demo") {
+  const { DEMO_HELP, parseDemoArgs, runDemo } = await import("./demo.mjs");
+  try {
+    const options = parseDemoArgs(args.slice(1));
+    if (options.help) console.log(DEMO_HELP);
+    else process.exitCode = await runDemo(options, { runtime: bunRuntime(), root });
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 2;
+  }
+} else if (args[0] === "report") {
   const child = spawn(bunRuntime(), ["run", join(root, "server/src/report/cli.ts"), ...args.slice(1)], {
     cwd: root,
     env: { ...process.env, YALD_CWD: process.cwd() },
@@ -51,12 +61,17 @@ function serve() {
   }
   if (args.includes("--help") || args.includes("-h")) {
     console.log([
+      "Yald — local, read-only analytics for opencodex and Claude Code usage.",
+      "Yaldi is Yald's detective companion in optional Labs investigations.",
+      "",
       "Usage: yald [--port PORT] [--host HOST] [--ocx-home PATH] [--codex-home PATH] [--open] [--version]",
       "       yald report [window] [options]",
+      "       yald demo [--open] [--port PORT] [--now ISO]",
       "",
       "Commands:",
       "  (none)    Run the dashboard at http://127.0.0.1:4318",
       "  report    Write a standalone HTML report for a time window, without a server (yald report --help)",
+      "  demo      Explore isolated synthetic data and illustrative prices (yald demo --help)",
     ].join("\n"));
     process.exit(0);
   }

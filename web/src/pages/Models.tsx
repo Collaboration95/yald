@@ -29,7 +29,7 @@ export function ModelsPage() {
 
   const priceVsSpeed = useMemo(() => {
     if (!data) return null;
-    const points = data.scatter.filter(entry => (entry.costPer1MTokens ?? 0) > 0 && entry.ttftP50 !== null);
+    const points = data.scatter.filter(entry => entry.costPer1MTokens !== null && entry.ttftP50 !== null);
     return scatterChart(chartTheme, [{
       name: "Models",
       points: points.map(entry => [entry.ttftP50 as number, entry.costPer1MTokens as number, entry.tokens] as [number, number, number]),
@@ -154,8 +154,8 @@ export function ModelsPage() {
                   <Td align="right">{formatInteger(model.requests)}</Td>
                   <Td align="right">{formatCompact(model.tokens)}</Td>
                   <Td align="right">{formatPercent(model.share)}</Td>
-                  <Td align="right">{model.cost > 0 ? `$${model.cost.toFixed(2)}` : <span className="text-muted">unpriced</span>}</Td>
-                  <Td align="right">{model.costPer1MTokens ? `$${model.costPer1MTokens.toFixed(2)}` : "—"}</Td>
+                  <Td align="right">{model.pricedRequests > 0 ? `$${model.cost.toFixed(2)}` : <span className="text-muted">unpriced</span>}</Td>
+                  <Td align="right">{model.costPer1MTokens !== null ? `$${model.costPer1MTokens.toFixed(2)}` : "—"}</Td>
                   <Td align="right">{formatDuration(model.ttftP50)}</Td>
                   <Td align="right">{formatDuration(model.p50DurationMs)}</Td>
                   <Td align="right">{model.outputTokensPerSecond ? model.outputTokensPerSecond.toFixed(1) : "—"}</Td>

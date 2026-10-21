@@ -1,112 +1,89 @@
 # Releasing and distribution
 
-## v0.1.0
+## Selected release: 0.2.0 — Meet Yaldi
 
-`v0.1.0` is the first public GitHub preview. Its distribution package is
-`yald-dashboard-0.1.0.tgz`; the executable is `yald`. The package contains the
-built UI, server sources, launcher, and user documentation, with tests and design
-studies excluded. The release also includes `SHA256SUMS`.
+Version **0.2.0**, title **Meet Yaldi**, date **2026-10-20**, eventual tag
+`v0.2.0`. The package is `yald-dashboard`, the executable is `yald`, and the
+archive is `yald-dashboard-0.2.0.tgz`. Installed `yald --version` must print
+exactly `0.2.0`. The baseline is a qualified **GitHub release tarball**.
 
-The repository's CI checks Linux and macOS on pull requests, `main`, and version
-tags. CI does not automatically publish npm packages or create GitHub releases.
-GitHub publication, npm publication, and Homebrew distribution are separate steps.
+Candidate preparation does not publish a release. Confirm actual assets on the
+[release page](https://github.com/Collaboration95/yald/releases/tag/v0.2.0).
+The earlier [v0.1.0](https://github.com/Collaboration95/yald/releases/tag/v0.1.0)
+is a published prerelease, with different contents and bytes. Never relabel it.
 
-## Publish the same package to npm
+See the [candidate packet](release-candidate-v0.2.0.md),
+[versioned release body](release-notes-v0.2.0.md),
+[installation guide](install.md) and [qualification procedure](release-evidence.md).
+Exact source identities, selected artifact IDs and checksums belong in external
+receipts after the final source is committed, avoiding a self-referencing tree.
 
-The unscoped name `yald` is already taken; keep `yald-dashboard` as the package
-name and `yald` as the command. Public packages are free
-([npm pricing](https://www.npmjs.com/products)). Before first publication, create
-or use an npm account with a verified email and two-factor authentication.
+## Check locally
 
-Download the tested artifact and publish it without repacking:
+From clean committed source with frozen dependencies installed:
 
-```bash
-release_dir="$(mktemp -d)"
-gh release download v0.1.0 --repo Collaboration95/yald \
-  --pattern 'yald-dashboard-0.1.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
-cd "$release_dir"
-shasum -a 256 -c SHA256SUMS
-npm login
-npm publish ./yald-dashboard-0.1.0.tgz --access public
-npm view yald-dashboard@0.1.0 version
-npm install -g yald-dashboard@0.1.0
-yald --version
-yald --open
+```sh
+make check
 ```
 
-Complete the npm browser login and any 2FA prompt yourself. The account used for
-the first publication becomes the package owner. A package version cannot be
-reused for changed contents; make a new version for later fixes. npm's
-[publishing guide](https://docs.npmjs.com/creating-and-publishing-unscoped-public-packages/)
-describes account and publication requirements.
+Hosted Ubuntu/macOS test CI has been removed. No cross-platform test matrix or
+Actions artifact is required. For an optional clean-install check of an archive:
 
-For later releases, configure a dedicated workflow with
-[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) and OIDC.
-This avoids a persistent publishing token. Its current npm 11.5.1+ and Node
-22.14.0+ requirements apply to the publishing workflow.
-
-## Add Homebrew distribution
-
-Start with a project-owned tap, `Collaboration95/homebrew-tap`, and a formula
-named `yald`. Homebrew charges no listing fee for a tap
-([tap guide](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap)). npm
-publication is not required if the formula downloads the GitHub release artifact.
-
-1. Make an empty local Git repository for the tap and create `Formula/yald.rb`.
-2. Use the formula template below with the exact package SHA-256 from the release's
-   `SHA256SUMS`. It installs dependencies under the formula's own `libexec`.
-3. Validate the formula locally with `brew style Formula/yald.rb`, then test it
-   from the tap with `brew install --build-from-source` and `brew test` before
-   recommending it to users. Include a real dashboard startup and API-health
-   check in the formula test before publishing the tap.
-4. Commit the formula and publish the new repository using authenticated gh:
-   `gh repo create Collaboration95/homebrew-tap --public --source . --push`.
-5. Users can then run `brew install Collaboration95/tap/yald`, followed by
-   `yald --open`. Each future version updates the formula URL and checksum.
-
-Starter formula (requires Homebrew installation testing before tap publication):
-
-```ruby
-class Yald < Formula
-  desc "Read-only analytics dashboard for opencodex usage, cost, and quota"
-  homepage "https://github.com/Collaboration95/yald"
-  url "https://github.com/Collaboration95/yald/releases/download/v0.1.0/yald-dashboard-0.1.0.tgz"
-  version "0.1.0"
-  sha256 "REPLACE_WITH_RELEASE_SHA256"
-  license "MIT"
-
-  depends_on "node"
-
-  def install
-    # Bun's npm dependency needs its install script to select its platform runtime.
-    system "npm", "install", *std_npm_args(ignore_scripts: false)
-    bin.install_symlink libexec.glob("bin/yald")
-  end
-
-  test do
-    assert_equal version.to_s, shell_output("#{bin}/yald --version").strip
-  end
-end
+```sh
+node scripts/qualify-package.mjs produce /tmp/yald-candidate-UNIQUE
+node scripts/qualify-package.mjs verify /tmp/yald-candidate-UNIQUE /tmp/yald-receipt-UNIQUE
 ```
 
-This is an own-tap starting point, not a claim that the formula has been tested
-or accepted into Homebrew's official repositories. Follow the
-[Node formula guidance](https://docs.brew.sh/Language-Specific-Formulae#nodejs)
-and add a functional startup test before publication. An official listing can
-be considered later under the
-[formula acceptance requirements](https://docs.brew.sh/Acceptable-Formulae).
+Use fresh outside-checkout directories. The existing producer builds once and
+packs once; the verifier installs those exact bytes into a clean prefix with a
+space. It checks the full payload, CLI, report, normal empty sources, unavailable
+pricing, fixed/wall-clock demos, exact evidence, assets, isolation and teardown.
+Tests, fixtures, source logs, private paths, reference art and verification tools
+are excluded from the distribution. Explicitly manifested screenshots and user
+documents are intentional payload. Installed relative Markdown links must resolve.
 
-## Subsequent releases
+Record the archive checksum, source and platform actually checked. A local run
+does not establish results on another operating system. Node `>=18` is a
+declaration, not evidence that every allowed version was tested. Earlier Actions
+artifacts and platform receipts remain historical evidence for their own source;
+they do not establish checks for later changes.
 
-- Record user-facing changes under Unreleased in `CHANGELOG.md`.
-- At release time, move those entries into a dated version section and update
-  `package.json` and any versioned release notes consistently.
-- Keep 0.x until the upstream contract and metric definitions are stable.
-- Build and inspect the package, install it in a clean directory, and run CLI,
-  API, static-asset, typecheck, lint, test, build, and fixture smoke checks.
-- Merge verified release work to `main`, tag the exact commit, and upload the
-  tested package and checksums to its GitHub release.
-- Publish the same artifact to npm and update the tap separately.
+## Promote and publish the selected bytes
 
-External launch posts and repository settings are separate from package
-publication; existing drafts remain in `docs/launch-drafts.md`.
+Release work merges into `dev`; promotion is this repository's protected
+`dev` → `main` pull request. Follow [Contributing](../CONTRIBUTORS.md): required
+checks, up-to-date base and resolved conversations, with no direct/force push or
+protection bypass. Record the actual promotion commits and prove the final
+`main`/tag tree equals the qualified candidate tree. If it changes, requalify.
+
+Keep the locally prepared archive and checksum together. Attach the exact
+selected `.tgz` and `SHA256SUMS`, plus any recorded verification evidence, to the
+release. Publish using
+`docs/release-notes-v0.2.0.md` unchanged as the body and `Meet Yaldi` as the title.
+Tag the qualified `main` commit only after all promotion gates pass.
+
+Download the **published** package and checksums using `gh release download`,
+verify SHA256, and compare byte-for-byte with the selected archive. Run the
+existing clean-install verifier against those downloaded bytes on their recorded
+clean candidate source (the verifier requires exact commit/tree/parents); separately
+record equality with the promoted tag tree. A new build from an equal tree is not
+the selected archive. Only successful published-download and installed-package
+evidence completes publication. Releases and package publication are manual.
+
+## Separate, UNVERIFIED channels
+
+- **npm registry:** no registry availability or `npx` command is promised. Future
+  work must establish account/package ownership, authentication and publication
+  prerequisites, publish the qualified tarball without repacking, and verify
+  registry download integrity and clean installation. The package name remains
+  `yald-dashboard`; the command remains `yald`. No registry publication is part
+  of this candidate.
+- **Homebrew:** no tested formula or available tap is promised. Future work needs
+  a separately reviewed tap/formula with the exact release URL/SHA, dependency
+  installation, style checks and a real startup/API test on supported systems.
+  A template is not distribution evidence. No tap setup is part of this candidate.
+
+External launch posts, social-preview upload, repository metadata and Discussions
+settings are separate actions. Launch copy remains in
+[drafts](https://github.com/Collaboration95/yald/blob/v0.2.0/docs/launch-drafts.md);
+preparing or publishing the release does not authorize posting those drafts.

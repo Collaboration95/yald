@@ -1,3 +1,30 @@
+export type Source = "claude-code" | "ocx";
+export interface Measurements {
+  outcome: boolean;
+  duration: boolean;
+  ttft: boolean;
+  retries: boolean;
+  input: boolean;
+  output: boolean;
+  cacheRead: boolean;
+  cacheWrite: boolean;
+  usage: "logical" | "attempt-sum" | "missing";
+}
+
+export interface MeasurementSample { eligibleRequests: number; totalRequests: number }
+export interface MeasurementCoverage {
+  totalRequests: number;
+  outcomes: MeasurementSample;
+  duration: MeasurementSample;
+  ttft: MeasurementSample;
+  throughput: MeasurementSample;
+  retries: MeasurementSample;
+  input: MeasurementSample;
+  context: MeasurementSample;
+  cache: MeasurementSample;
+  pricing: MeasurementSample;
+}
+
 export interface TokenTotals {
   input: number;
   output: number;
@@ -12,6 +39,8 @@ export interface Summary {
   ok: number;
   errors: number;
   cancelled: number;
+  unobserved: number;
+  measurementCoverage: MeasurementCoverage;
   successRate: number | null;
   tokens: TokenTotals;
   cost: number;
@@ -76,16 +105,32 @@ export interface BreakdownRow {
   firstSeen: number;
   lastSeen: number;
   unpricedRequests: number;
+  pricedRequests: number;
+  measurementCoverage: MeasurementCoverage;
 }
 
 export interface RequestRow {
+  source: Source;
+  protocol: string | null;
+  measurements: Measurements;
+  usageFromAttempts: boolean;
+  usageStatus: string;
+  cacheProvenance: string | null;
+  cacheWriteTokens: number;
+  rateIn: number | null;
+  rateOut: number | null;
+  rateCacheRead: number | null;
+  rateCacheWrite: number | null;
+  sends: number;
+  attemptTokens: number;
+  cwd: string | null;
   id: string;
   ts: number;
   provider: string;
   model: string;
   effort: string | null;
   status: number;
-  outcome: "ok" | "error" | "cancelled";
+  outcome: "ok" | "error" | "cancelled" | "unobserved";
   durationMs: number;
   ttftMs: number | null;
   inputTokens: number;
@@ -116,9 +161,13 @@ export interface CostComposition {
 
 export interface ConversationRow {
   id: string;
+  /** Conversation ids are unique only within a source. */
+  source: Source;
   requests: number;
   tokens: number;
   cost: number;
+  pricedRequests: number;
+  unpricedRequests: number;
   models: string[];
   providers: string[];
   startedAt: number;
@@ -164,12 +213,27 @@ export interface QuotaView {
   observed: { samples: number; first: number | null; last: number | null };
 }
 
+/** How a source/project selection applies to quota and the send ledger, which are opencodex account observations. */
+export interface AccountScope {
+  kind: "account";
+  source: Source;
+  available: boolean;
+  requestedSources: Source[];
+  /** Active filters (URL parameter names) this account-wide observation does not honour. */
+  ignored: string[];
+  note: string;
+}
+
 export interface QuotaResponse extends QuotaView {
   ok: boolean;
   range: string;
+  scope: AccountScope;
+  window: QuotaView["window"] & { label: string };
 }
 
 export interface MetaResponse {
+  sources: Source[];
+  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean }>;
   ok: boolean;
   ocxHome: string;
   timeZone: string;
@@ -205,12 +269,14 @@ export interface OverviewResponse {
   topEfforts: BreakdownRow[];
   topConversations: ConversationRow[];
   heatmap: { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number };
-  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null };
+  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
   quota: QuotaView;
+  quotaScope: AccountScope;
   recent: RequestRow[];
 }
 
 export interface PerformanceResponse {
+  measurementCoverage: MeasurementCoverage;
   ok: boolean;
   window: { from: number; to: number; bucket: "hour" | "day" | "week" };
   timeline: {
@@ -240,16 +306,18 @@ export interface PerformanceResponse {
   byModel: BreakdownRow[];
   ttftVsOutput: { ttftMs: number; outputTokens: number; model: string; ts: number }[];
   slowest: RequestRow[];
-  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null };
+  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
 }
 
 export interface ReliabilityResponse {
+  measurementCoverage: MeasurementCoverage;
+  successRate: number | null;
   ok: boolean;
   window: { from: number; to: number };
   outcomes: { name: string; value: number }[];
   statuses: { name: string; value: number }[];
   errors: { name: string; value: number; models: number; lastSeen: number; tokens: number; cost: number }[];
-  errorTimeline: { ts: number; label: string; ok: number; error: number; cancelled: number }[];
+  errorTimeline: { ts: number; label: string; ok: number; error: number; cancelled: number; unobserved: number }[];
   attempts: { name: string; value: number }[];
   failureByModel: { name: string; failures: number; requests: number; rate: number }[];
   recentFailures: RequestRow[];
@@ -281,6 +349,7 @@ export interface ModelsResponse {
 
 export interface LedgerResponse {
   ok: boolean;
+  scope: AccountScope;
   window: { from: number; to: number; bucket: string };
   byKind: Record<string, number>;
   settledTokens: number;
@@ -298,10 +367,57 @@ export interface ConversationsResponse {
   totals: { conversations: number; requests: number; unattributed: number; medianRequests: number | null; medianTokens: number | null };
 }
 
+/** Requests the project filter had to drop because their folder is unknown (the server's `coverage`). */
+export interface ProjectCoverage {
+  unattributedRows: number;
+  unattributedTokens: number;
+  attribution: {
+    matched: { rows: number; tokens: number };
+    outsideProjects: { rows: number; tokens: number };
+    unattributed: { rows: number; tokens: number; reasons: { reason: "noConversationId" | "noRollout" | "other"; rows: number; tokens: number; models: { model: string; rows: number; tokens: number }[] }[] };
+  };
+}
+
+export interface ProjectChoice {
+  project: string;
+  gitRoot: boolean;
+  folders: string[];
+  requests: number;
+  tokens: number;
+  cost: number;
+  firstSeen: number | null;
+  lastSeen: number | null;
+}
+
+export interface ProjectsResponse {
+  ok: boolean;
+  coverage?: ProjectCoverage;
+  projects: ProjectChoice[];
+}
+
+export interface ScopeResponse {
+  ok: boolean;
+  window: { from: number; to: number; label: string };
+  matched: { requests: number; tokens: number };
+  windowTotal: { requests: number; tokens: number };
+  sources: { source: Source; requests: number; tokens: number }[];
+  coverage?: ProjectCoverage;
+  account: AccountScope;
+}
+
 export interface ConversationDetailResponse {
   ok: boolean;
   id: string;
-  points: { ts: number; tokens: number; cumulative: number; model: string; outcome: string; cost: number; durationMs: number; ttftMs: number | null; contextTokens: number }[];
+  source: Source;
+  coverage?: ProjectCoverage;
+  scope: {
+    window: { label: string } | null;
+    filtersApplied: string[];
+    matched: number;
+    sessionTotal: number;
+    excluded: { window: number; filters: number };
+  };
+  points: { ts: number; tokens: number; cumulative: number; model: string; outcome: string; cost: number; durationMs: number; ttftMs: number | null; contextTokens: number; contextEligible: boolean }[];
   summary: Summary;
   models: { name: string; value: number }[];
   requests: RequestRow[];
@@ -320,6 +436,8 @@ export interface CompositionPoint {
 }
 
 export interface CachePoint {
+  eligibleRequests: number;
+  totalRequests: number;
   ts: number;
   label: string;
   hitRate: number | null;
@@ -344,7 +462,7 @@ export interface UsageResponse {
   cache: CachePoint[];
   series: Series;
   heatmap: { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number };
-  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null };
+  context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
   byModel: BreakdownRow[];
   byProvider: BreakdownRow[];
   byEffort: BreakdownRow[];
@@ -378,4 +496,213 @@ export interface CostResponse {
   byEffort: BreakdownRow[];
   topConversations: ConversationRow[];
   daily: CumulativePoint[];
+}
+
+/** Project Radar (L02). Fixed windows and server-resolved group identities also scope evidence. */
+export interface RadarWindow {
+  from: number;
+  to: number;
+  tz: string;
+  label: string;
+}
+export interface RadarCohort {
+  sources: Source[];
+  projects: string[];
+  providers: string[];
+  models: string[];
+  efforts: string[];
+  statuses: ("ok" | "error" | "cancelled" | "unobserved")[];
+  routeKinds: string[];
+  conversationId: string | null;
+  search: string;
+}
+export interface RadarEvidence {
+  selector: {
+    version: 1;
+    window: RadarWindow;
+    cohort: RadarCohort;
+    selection: { kind: "scope" } | { kind: "project"; project: string }
+      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source };
+    eligibility: "all" | "cache" | "context";
+  };
+  href: string;
+}
+export interface RadarTotals {
+  requests: number;
+  tokens: number;
+  /** USD, unrounded priced-row sum. Zero without priced requests is unavailable. */
+  pricedCostUsd: number;
+  pricedRequests: number;
+  unpricedRequests: number;
+}
+export interface RadarReason {
+  reason: "noConversationId" | "noRollout" | "other";
+  rows: number;
+  tokens: number;
+  models: { model: string; rows: number; tokens: number }[];
+}
+export interface RadarPeriod {
+  totals: RadarTotals;
+  coverage: {
+    totalRequests: number;
+    eligibleRequests: number;
+    pricing: MeasurementSample;
+    attribution: MeasurementSample;
+    measurements: MeasurementCoverage;
+    unattributedReasons: RadarReason[];
+    /** Scope-level F03 exclusions only; null in exact project periods. Outside strict totals. */
+    projectExclusions: {
+      unattributedRows: number;
+      unattributedTokens: number;
+      attribution: {
+        matched: { rows: number; tokens: number };
+        outsideProjects: { rows: number; tokens: number };
+        unattributed: { rows: number; tokens: number; reasons: RadarReason[] };
+      };
+    } | null;
+  };
+  daily: (RadarTotals & { ts: number; date: string; from: number; to: number })[];
+  activeDays: number;
+  sources: (RadarTotals & { source: Source })[];
+  models: (RadarTotals & { source: Source; provider: string; model: string })[];
+  evidence: RadarEvidence;
+}
+export interface RadarChange {
+  state: "compared" | "new" | "insufficient";
+  absoluteChange: number | null;
+  /** Fraction; -0.5 = 50% lower. Never infinite. */
+  relativeChange: number | null;
+}
+export interface RadarComparison {
+  requests: RadarChange;
+  tokens: RadarChange;
+  pricedCostUsd: RadarChange;
+}
+export interface ProjectRadarResponse {
+  ok: true;
+  window: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
+  priorWindow: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
+  cohort: RadarCohort;
+  pricingBasis: "currently-loaded-api-list-price-equivalents";
+  history: {
+    basis: "earliest-loaded-request";
+    firstLoadedAt: number | null;
+    completeness: "unknown";
+    current: { startsBeforeLoadedHistory: boolean; hasLoadedHistory: boolean };
+    prior: { startsBeforeLoadedHistory: boolean; hasLoadedHistory: boolean };
+    note: string;
+  };
+  current: RadarPeriod;
+  prior: RadarPeriod;
+  comparison: RadarComparison;
+  projects: {
+    project: string;
+    gitRoot: boolean;
+    folders: string[];
+    current: RadarPeriod;
+    prior: RadarPeriod;
+    comparison: RadarComparison;
+  }[];
+}
+
+export type { ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
+
+/** Resolved bounds carried by Labs findings and their evidence intents (epoch milliseconds). */
+export interface AnalysisWindow {
+  from: number;
+  to: number;
+  tz: string;
+  label: string;
+}
+
+export interface WindowEcho extends AnalysisWindow {
+  fromIso: string;
+  toIso: string;
+  halfOpen: true;
+  input: { from?: string; to?: string; last?: string; range?: string };
+}
+
+export interface AnalysisCohort {
+  sources: Source[];
+  projects: string[];
+  providers: string[];
+  models: string[];
+  efforts: string[];
+  statuses: RequestRow["outcome"][];
+  routeKinds: string[];
+  conversationId: string | null;
+  search: string;
+}
+
+export type EvidenceSelection =
+  | { kind: "scope" }
+  | { kind: "project"; project: string }
+  | { kind: "session"; source: Source; conversationId: string }
+  | { kind: "unnamed"; source?: Source };
+
+export interface EvidenceSelector {
+  version: 1;
+  window: AnalysisWindow;
+  cohort: AnalysisCohort;
+  selection: EvidenceSelection;
+  eligibility: "all" | "cache" | "context";
+}
+
+export type CacheExclusion =
+  | "unpriced" | "attempt-sum" | "usage-estimated" | "input-missing" | "cache-unmeasured"
+  | "cache-synthesized" | "cache-unknown" | "economics-unavailable" | "accounting-mismatch" | "rate-unavailable";
+
+/** Money and token fields include eligible rows only; request counts include all selected rows. */
+export interface CacheEconomicsTotals {
+  totalRequests: number;
+  eligibleRequests: number;
+  excluded: Record<CacheExclusion, number>;
+  readTokens: number;
+  writeTokens: number;
+  /** USD rounded to six decimals; net = round6(readDiscountUsd - writePremiumUsd). */
+  readDiscountUsd: number;
+  writePremiumUsd: number;
+  netUsd: number;
+  actualUsd: number;
+  baselineUsd: number;
+  direction: "benefit" | "cost" | "even" | "insufficient";
+  longContextRequests: number;
+  confirmedTierRequests: number;
+  requestedTierOnlyRequests: number;
+  priorityRequests: number;
+  lowerBoundRequests: number;
+  derivedRateRequests: number;
+  explicitFreeRequests: number;
+  /** First/last selected row, including excluded rows; null for an empty group. */
+  firstTs: number | null;
+  lastTs: number | null;
+  evidence: { selector: EvidenceSelector; href: string };
+}
+
+export interface CacheEconomicsSession extends CacheEconomicsTotals {
+  /** JSON.stringify([source, conversationId]); never an id for an unnamed row. */
+  key: string;
+  source: Source;
+  conversationId: string;
+}
+
+export interface CacheEconomicsResponse {
+  ok: true;
+  analysis: "cache-economics";
+  version: 1;
+  window: WindowEcho;
+  scope: { window: Omit<WindowEcho, "input">; cohort: AnalysisCohort };
+  coverage?: ProjectCoverage;
+  precisionDp: 6;
+  currency: "USD";
+  basis: "api-list-price-equivalent";
+  /** Engine availability; eligibleRequests still determines whether a comparison is supported. */
+  pricing: { available: boolean; detail: string };
+  totals: CacheEconomicsTotals;
+  /** Sorted by absolute net descending, then source and conversationId. */
+  sessions: CacheEconomicsSession[];
+  sessionCount: number;
+  sessionsTruncated: boolean;
+  unnamed: CacheEconomicsTotals;
+  notes: string[];
 }

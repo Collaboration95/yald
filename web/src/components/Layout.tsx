@@ -7,6 +7,7 @@ import {
   Boxes,
   CircleDollarSign,
   LayoutDashboard,
+  FlaskConical,
   MessagesSquare,
   Moon,
   RefreshCw,
@@ -15,14 +16,18 @@ import {
   Sun,
   Timer,
 } from "lucide-react";
-import { fetchJson, RANGES } from "../api";
+import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { CheckList, Popover, Segmented } from "./ui";
 import { Wordmark } from "./Wordmark";
 import { Delight } from "./Delight";
+import { NoScopeMatches, ProjectFilter, ScopeStatus, SourceFilter } from "./ScopeControls";
 import { formatCompact, formatRelative } from "../lib/format";
-import type { MetaResponse } from "../types";
+import type { MetaResponse, ScopeResponse } from "../types";
+import { usePreferences } from "../lib/preferences";
+import { DEMO, displayNow } from "../lib/demo";
+import { YaldiDemoArtwork } from "./YaldiArtwork";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -36,9 +41,9 @@ const NAV = [
 ];
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
-  "/": { title: "Overview", subtitle: "Everything opencodex has seen, in one screen" },
+  "/": { title: "Overview", subtitle: "Usage recorded by your selected sources" },
   "/usage": { title: "Usage", subtitle: "Token volume, composition and context pressure" },
-  "/cost": { title: "Cost & spend", subtitle: "Estimated spend from opencodex's own pricing engine" },
+  "/cost": { title: "Cost & spend", subtitle: "API list-price equivalents for your selected sources" },
   "/performance": { title: "Performance", subtitle: "Latency, time-to-first-token and throughput" },
   "/reliability": { title: "Reliability", subtitle: "Outcomes, failures and metering coverage" },
   "/models": { title: "Models", subtitle: "Compare every model on volume, price and speed" },
@@ -47,6 +52,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
 };
 
 export function Layout() {
+  const { labsEnabled, hideArtwork, setPreference } = usePreferences();
   const { filters, set, toggleIn, reset } = useFilters();
   const { theme, toggle } = useTheme();
   const location = useLocation();
@@ -58,9 +64,12 @@ export function Layout() {
     staleTime: 60_000,
   });
 
-  const activeFilters = filters.providers.length + filters.models.length + filters.efforts.length + filters.statuses.length;
-  const heading = TITLES[location.pathname] ?? { title: "Conversation", subtitle: "The complete session, request by request" };
-  const page = location.pathname.startsWith("/conversations/") ? "conversation" : location.pathname.slice(1) || "overview";
+  const scope = useEndpoint<ScopeResponse>("/api/scope", filters);
+  const activeFilters = activeFilterCount(filters);
+  const isLabs = location.pathname === "/labs" || location.pathname.startsWith("/labs/");
+  const heading = isLabs ? { title: "Labs", subtitle: "Follow patterns in your usage" }
+    : TITLES[location.pathname] ?? { title: "Conversation", subtitle: "The selected session cohort, request by request" };
+  const page = isLabs ? "labs" : location.pathname.startsWith("/conversations/") ? "conversation" : location.pathname.slice(1) || "overview";
 
   const refresh = async () => {
     await fetchJson("/api/dataset/refresh");
@@ -73,8 +82,9 @@ export function Layout() {
       <div className="relay-frame">
       <aside className="relay-sidebar">
         <Wordmark />
+        <p className="mt-2 text-[10px] leading-4 text-muted">opencodex + Claude Code</p>
         <nav className="relay-nav" aria-label="Analytics sections">
-          {NAV.map(item => (
+          {[...NAV, ...(labsEnabled ? [{ to: "/labs", label: "Labs", icon: FlaskConical }] : [])].map(item => (
             <NavLink
               key={item.to}
               to={{ pathname: item.to, search: location.search }}
@@ -86,9 +96,19 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
+        <label className="mx-4 mt-3 flex cursor-pointer items-center gap-2 text-[11.5px] text-ink-soft">
+          <input type="checkbox" role="switch" checked={labsEnabled}
+            onChange={event => setPreference("labsEnabled", event.target.checked)} className="accent-accent" />
+          Enable Labs
+        </label>
+        <label className="mx-4 mt-2 flex cursor-pointer items-center gap-2 text-[11.5px] text-ink-soft">
+          <input type="checkbox" role="switch" checked={hideArtwork}
+            onChange={event => setPreference("hideArtwork", event.target.checked)} className="accent-accent" />
+          Hide artwork
+        </label>
         <div className="relay-activity">
           <div className="px-2">
-            <p className="relay-activity-label">Activity</p>
+            <p className="relay-activity-label">All local activity</p>
             <p className="num mt-1 text-[11.5px] text-ink-soft">
               {meta.data ? `${meta.data.totals.requests.toLocaleString()} requests` : "loading…"}
             </p>
@@ -101,21 +121,32 @@ export function Layout() {
           </div>
           {meta.data ? (
             <p className={clsx("mx-2 rounded-lg px-2 py-1.5 text-[10.5px] leading-4", meta.data.pricing.available ? "bg-accent-soft text-accent" : "bg-warn-soft text-warn")}>
-              {meta.data.pricing.available ? "pricing: opencodex engine" : `pricing unavailable`}
+              {DEMO ? "pricing: illustrative examples" : meta.data.pricing.available ? "pricing: opencodex engine" : `pricing unavailable`}
             </p>
           ) : null}
         </div>
       </aside>
 
       <div className="relay-workspace">
+          {DEMO ? <div data-demo-banner className="sticky top-0 z-40 flex items-center gap-3 border-b border-line bg-accent-soft px-4 py-2 text-ink">
+            <YaldiDemoArtwork />
+            <div className="text-[11.5px] leading-5">
+              <p className="font-semibold">Demo / synthetic data</p>
+              <p>Illustrative example prices, not live rates. Projects, usage and quota are synthetic. API list-price equivalents, not bills.</p>
+              {DEMO.clock === "fixed" ? <p>Screenshot clock: {new Date(DEMO.now!).toISOString()}</p> : null}
+            </div>
+          </div> : null}
         <header className="relay-toolbar">
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
             <div className="flex flex-wrap items-center gap-1.5">
               <Segmented
-                value={filters.range}
+                value={hasCustomWindow(filters) ? "" : filters.range}
                 options={RANGES.map(range => ({ id: range.id, label: range.label }))}
                 onChange={range => set({ range })}
               />
+              {hasCustomWindow(filters) ? <span className="px-1 text-[11px] text-accent">Custom window</span> : null}
+              <SourceFilter scope={scope.data} />
+              <ProjectFilter />
               <Popover
                 label={filters.providers.length ? `Provider · ${filters.providers.length}` : "Provider"}
                 active={filters.providers.length > 0}
@@ -133,7 +164,7 @@ export function Layout() {
                 <CheckList items={meta.data?.efforts ?? []} selected={filters.efforts} onToggle={value => toggleIn("efforts", value)} />
               </Popover>
               <Popover label={filters.statuses.length ? `Outcome · ${filters.statuses.length}` : "Outcome"} active={filters.statuses.length > 0} width={180}>
-                <CheckList items={["ok", "error", "cancelled"]} selected={filters.statuses} onToggle={value => toggleIn("statuses", value)} />
+                <CheckList items={["ok", "error", "cancelled", "unobserved"]} selected={filters.statuses} onToggle={value => toggleIn("statuses", value)} />
               </Popover>
               {activeFilters > 0 ? (
                 <button
@@ -141,7 +172,7 @@ export function Layout() {
                   onClick={reset}
                   className="rounded-lg px-2 py-1.5 text-[11.5px] font-medium text-muted transition hover:text-bad"
                 >
-                  Clear
+                  Reset filters · {activeFilters}
                 </button>
               ) : null}
               <div className="relative">
@@ -159,7 +190,7 @@ export function Layout() {
                 onClick={() => void refresh()}
                 className="rounded-lg border border-line bg-surface p-1.5 text-muted transition hover:text-ink"
                 aria-label="Refresh data"
-                title="Re-read opencodex data"
+                title="Re-read local opencodex and Claude Code data"
               >
                 <RefreshCw size={13} className={meta.isFetching ? "animate-spin" : undefined} />
               </button>
@@ -168,6 +199,7 @@ export function Layout() {
                 onClick={toggle}
                 className="rounded-lg border border-line bg-surface p-1.5 text-muted transition hover:text-ink"
                 title="Toggle theme"
+                aria-label="Toggle theme"
               >
                 {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
               </button>
@@ -176,12 +208,15 @@ export function Layout() {
         </header>
         <main className="relay-content" data-page={page} id="main-content">
           <div className="relay-heading">
-            <span className="relay-eyebrow">{String(NAV.findIndex(item => item.to === location.pathname) + 1 || 8).padStart(2, "0")} / DASHBOARD</span>
+            <span className="relay-eyebrow">{isLabs ? "09" : String(NAV.findIndex(item => item.to === location.pathname) + 1 || 8).padStart(2, "0")} / DASHBOARD</span>
             <h1>{heading.title}<span className="relay-title-stop">.</span></h1>
             <p>{heading.subtitle}</p>
           </div>
-          <Outlet />
-          <footer className="relay-footer"><span>{new Date().getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
+          {isLabs ? <p className="mb-1 text-[11.5px] font-medium text-ink-soft">Dashboard selection</p> : null}
+          <ScopeStatus data={scope.data} loading={scope.isLoading} error={scope.error} />
+          {hasScope(filters) && scope.data?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
+            ? <NoScopeMatches /> : <Outlet />}
+          <footer className="relay-footer"><span>{new Date(displayNow()).getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
         </main>
       </div>
       </div>

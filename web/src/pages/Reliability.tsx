@@ -7,7 +7,7 @@ import { Card, CardHeader, Legend, ModelTag, ProgressBar, Stat, StateBlock, Tabl
 import { Chart } from "../components/Chart";
 import { barChart, donutChart, stackedBarChart } from "../components/chartOptions";
 import { OUTCOME_COLORS } from "../lib/palette";
-import { formatCompact, formatDateTime, formatDuration, formatInteger, formatPercent, formatRelative } from "../lib/format";
+import { formatCoverage, formatCompact, formatDateTime, formatDuration, formatInteger, formatPercent, formatRelative } from "../lib/format";
 import type { ReliabilityResponse } from "../types";
 
 export function ReliabilityPage() {
@@ -21,7 +21,7 @@ export function ReliabilityPage() {
     return donutChart(chartTheme, data.outcomes, {
       formatter: value => formatInteger(value),
       colors: OUTCOME_COLORS,
-      centerValue: formatPercent((data.outcomes.find(entry => entry.name === "ok")?.value ?? 0) / Math.max(1, data.outcomes.reduce((sum, entry) => sum + entry.value, 0))),
+      centerValue: formatPercent(data.successRate),
       centerLabel: "success",
     });
   }, [data, chartTheme]);
@@ -43,6 +43,7 @@ export function ReliabilityPage() {
       { name: "ok", data: data.errorTimeline.map(point => point.ok) },
       { name: "cancelled", data: data.errorTimeline.map(point => point.cancelled) },
       { name: "error", data: data.errorTimeline.map(point => point.error) },
+      { name: "unobserved", data: data.errorTimeline.map(point => point.unobserved) },
     ], { formatter: value => formatCompact(value, 0) });
   }, [data, chartTheme]);
 
@@ -55,15 +56,15 @@ export function ReliabilityPage() {
   }, [data, chartTheme]);
 
   const totals = data ? data.outcomes.reduce((sum, entry) => sum + entry.value, 0) : 0;
-  const successRate = data ? (data.outcomes.find(entry => entry.name === "ok")?.value ?? 0) / Math.max(1, totals) : 0;
+  const successRate = data?.successRate ?? null;
 
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
-        <Stat label="Requests" value={formatInteger(totals)} hint={data ? `${formatInteger(data.outcomes.find(o => o.name === "error")?.value ?? 0)} failed` : undefined} tone="neutral" />
-        <Stat label="Success rate" value={formatPercent(successRate)} hint={data ? `${formatInteger(data.outcomes.find(o => o.name === "cancelled")?.value ?? 0)} client-closed` : undefined} tone={successRate > 0.97 ? "good" : "warn"} icon={<ShieldCheck size={13} />} />
-        <Stat label="Distinct errors" value={data ? String(data.errors.length) : "—"} hint={data?.errors[0] ? `top: ${data.errors[0].name}` : undefined} tone="bad" icon={<AlertTriangle size={13} />} />
-        <Stat label="Retried requests" value={data ? formatInteger(data.attempts.filter(attempt => attempt.name !== "1").reduce((sum, attempt) => sum + attempt.value, 0)) : "—"} hint="More than one upstream attempt" tone="warn" />
+        <Stat label="Requests" value={formatInteger(totals)} hint={data ? `${formatInteger(data.outcomes.find(o => o.name === "error")?.value ?? 0)} observed failures · ${formatInteger(data.outcomes.find(o => o.name === "unobserved")?.value ?? 0)} unobserved` : undefined} tone="neutral" />
+        <Stat label="Success rate" value={formatPercent(successRate)} hint={data ? formatCoverage(data.measurementCoverage.outcomes) : undefined} tone={successRate === null ? "neutral" : successRate > 0.97 ? "good" : "warn"} icon={<ShieldCheck size={13} />} />
+        <Stat label="Distinct errors" value={data?.measurementCoverage.outcomes.eligibleRequests ? String(data.errors.length) : "—"} hint={data?.errors[0] ? `top: ${data.errors[0].name}` : undefined} tone="bad" icon={<AlertTriangle size={13} />} />
+        <Stat label="Retried requests" value={data?.measurementCoverage.retries.eligibleRequests ? formatInteger(data.attempts.filter(attempt => Number(attempt.name) > 1).reduce((sum, attempt) => sum + attempt.value, 0)) : "—"} hint={data?.measurementCoverage.retries.eligibleRequests ? formatCoverage(data.measurementCoverage.retries) : "Retry history unavailable"} tone="warn" />
         <Stat
           label="Metered"
           value={data ? formatPercent(data.metering.coverage, 1) : "—"}
@@ -74,7 +75,7 @@ export function ReliabilityPage() {
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Card>
-          <CardHeader title="Outcomes" subtitle="Success, failure and client cancellation" />
+          <CardHeader title="Outcomes" subtitle="Observed outcomes and unobserved transcript requests" />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
             <div className="flex items-center gap-3">
               {outcomeOption ? <Chart option={outcomeOption} height={180} className="max-w-[180px]" /> : null}
@@ -90,13 +91,13 @@ export function ReliabilityPage() {
         </Card>
         <Card>
           <CardHeader title="HTTP status codes" subtitle="What the proxy actually returned" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.statuses.length === 0} emptyLabel="Outcomes unavailable for these requests">
             {statusOption ? <Chart option={statusOption} height={180} /> : null}
           </StateBlock>
         </Card>
         <Card>
-          <CardHeader title="Attempts per request" subtitle="Retry behaviour across the window" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
+          <CardHeader title="Attempts per request" subtitle={data?.measurementCoverage.retries.eligibleRequests ? formatCoverage(data.measurementCoverage.retries) : "Retry history unavailable"} />
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.attempts.length === 0} emptyLabel="Retry history unavailable">
             {attemptsOption ? <Chart option={attemptsOption} height={180} /> : null}
           </StateBlock>
         </Card>
@@ -183,7 +184,7 @@ export function ReliabilityPage() {
                   <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[200px]" /></Td>
                   <Td className="max-w-[220px] truncate text-bad">{row.errorCode ?? row.closeReason ?? "unknown"}</Td>
                   <Td align="right">{row.attempts}</Td>
-                  <Td align="right">{formatDuration(row.durationMs)}</Td>
+                  <Td align="right">{formatDuration(row.measurements.duration ? row.durationMs : null)}</Td>
                   <Td align="center" className="text-muted">{row.status}</Td>
                 </tr>
               ))}

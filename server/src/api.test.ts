@@ -17,6 +17,7 @@ const probes: ChildProcessWithoutNullStreams[] = [];
 interface ApiResponse { path: string; status: number; type: string | null; disposition: string | null; body: any }
 
 const COST_ENGINE = `export function estimateRequestCost(input) {
+  if (input.model === "unpriced") return null;
   const u = input.usage ?? {};
   const cacheRead = u.cacheReadInputTokens ?? u.cachedInputTokens ?? 0;
   const cacheWrite = u.cacheCreationInputTokens ?? u.cacheWriteInputTokens ?? 0;
@@ -37,12 +38,12 @@ function usageEntry(id: string, timestamp: number, tokens = 100) {
 async function serve(entries: object[], env: { TZ?: string; YALD_TZ?: string } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "yald-api-test-")); owned.push(dir);
   const home = join(dir, "home"), pricing = join(dir, "pricing");
-  await mkdir(home); await mkdir(join(pricing, "src/usage"), { recursive: true });
+  await mkdir(home); await mkdir(join(home, "codex")); await mkdir(join(pricing, "src/usage"), { recursive: true });
   await writeFile(join(pricing, "src/usage/cost.ts"), COST_ENGINE);
   await writeFile(join(home, "usage.jsonl"), entries.map(entry => JSON.stringify(entry)).join("\n") + "\n");
   const child = spawn(process.execPath, [helper, root], {
     cwd: root, stdio: "pipe",
-    env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: "", TZ: env.TZ ?? "UTC", YALD_TZ: env.YALD_TZ ?? "UTC" },
+    env: { ...process.env, OCX_HOME: home, CODEX_HOME: join(home, "codex"), CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: "", TZ: env.TZ ?? "UTC", YALD_TZ: env.YALD_TZ ?? "UTC" },
   });
   probes.push(child);
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
@@ -300,4 +301,48 @@ test("every WindowErrorCode is a 400 from GET /api/window, and the query-param o
       expect(response.body.error, response.path).toMatchObject({ code, param });
     });
   }
+});
+
+test("F01 metadata and outcome cohorts agree across overview, reliability, performance and request exports", async () => {
+  const common = usageEntry("proxy-ok", now - 1000);
+  const claude = { ...common, requestId: "transcript", inboundProtocol: "claude-code", provider: "anthropic",
+    // These inherited defaults must not become measured reliability or timing.
+    usagePresence: { input: true, output: true, cacheRead: true, cacheWrite: true }, conversationId: "claude-session" };
+  const request = await serve([
+    claude,
+    { ...common, provider: "anthropic", inboundProtocol: "messages" },
+    { ...common, requestId: "proxy-error", status: 502, errorCode: "upstream" },
+    { ...common, requestId: "proxy-cancelled", status: 499, closeReason: "client_closed" },
+    { ...common, requestId: "input-missing", usage: { outputTokens: 1 }, status: undefined },
+    { ...common, requestId: "input-zero", usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 }, model: "zero" },
+    { ...common, requestId: "no-price", model: "unpriced" },
+  ]);
+  const [meta, overview, claudeOnly, observedOk, errors, cancelled, unobserved, rel, perf, csv, conversation] = await request(
+    "/api/meta", "/api/overview?range=all", "/api/overview?range=all&sources=claude-code", "/api/overview?range=all&statuses=ok",
+    "/api/overview?range=all&statuses=error", "/api/overview?range=all&statuses=cancelled", "/api/overview?range=all&statuses=unobserved",
+    "/api/reliability?range=all", "/api/performance?range=all&sources=claude-code", "/api/export?range=all&statuses=unobserved", "/api/conversations/claude-session",
+  );
+  expect(meta!.body).toMatchObject({ sources: ["claude-code", "ocx"], sourceCapabilities: { "claude-code": { outcomes: false, quota: false }, ocx: { outcomes: true, timing: true } } });
+  expect(overview!.body.summary).toMatchObject({ requests: 7, ok: 3, errors: 1, cancelled: 1, unobserved: 2, successRate: 0.6,
+    measurementCoverage: { outcomes: { eligibleRequests: 5, totalRequests: 7 }, context: { eligibleRequests: 6, totalRequests: 7 } } });
+  expect(claudeOnly!.body.summary.successRate).toBeNull();
+  expect(claudeOnly!.body.recent[0]).toMatchObject({ source: "claude-code", outcome: "unobserved", measurements: { outcome: false, duration: false, retries: false } });
+  expect(observedOk!.body.recent.map((r: any) => r.id).sort()).toEqual(["input-zero", "no-price", "proxy-ok"]);
+  expect(errors!.body.recent.map((r: any) => r.id)).toEqual(["proxy-error"]);
+  expect(cancelled!.body.recent.map((r: any) => r.id)).toEqual(["proxy-cancelled"]);
+  expect(unobserved!.body.recent.map((r: any) => r.id).sort()).toEqual(["input-missing", "transcript"]);
+  const missing = overview!.body.recent.find((r: any) => r.id === "input-missing");
+  const zero = overview!.body.recent.find((r: any) => r.id === "input-zero");
+  expect(missing).toMatchObject({ inputTokens: 0, measurements: { input: false } });
+  expect(zero).toMatchObject({ inputTokens: 0, cost: 0, priced: true, measurements: { input: true } });
+  expect(overview!.body.recent.find((r: any) => r.id === "no-price")).toMatchObject({ priced: false, cost: 0, rateIn: null });
+  expect(rel!.body.successRate).toBe(overview!.body.summary.successRate);
+  expect(rel!.body.recentFailures.map((r: any) => r.id).sort()).toEqual(["proxy-cancelled", "proxy-error"]);
+  expect(rel!.body.outcomes.reduce((n: number, o: any) => n + o.value, 0)).toBe(7);
+  expect(perf!.body.percentiles.duration.p50).toBeNull();
+  expect(perf!.body.slowest).toEqual([]);
+  expect(perf!.body.measurementCoverage.duration).toEqual({ eligibleRequests: 0, totalRequests: 1 });
+  expect(csv!.body).toContain("unobserved");
+  expect(csv!.body).not.toContain("proxy-ok");
+  expect(conversation!.body.requests[0].outcome).toBe("unobserved");
 });

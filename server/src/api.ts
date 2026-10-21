@@ -1,4 +1,9 @@
 import { Hono } from "hono";
+import { DEMO, requestNow } from "./demo/mode";
+import { publicRow } from "./publicRow";
+import { EvidenceIntentError, parseCaseIntent } from "./labs/evidence-intent";
+import { buildEvidenceCase } from "./labs/evidence";
+import { buildProjectRadar } from "./labs/projects";
 import { createHash } from "node:crypto";
 import {
   breakdown,
@@ -17,6 +22,7 @@ import {
   heatmap,
   heatmapDateBreakdown,
   latencyTimeline,
+  measurementCoverage,
   outcome,
   percentile,
   projectCoverage,
@@ -30,10 +36,14 @@ import {
   type Metric,
   type RowFilter,
 } from "./analytics";
+import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
+import { buildContextReplay } from "./labs/context";
+import { buildCacheEconomics } from "./labs/cache";
 import { pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
+import { accountScope, EMPTY_QUOTA, lookupSession, scopeSummary } from "./dashboardScope";
 import { buildReport } from "./report/build";
 import { liveReportContext } from "./report/context";
 import { renderReportHtml } from "./report/render";
@@ -145,42 +155,16 @@ function delta(current: number, prior: number): number | null {
 }
 
 function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
-  return [...rows].sort((a, b) => b.durationMs - a.durationMs).slice(0, limit);
+  return rows.filter(row => row.measurements.duration).sort((a, b) => b.durationMs - a.durationMs).slice(0, limit);
 }
 
-function publicRow(row: RequestRow) {
-  return {
-    id: row.id,
-    ts: row.ts,
-    provider: row.provider,
-    model: row.model,
-    effort: row.effort,
-    status: row.status,
-    outcome: outcome(row),
-    durationMs: row.durationMs,
-    ttftMs: row.ttftMs,
-    inputTokens: row.inputTokens,
-    outputTokens: row.outputTokens,
-    cacheReadTokens: row.cacheReadTokens,
-    reasoningTokens: row.reasoningTokens,
-    totalTokens: row.totalTokens,
-    cost: row.cost,
-    priced: row.priced,
-    conversationId: row.conversationId,
-    errorCode: row.errorCode,
-    closeReason: row.closeReason,
-    routeKind: row.routeKind,
-    attempts: row.attempts,
-    account: row.account,
-  };
-}
 
 function toCsv(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return "";
   const headers = Object.keys(rows[0]!);
   const escape = (value: unknown): string => {
     if (value === null || value === undefined) return "";
-    const text = String(value);
+    const text = typeof value === "object" ? JSON.stringify(value) : String(value);
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   return [headers.join(","), ...rows.map(row => headers.map(header => escape(row[header])).join(","))].join("\n");
@@ -189,7 +173,7 @@ function toCsv(rows: Record<string, unknown>[]): string {
 export const api = new Hono<{ Variables: { dataset: Dataset; now: number } }>();
 
 api.onError((error, c) => {
-  if (error instanceof WindowError || error instanceof ReportSpecError) {
+  if (error instanceof WindowError || error instanceof ReportSpecError || error instanceof EvidenceIntentError) {
     return c.json({ ok: false, error: { code: error.code, param: error.param, message: error.message } }, 400);
   }
   console.error(error);
@@ -202,11 +186,13 @@ api.use("/api/*", async (c, next) => {
     return;
   }
   const dataset = await getDataset();
-  const now = Date.now();
+  const now = requestNow();
   c.set("dataset", dataset);
   c.set("now", now);
+  // A conversation detail without window parameters is all-history, so only its dataset revision matters.
+  const unwindowed = !["from", "to", "last", "range"].some(key => c.req.query(key)?.trim());
   const pointInTime = c.req.path === "/api/health" || c.req.path === "/api/meta"
-    || c.req.path.startsWith("/api/conversations/");
+    || (c.req.path.startsWith("/api/conversations/") && unwindowed);
   // An unchanged ledger does not mean an unchanged rolling time window.
   const clockKey = pointInTime || clockFree(c.req.query()) ? "" : now;
   const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
@@ -214,7 +200,7 @@ api.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
   // a ledger revision. These routes hash the resolved payload after validation.
-  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.header("if-none-match") === etag) return c.body(null, 304);
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) return c.body(null, 304);
   await next();
 });
 
@@ -256,6 +242,7 @@ api.get("/api/meta", async c => {
   return c.json({
     ok: true,
     ocxHome: OCX_HOME,
+    ...(DEMO ? { demo: DEMO } : {}),
     timeZone: TIME_ZONE,
     pricing: pricingStatus(),
     files: dataset.files,
@@ -265,16 +252,34 @@ api.get("/api/meta", async c => {
     firstRequestAt: dataset.rows[0]?.ts ?? null,
     lastRequestAt: dataset.rows[dataset.rows.length - 1]?.ts ?? null,
     totals: { requests: dataset.rows.length, tokens, cost: round(cost, 2) },
+    sources: ALL_SOURCES.filter(source => dataset.rows.some(row => sourceOf(row) === source)),
+    sourceCapabilities: SOURCE_CAPABILITIES,
     providers: [...providers].sort(),
     models: [...models].sort(),
     modelsByProvider: Object.fromEntries([...modelsByProvider.entries()].map(([key, value]) => [key, value.sort()])),
     efforts: [...efforts].sort(),
     routeKinds: [...routeKinds].sort(),
-    conversations: new Set(dataset.rows.map(row => row.conversationId).filter(Boolean)).size,
+    conversations: new Set(dataset.rows.filter(row => row.conversationId).map(row => JSON.stringify([sourceOf(row), row.conversationId]))).size,
     ledger: { byKind: dataset.ledger.byKind, settledTokens: dataset.ledger.settledTokens, updatedAt: dataset.ledger.updatedAt },
     quota: { windows: dataset.quota.windows, updatedAt: dataset.quota.updatedAt },
     paths: PATHS,
   });
+});
+
+api.get("/api/labs/evidence", c => {
+  const intent = parseCaseIntent(new URL(c.req.url).searchParams);
+  const payload = buildEvidenceCase(c.get("dataset").rows, intent);
+  // Derived roots can change without a ledger revision. Validate and resolve before any 304.
+  const etag = `W/"${createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
+});
+
+api.get("/api/labs/context", c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  return c.json({ ok: true, ...buildContextReplay(dataset.rows, query.filter, query.window) });
 });
 
 api.get("/api/overview", async c => {
@@ -282,6 +287,7 @@ api.get("/api/overview", async c => {
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const priorRows = filterRows(dataset.rows, previousWindow(query.filter, query.from, query.to));
+  const quotaScope = accountScope(c.req.query());
   const summary = summarize(rows);
   const prior = summarize(priorRows);
   const composition = costComposition(rows);
@@ -314,7 +320,9 @@ api.get("/api/overview", async c => {
     topConversations: conversations(rows, 8),
     heatmap: heatmap(rows, "tokens", query.tz),
     context: contextPressure(rows),
-    quota: quotaView(dataset, { from: query.from, to: query.to }),
+    // Quota is an opencodex account observation: never narrowed by, or attributed to, the selection.
+    quota: quotaView(quotaScope.available ? dataset : { quota: EMPTY_QUOTA }, { from: query.from, to: query.to }),
+    quotaScope,
     recent: [...rows].sort((a, b) => b.ts - a.ts).slice(0, 25).map(publicRow),
   });
 });
@@ -443,9 +451,9 @@ api.get("/api/performance", async c => {
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const timeline = latencyTimeline(rows, query.bucket, query.from, query.to, query.tz);
-  const durations = rows.filter(row => row.durationMs > 0).map(row => row.durationMs);
-  const ttfts = rows.filter(row => row.ttftMs !== null).map(row => row.ttftMs as number);
-  const throughputs = rows.filter(row => row.outputTokens > 0 && row.durationMs > 0).map(row => row.outputTokens / (row.durationMs / 1000));
+  const durations = rows.filter(row => row.measurements.duration).map(row => row.durationMs);
+  const ttfts = rows.filter(row => row.measurements.ttft).map(row => row.ttftMs as number);
+  const throughputs = rows.filter(throughputEligible).map(row => row.outputTokens / (row.durationMs / 1000));
   const byModel = breakdown(rows, row => row.model);
 
   return c.json({
@@ -453,6 +461,7 @@ api.get("/api/performance", async c => {
     ...coverageField(dataset.rows, query.filter),
     window: { ...query.window, bucket: query.bucket },
     timeline,
+    measurementCoverage: measurementCoverage(rows),
     histogram: {
       duration: histogram(durations, [0, 1000, 2500, 5000, 10000, 20000, 40000, 80000, Number.POSITIVE_INFINITY], ["<1s", "1-2.5s", "2.5-5s", "5-10s", "10-20s", "20-40s", "40-80s", "80s+"]),
       ttft: histogram(ttfts, [0, 500, 1000, 2000, 4000, 8000, 16000, Number.POSITIVE_INFINITY], ["<0.5s", "0.5-1s", "1-2s", "2-4s", "4-8s", "8-16s", "16s+"]),
@@ -465,7 +474,7 @@ api.get("/api/performance", async c => {
     },
     byModel,
     ttftVsOutput: rows
-      .filter(row => row.ttftMs !== null && row.outputTokens > 0)
+      .filter(row => row.measurements.ttft && row.measurements.output && row.outputTokens > 0)
       .slice(-2000)
       .map(row => ({ ttftMs: row.ttftMs, outputTokens: row.outputTokens, model: row.model, ts: row.ts })),
     slowest: slowest(rows, 15).map(publicRow),
@@ -479,12 +488,14 @@ api.get("/api/reliability", async c => {
   const rows = filterRows(dataset.rows, query.filter);
   const report = reliability(rows, query.tz);
   const summary = summarize(rows);
-  const failureRows = rows.filter(row => outcome(row) !== "ok").slice(-500);
+  const failureRows = rows.filter(row => outcome(row) === "error" || outcome(row) === "cancelled").slice(-500);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
     window: query.window,
     ...report,
+    successRate: summary.successRate,
+    measurementCoverage: summary.measurementCoverage,
     recentFailures: [...failureRows].sort((a, b) => b.ts - a.ts).slice(0, 40).map(publicRow),
     waste: summary.waste,
     metering: summary.metering,
@@ -496,17 +507,20 @@ api.get("/api/quota", async c => {
   const dataset = c.get("dataset");
   const samples = dataset.quota.samples;
   const window = timeWindow(c.req.query(), samples[0]?.observedAt ?? c.get("now"), c.get("now"));
+  const scope = accountScope(c.req.query());
   return c.json({
     ok: true,
     range: c.req.query("range") ?? "30d",
-    ...quotaView(dataset, { from: window.from, to: window.to }),
+    ...quotaView(scope.available ? dataset : { quota: EMPTY_QUOTA }, { from: window.from, to: window.to }),
+    scope,
     window: windowEcho(window),
   });
 });
 
 api.get("/api/ledger", async c => {
   const dataset = c.get("dataset");
-  const events = dataset.ledger.events;
+  const scope = accountScope(c.req.query());
+  const events = scope.available ? dataset.ledger.events : [];
   const window = timeWindow(c.req.query(), events[0]?.at ?? c.get("now"), c.get("now"));
   const { from, to, tz } = window;
   const bucket: Bucket = to - from <= 48 * 3_600_000 ? "hour" : "day";
@@ -532,9 +546,10 @@ api.get("/api/ledger", async c => {
   return c.json({
     ok: true,
     window: { ...windowEcho(window), bucket },
-    byKind: dataset.ledger.byKind,
-    settledTokens: dataset.ledger.settledTokens,
-    updatedAt: dataset.ledger.updatedAt,
+    scope,
+    byKind: scope.available ? dataset.ledger.byKind : {},
+    settledTokens: scope.available ? dataset.ledger.settledTokens : 0,
+    updatedAt: scope.available ? dataset.ledger.updatedAt : null,
     buckets: [...buckets.values()].sort((a, b) => a.ts - b.ts),
     distinctSends: sendTokens.size,
     largestSend: sorted[0] ?? 0,
@@ -573,15 +588,72 @@ api.get("/api/conversations", async c => {
   });
 });
 
+/**
+ * One session under the dashboard scope. Window parameters apply only when given (a bare call is
+ * all-history, as before), and the same source/project/model/... filters as the list apply. `sessionSource`
+ * names the session's source when an id exists in both; `scope` reports what the selection left out.
+ */
 api.get("/api/conversations/:id", async c => {
   const dataset = c.get("dataset");
   const id = c.req.param("id");
-  const timeline = conversationTimeline(dataset.rows, id);
-  if (timeline.points.length === 0) return c.json({ ok: false, error: "conversation not found" }, 404);
+  const params = c.req.query();
+  const query = parseQuery(params, dataset, c.get("now"));
+  const windowed = ["from", "to", "last", "range"].some(key => params[key]?.trim());
+  const filter: RowFilter = { ...query.filter, conversationId: undefined, ...(windowed ? {} : { from: undefined, to: undefined }) };
+  const sessionSource = params.sessionSource?.trim() ? parseSource(params.sessionSource) : undefined;
+  if (sessionSource === null) {
+    throw new ReportSpecError("invalid_source", "sessionSource", `Unknown source "${params.sessionSource}". Use claude-code (or claude) and ocx (or codex).`);
+  }
+  const lookup = lookupSession(dataset.rows, id, filter, sessionSource ?? undefined);
+  if (lookup.status === "missing") return c.json({ ok: false, error: "conversation not found" }, 404);
+  if (lookup.status === "ambiguous") {
+    return c.json({ ok: false, error: { code: "ambiguous_session", param: "sessionSource", message: `Conversation id "${id}" exists in ${lookup.sources.join(" and ")}. Add sessionSource=<source>.`, sources: lookup.sources } }, 409);
+  }
+  const timeline = conversationTimeline(lookup.scoped, id);
+  const applied = ["sources", "projects", "providers", "models", "efforts", "statuses", "routeKinds", "search"].filter(key => params[key]?.split(",").some(part => part.trim()));
   return c.json({
     ok: true,
     ...timeline,
-    requests: dataset.rows.filter(row => row.conversationId === id).sort((a, b) => a.ts - b.ts).map(publicRow),
+    source: lookup.source,
+    ...coverageField(lookup.all, filter),
+    scope: {
+      window: windowed ? query.window : null,
+      filtersApplied: applied,
+      matched: lookup.scoped.length,
+      sessionTotal: lookup.all.length,
+      // Requests of this session the selection left out, by cause: outside the window, or failing another filter.
+      excluded: { window: lookup.all.length - lookup.inWindow.length, filters: lookup.inWindow.length - lookup.scoped.length },
+    },
+    requests: [...lookup.scoped].sort((a, b) => a.ts - b.ts).map(publicRow),
+  });
+});
+
+api.get("/api/labs/projects", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const payload = buildProjectRadar(dataset.rows, query.filter, query.window);
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
+});
+
+/** The selection in numbers, for the toolbar: what it keeps, what the window holds, and what a project filter had to drop. */
+api.get("/api/scope", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  return c.json({ ok: true, window: query.window, ...scopeSummary(dataset.rows, query.filter), account: accountScope(c.req.query()) });
+});
+
+// L04: net cache economics over the resolved window and cohort (docs/api.md).
+api.get("/api/labs/cache", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const pricing = pricingStatus();
+  return c.json({
+    window: query.window,
+    pricing: { available: pricing.available, detail: pricing.detail },
+    ...buildCacheEconomics(dataset.rows, query.filter, query.window, { limit: numberParam(c.req.query("limit")) }),
   });
 });
 

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useEndpoint } from "../api";
+import { filtersKey, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Card, CardHeader, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { barChart, heatmapChart, lineChart, stackedAreaChart } from "../components/chartOptions";
-import { formatCompact, formatDuration, formatPercent } from "../lib/format";
+import { formatCoverage, formatCompact, formatDuration, formatPercent } from "../lib/format";
 import type { UsageHeatmapDatesResponse, UsageResponse } from "../types";
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -24,7 +24,7 @@ export function UsagePage() {
   const data = query.data;
   const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
   const [minimumActivity, setMinimumActivity] = useState(0);
-  const filterKey = JSON.stringify([filters.range, filters.providers, filters.models, filters.efforts, filters.statuses, filters.metric, filters.groupBy, filters.bucket, filters.search]);
+  const filterKey = filtersKey(filters);
   useEffect(() => setMinimumActivity(0), [heatmapMetric, filterKey]);
   const [selection, setSelection] = useState<HeatmapSelection | null>(null);
   const [detailOffset, setDetailOffset] = useState(0);
@@ -118,7 +118,7 @@ export function UsagePage() {
         <Stat label="Total tokens" value={summary ? formatCompact(summary.tokens.total) : "—"} hint={summary ? `${formatCompact(summary.tokens.cacheRead)} from cache` : undefined} tone="neutral" />
         <Stat label="Output tokens" value={summary ? formatCompact(summary.tokens.output) : "—"} hint={summary ? `${formatPercent(summary.tokens.output / Math.max(1, summary.tokens.total), 2)} of all tokens` : undefined} tone="info" />
         <Stat label="Reasoning tokens" value={summary ? formatCompact(summary.tokens.reasoning) : "—"} hint={summary ? `${formatPercent(summary.tokens.reasoning / Math.max(1, summary.tokens.output), 1)} of output` : undefined} tone="violet" />
-        <Stat label="Cache hit rate" value={summary ? formatPercent(summary.cache.hitRate) : "—"} hint={summary ? `${formatCompact(summary.cache.readTokens)} cache reads` : undefined} tone="good" />
+        <Stat label="Cache hit rate" value={summary ? formatPercent(summary.cache.hitRate) : "—"} hint={summary ? formatCoverage(summary.measurementCoverage.cache) : undefined} tone="good" />
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
@@ -243,21 +243,21 @@ export function UsagePage() {
           </section> : null}
         </Card>
         <Card>
-          <CardHeader title="Context pressure" subtitle="Input tokens per request" />
+          <CardHeader title="Context pressure" subtitle={data ? `${formatCoverage(data.summary.measurementCoverage.context)} · logical input only` : "Logical input tokens per request"} />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
             {contextOption ? <Chart option={contextOption} height={180} /> : null}
             <div className="mt-2 grid grid-cols-3 gap-2 text-center">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.04em] text-muted">p50</p>
-                <p className="num text-[12.5px] font-semibold text-ink">{formatCompact(data?.context.p50Input ?? 0)}</p>
+                <p className="num text-[12.5px] font-semibold text-ink">{formatCompact(data?.context.p50Input)}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-[0.04em] text-muted">p95</p>
-                <p className="num text-[12.5px] font-semibold text-ink">{formatCompact(data?.context.p95Input ?? 0)}</p>
+                <p className="num text-[12.5px] font-semibold text-ink">{formatCompact(data?.context.p95Input)}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-[0.04em] text-muted">max</p>
-                <p className="num text-[12.5px] font-semibold text-ink">{formatCompact(data?.context.maxInput ?? 0)}</p>
+                <p className="num text-[12.5px] font-semibold text-ink">{formatCompact(data?.context.eligibleRequests ? data.context.maxInput : null)}</p>
               </div>
             </div>
           </StateBlock>
@@ -288,7 +288,7 @@ export function UsagePage() {
   );
 }
 
-function BreakdownTable({ rows, dimension }: { rows: { key: string; requests: number; tokens: number; cost: number; share: number; p50DurationMs: number | null; successRate: number | null }[]; dimension: string }) {
+function BreakdownTable({ rows, dimension }: { rows: { key: string; requests: number; tokens: number; cost: number; pricedRequests: number; share: number; p50DurationMs: number | null; successRate: number | null }[]; dimension: string }) {
   return (
     <TableShell className="max-h-[300px] overflow-y-auto">
       <thead>
@@ -308,7 +308,7 @@ function BreakdownTable({ rows, dimension }: { rows: { key: string; requests: nu
             <Td align="right">{row.requests.toLocaleString()}</Td>
             <Td align="right">{formatCompact(row.tokens)}</Td>
             <Td align="right">{formatPercent(row.share)}</Td>
-            <Td align="right">{row.cost > 0 ? `$${row.cost.toFixed(2)}` : "—"}</Td>
+            <Td align="right">{row.pricedRequests > 0 ? `$${row.cost.toFixed(2)}` : "unpriced"}</Td>
             <Td align="right">{formatDuration(row.p50DurationMs)}</Td>
           </tr>
         ))}

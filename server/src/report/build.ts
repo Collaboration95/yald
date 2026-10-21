@@ -210,6 +210,12 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
     assertSame("Total vs kpis", total, fromSummary);
   }
 
+  if (assertionsOn() && projectCounts) {
+    const { matched, unattributed } = projectCounts.attribution;
+    assertSame("project coverage kept rows vs Total", { ...accumulate([]), requests: matched.rows, tokens: matched.tokens }, { ...accumulate([]), requests: total.requests, tokens: total.tokens });
+    if (unattributed.rows !== unattributed.reasons.reduce((n, r) => n + r.rows, 0)) throw new Error("buildReport consistency: unattributed reasons do not add up to unattributed rows");
+  }
+
   // Timeline: hourly up to 48 hours, daily beyond, every bucket present.
   const bucket = to - from <= 48 * HOUR ? "hour" : "day";
   const multiDay = to - from > 24 * HOUR;
@@ -366,6 +372,8 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
       ledgerStartsAt: sources.includes("ocx") && ledgerStart !== null && ledgerStart > from ? ledgerStart : null,
       pricing,
       unattributedRows: projectCounts ? projectCounts.unattributedRows : null,
+      unattributedTokens: projectCounts ? projectCounts.unattributedTokens : null,
+      attribution: projectCounts ? projectCounts.attribution : null,
     },
   };
 }

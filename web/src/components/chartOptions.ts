@@ -112,12 +112,18 @@ export function lineChart(
   theme: ThemeTokens,
   labels: string[],
   series: (SeriesLike & { dashed?: boolean; area?: boolean })[],
-  options: { formatter?: (value: number) => string; showLegend?: boolean } = {},
+  options: {
+    formatter?: (value: number) => string;
+    showLegend?: boolean;
+    /** Opt in to disconnected nulls and unavailable tooltips; legacy defaults stay intact. */
+    preserveGaps?: boolean;
+  } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   return {
     grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
-    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
+    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => options.preserveGaps && (typeof value !== "number" || !Number.isFinite(value))
+      ? "Unavailable" : formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
     xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
     yAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
@@ -129,7 +135,7 @@ export function lineChart(
       lineStyle: { width: 2, color: colorAt(index), type: entry.dashed ? "dashed" : "solid" },
       itemStyle: { color: colorAt(index) },
       areaStyle: entry.area ? { opacity: 0.14, color: colorAt(index) } : undefined,
-      connectNulls: true,
+      connectNulls: !options.preserveGaps,
       data: entry.data,
     })),
   };

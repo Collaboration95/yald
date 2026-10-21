@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, MessagesSquare } from "lucide-react";
-import { useEndpoint } from "../api";
+import { conversationLink, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Legend, ModelTag, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
@@ -30,7 +30,7 @@ export function ConversationsPage() {
       <Card>
         <CardHeader
           title="Sessions ranked"
-          subtitle="Every conversation opencodex correlated, biggest first"
+          subtitle="Sessions in this cohort, qualified by source"
           action={
             <div className="flex items-center gap-1">
               {(["tokens", "cost", "requests", "recent", "errors"] as const).map(option => (
@@ -66,11 +66,12 @@ export function ConversationsPage() {
             </thead>
             <tbody>
               {data?.conversations.map(conversation => (
-                <tr key={conversation.id} className="transition hover:bg-surface-2">
+                <tr key={JSON.stringify([conversation.source, conversation.id])} className="transition hover:bg-surface-2">
                   <Td>
-                    <Link to={{ pathname: "/conversations/" + conversation.id, search }} className="font-mono text-[11px] text-info hover:underline">
+                    <Link to={conversationLink(conversation, search)} className="font-mono text-[11px] text-info hover:underline">
                       {shortId(conversation.id, 14)}
                     </Link>
+                    <span className="block text-[10.5px] text-muted">{sourceLabel(conversation.source)}</span>
                   </Td>
                   <Td className="max-w-[240px]">
                     <span className="flex flex-wrap gap-1">
@@ -82,7 +83,7 @@ export function ConversationsPage() {
                   </Td>
                   <Td align="right">{formatInteger(conversation.requests)}</Td>
                   <Td align="right">{formatCompact(conversation.tokens)}</Td>
-                  <Td align="right">{conversation.cost > 0 ? "$" + conversation.cost.toFixed(2) : "—"}</Td>
+                  <Td align="right">{conversation.pricedRequests > 0 ? "$" + conversation.cost.toFixed(2) : "unpriced"}</Td>
                   <Td align="right">{formatDuration(conversation.spanMs)}</Td>
                   <Td align="right">{formatCompact(conversation.intensity)}</Td>
                   <Td align="right" className={conversation.errors > 0 ? "text-bad" : undefined}>{conversation.errors || "—"}</Td>
@@ -101,8 +102,10 @@ export function ConversationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { chartTheme } = useTheme();
   const { search } = useLocation();
+  const { filters } = useFilters();
+  const sessionSource = new URLSearchParams(search).get("sessionSource") ?? undefined;
   const ROW_LIMIT = 150;
-  const query = useEndpoint<ConversationDetailResponse>("/api/conversations/" + (id ?? ""), { range: "all", providers: [], models: [], efforts: [], statuses: [], groupBy: "model", metric: "tokens", bucket: "auto", search: "" }, {});
+  const query = useEndpoint<ConversationDetailResponse>("/api/conversations/" + encodeURIComponent(id ?? ""), filters, { sessionSource });
   const data = query.data;
 
   const cumulativeOption = useMemo(() => {
@@ -110,7 +113,7 @@ export function ConversationDetailPage() {
     const labels = data.points.map(point => new Date(point.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }));
     return lineChart(chartTheme, labels, [
       { name: "cumulative tokens", data: data.points.map(point => point.cumulative), area: true },
-      { name: "input (context)", data: data.points.map(point => point.contextTokens), dashed: true },
+      { name: "input (context)", data: data.points.map(point => point.contextEligible ? point.contextTokens : null), dashed: true },
     ], { formatter: value => formatCompact(value) });
   }, [data, chartTheme]);
 
@@ -132,14 +135,20 @@ export function ConversationDetailPage() {
         <span className="truncate font-mono text-[11.5px] text-muted">{id}</span>
       </div>
 
+      {data ? <p role="status" className="rounded-xl border border-line px-3 py-2 text-[11.5px] leading-5 text-muted">
+        <span className="font-medium text-ink">{sourceLabel(data.source)} · {formatInteger(data.scope.matched)} of {formatInteger(data.scope.sessionTotal)} session requests match.</span>
+        {" "}{formatInteger(data.scope.excluded.window)} outside the selected window; {formatInteger(data.scope.excluded.filters)} excluded by source, project or request filters.
+        {data.scope.matched === 0 ? " No requests in this session match these filters. Change the selection or reset filters to widen the cohort." : " Charts and totals below describe only the matching requests."}
+      </p> : null}
+
       {data ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Stat label="Requests" value={formatInteger(data.summary.requests)} hint="in this session" />
           <Stat label="Tokens" value={formatCompact(data.summary.tokens.total)} hint={formatCompact(data.summary.tokens.cacheRead) + " cached"} tone="good" />
-          <Stat label="Cost" value={data.summary.cost > 0 ? "$" + data.summary.cost.toFixed(2) : "—"} hint={formatInteger(data.summary.unpricedRequests) + " unpriced"} tone="good" />
-          <Stat label="Span" value={formatDuration(data.points[data.points.length - 1]!.ts - data.points[0]!.ts)} hint={formatDateTime(data.points[0]!.ts) + " start"} icon={<MessagesSquare size={13} />} />
+          <Stat label="Cost" value={data.summary.pricedRequests > 0 ? "$" + data.summary.cost.toFixed(2) : "—"} hint={formatInteger(data.summary.unpricedRequests) + " unpriced"} tone="good" />
+          <Stat label="Span" value={data.points.length ? formatDuration(data.points[data.points.length - 1]!.ts - data.points[0]!.ts) : "—"} hint={data.points.length ? formatDateTime(data.points[0]!.ts) + " start" : "No matching requests"} icon={<MessagesSquare size={13} />} />
           <Stat label="Median latency" value={formatDuration(data.summary.latency.p50)} hint={"p95 " + formatDuration(data.summary.latency.p95)} tone="info" />
-          <Stat label="Errors" value={formatInteger(data.summary.errors + data.summary.cancelled)} hint={formatInteger(data.summary.errors) + " failed"} tone={data.summary.errors > 0 ? "bad" : "neutral"} />
+          <Stat label="Errors" value={formatInteger(data.summary.measurementCoverage.outcomes.eligibleRequests ? data.summary.errors + data.summary.cancelled : null)} hint={`${data.summary.measurementCoverage.outcomes.eligibleRequests} of ${data.summary.requests} requests observed`} tone={data.summary.errors > 0 ? "bad" : "neutral"} />
         </div>
       ) : null}
 
@@ -190,14 +199,16 @@ export function ConversationDetailPage() {
                 <tr key={row.id} className="transition hover:bg-surface-2">
                   <Td className="whitespace-nowrap text-muted">{formatDateTime(row.ts)}</Td>
                   <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[210px]" /></Td>
-                  <Td align="right">{formatCompact(row.inputTokens)}</Td>
-                  <Td align="right">{formatCompact(row.cacheReadTokens)}</Td>
-                  <Td align="right">{formatCompact(row.outputTokens)}</Td>
+                  <Td align="right">{formatCompact(row.measurements.input ? row.inputTokens : null)}</Td>
+                  <Td align="right">{formatCompact(row.measurements.cacheRead ? row.cacheReadTokens : null)}</Td>
+                  <Td align="right">{formatCompact(row.measurements.output ? row.outputTokens : null)}</Td>
                   <Td align="right">{row.priced ? "$" + row.cost.toFixed(4) : "—"}</Td>
-                  <Td align="right">{formatDuration(row.ttftMs)}</Td>
-                  <Td align="right">{formatDuration(row.durationMs)}</Td>
+                  <Td align="right">{formatDuration(row.measurements.ttft ? row.ttftMs : null)}</Td>
+                  <Td align="right">{formatDuration(row.measurements.duration ? row.durationMs : null)}</Td>
                   <Td align="center">
-                    {row.outcome === "ok"
+                    {row.outcome === "unobserved"
+                      ? <Badge>unobserved</Badge>
+                      : row.outcome === "ok"
                       ? <Badge tone="good">ok</Badge>
                       : row.outcome === "cancelled"
                         ? <Badge tone="warn">closed</Badge>

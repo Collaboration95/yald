@@ -8,6 +8,8 @@ import "./styles/delight.css";
 import { ThemeProvider } from "./lib/theme";
 import { RelayProvider } from "./lib/RelayProvider";
 import { FiltersProvider } from "./lib/useFilters";
+import { PreferencesProvider } from "./lib/preferences";
+import { LabsLayout } from "./pages/labs/LabsLayout";
 import { Layout } from "./components/Layout";
 import { loadingQuip } from "./components/ui";
 const OverviewPage = lazy(() => import("./pages/Overview").then(m => ({ default: m.OverviewPage })));
@@ -19,6 +21,9 @@ const ModelsPage = lazy(() => import("./pages/Models").then(m => ({ default: m.M
 const QuotaPage = lazy(() => import("./pages/Quota").then(m => ({ default: m.QuotaPage })));
 const ConversationsPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationsPage })));
 const ConversationDetailPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationDetailPage })));
+const LabsPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsPage })));
+const LabsInvestigationPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsInvestigationPage })));
+const EvidenceCase = lazy(() => import("./pages/labs/EvidenceCase").then(m => ({ default: m.EvidenceCase })));
 
 console.info(
   "%cyald.%c\nEvery request leaves a trace. Psst: try the Konami code, or just type “yald”.",
@@ -41,6 +46,7 @@ createRoot(document.getElementById("root")!).render(
       <ThemeProvider>
         <BrowserRouter>
           <FiltersProvider>
+            <PreferencesProvider>
             <RelayProvider>
             <Suspense fallback={<div className="p-6 text-sm text-muted">{loadingQuip()}</div>}>
             <Routes>
@@ -54,11 +60,18 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="quota" element={<QuotaPage />} />
                 <Route path="conversations" element={<ConversationsPage />} />
                 <Route path="conversations/:id" element={<ConversationDetailPage />} />
+                <Route path="labs" element={<LabsLayout />}>
+                  <Route index element={<LabsPage />} />
+                  <Route path="evidence" element={<EvidenceCase />} />
+                  <Route path=":investigation" element={<LabsInvestigationPage />} />
+                  <Route path="*" element={<LabsInvestigationPage />} />
+                </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
             </Suspense>
             </RelayProvider>
+            </PreferencesProvider>
           </FiltersProvider>
         </BrowserRouter>
       </ThemeProvider>
