@@ -57,24 +57,25 @@ export function stackedAreaChart(
   theme: ThemeTokens,
   labels: string[],
   series: SeriesLike[],
-  options: { formatter?: (value: number) => string; showLegend?: boolean; smooth?: number } = {},
+  options: { formatter?: (value: number) => string; showLegend?: boolean; smooth?: number; colors?: Record<string, string>; max?: number } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
+  const colorOf = (name: string, index: number) => options.colors?.[name] ?? colorAt(index);
   return {
     grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
     xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
-    yAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
+    yAxis: { type: "value", ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
       type: "line",
       stack: "total",
       smooth: options.smooth ?? 0.2,
       symbol: "none",
-      lineStyle: { width: 1.4, color: colorAt(index) },
-      itemStyle: { color: colorAt(index) },
-      areaStyle: { opacity: 0.72, color: colorAt(index) },
+      lineStyle: { width: 1.4, color: colorOf(entry.name, index) },
+      itemStyle: { color: colorOf(entry.name, index) },
+      areaStyle: { opacity: 0.72, color: colorOf(entry.name, index) },
       emphasis: { focus: "series" },
       data: entry.data,
     })),
@@ -281,6 +282,72 @@ export function heatmapChart(
       } } } : {}),
       emphasis: { itemStyle: { borderColor: theme.text, borderWidth: 1 } },
     }],
+  };
+}
+
+/**
+ * Pareto curve of spend over sessions: x is the cumulative share of sessions (log axis, so the top 1%
+ * is readable), y the cumulative share of cost. `marks` are labelled points on the curve (for
+ * example the top 1% and top 5%); the dashed line is an even spread. No in-chart legend.
+ */
+export function paretoChart(
+  theme: ThemeTokens,
+  curve: { x: number; y: number }[],
+  marks: { label: string; x: number; y: number }[],
+  options: { color?: string } = {},
+): ChartOption {
+  const percent = (value: number) => `${value >= 0.1 ? Math.round(value * 100) : +(value * 100).toPrecision(2)}%`;
+  const color = options.color ?? colorAt(1);
+  const floor = Math.min(...curve.map(point => point.x), 1);
+  const axis = axisCommon(theme);
+  return {
+    grid: baseGrid({ top: 14, right: 28, bottom: 4 }),
+    tooltip: {
+      trigger: "item",
+      backgroundColor: theme.tooltipBg,
+      borderColor: theme.tooltipBorder,
+      textStyle: { color: theme.text, fontSize: 12 },
+      formatter: (params: { seriesName?: string; value?: number[] }) => {
+        const [x, y] = params.value ?? [0, 0];
+        return params.seriesName === "Even spread" ? "Even spread: every session costs the same" : `${params.seriesName ?? ""}<br/>top ${percent(x!)} of sessions hold <b>${percent(y!)}</b> of cost`;
+      },
+    },
+    xAxis: { type: "log", min: floor, max: 1, ...axis, axisLabel: { color: theme.axis, fontSize: 11, formatter: percent } },
+    yAxis: { type: "value", min: 0, max: 1, ...axis, axisLabel: { color: theme.axis, fontSize: 11, formatter: percent } },
+    series: [
+      { name: "Even spread", type: "line", symbol: "none", lineStyle: { width: 1, color: theme.axis, type: "dashed" }, silent: true, data: [[floor, floor], [1, 1]] },
+      { name: "Cumulative cost share", type: "line", symbol: "none", lineStyle: { width: 2.2, color }, itemStyle: { color }, areaStyle: { opacity: 0.1, color }, data: curve.map(point => [point.x, point.y]) },
+      {
+        name: "Marked", type: "scatter", symbolSize: 9, itemStyle: { color }, z: 5,
+        label: { show: true, position: "right", color: theme.text, fontSize: 11, formatter: (params: { dataIndex: number }) => marks[params.dataIndex]?.label ?? "" },
+        data: marks.map(mark => [mark.x, mark.y]),
+      },
+    ],
+  };
+}
+
+/** Horizontal bars grouped by category, one bar per series (for example share of tokens beside share of cost). */
+export function pairedBarChart(
+  theme: ThemeTokens,
+  labels: string[],
+  series: { name: string; data: (number | null)[]; color?: string }[],
+  options: { formatter?: (value: number) => string } = {},
+): ChartOption {
+  const formatter = options.formatter ?? ((value: number) => String(value));
+  return {
+    grid: baseGrid({ top: 30, right: 36 }),
+    tooltip: { ...tooltipCommon(theme), axisPointer: { type: "shadow" }, valueFormatter: (value: unknown) => (typeof value === "number" ? formatter(value) : "Unavailable") },
+    legend: legendCommon(theme),
+    xAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
+    yAxis: { type: "category", inverse: true, data: labels, ...axisCommon(theme), splitLine: { show: false } },
+    series: series.map((entry, index) => ({
+      name: entry.name,
+      type: "bar",
+      barMaxWidth: 12,
+      itemStyle: { color: entry.color ?? colorAt(index), borderRadius: [0, 3, 3, 0] },
+      label: { show: true, position: "right", color: theme.axis, fontSize: 10, formatter: (params: { value: number }) => formatter(params.value) },
+      data: entry.data,
+    })),
   };
 }
 

@@ -85,6 +85,8 @@ export interface Series {
 
 export interface BreakdownRow {
   key: string;
+  /** Tokens of priced requests only; the denominator of the blended prices. */
+  pricedTokens: number;
   requests: number;
   tokens: number;
   inputTokens: number;
@@ -153,6 +155,8 @@ export interface CostComposition {
   cacheRead: number;
   cacheWrite: number;
   output: number;
+  /** Tier or priority cost not placed in a class; 0 when rows carry the engine's own split. */
+  adjustment: number;
   total: number;
   cacheSavingsUsd: number;
   unpricedRequests: number;
@@ -488,6 +492,8 @@ export interface CostResponse {
   window: { from: number; to: number; bucket: "hour" | "day" | "week" };
   summary: Summary;
   composition: CostComposition;
+  /** Tokens of priced requests: the denominator of a blended price. */
+  pricedTokens: number;
   series: Series;
   cumulative: CumulativePoint[];
   cache: CachePoint[];
@@ -798,4 +804,66 @@ export interface ContextResponse {
     minEligible: number;
   };
   histogram: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
+}
+
+export type PriceTierId = "economy" | "standard" | "premium";
+export type CostClassId = "freshInput" | "cacheRead" | "cacheWrite" | "output";
+export interface ClassCostTotals {
+  freshInput: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  /** Of which, inside output: an attribution in proportion to reasoning tokens. */
+  reasoning: number;
+  adjustment: number;
+}
+export interface SpendShare { sessions: number; cost: number; share: number }
+
+export interface SpendStructureResponse {
+  ok: boolean;
+  window: { from: number; to: number; bucket: "hour" | "day" | "week"; label: string };
+  coverage?: ProjectCoverage;
+  pricing: { totalRequests: number; pricedRequests: number; unpricedRequests: number; pricedTokens: number; unpricedTokens: number; cost: number };
+  concentration: {
+    sessions: number;
+    partlyPricedSessions: number;
+    unpricedSessions: number;
+    clippedSessions: number;
+    noSessionId: { requests: number; pricedRequests: number; cost: number | null };
+    totalCost: number | null;
+    minimums: { top1pct: number; top5pct: number; top10Sessions: number; gini: number };
+    top1pct: SpendShare | null;
+    top5pct: SpendShare | null;
+    top10Sessions: SpendShare | null;
+    gini: number | null;
+    curve: { x: number; y: number }[];
+  };
+  tiers: {
+    definitions: { id: PriceTierId; label: string; minRateIn: number; maxRateIn: number | null }[];
+    models: Record<PriceTierId, { model: string; requests: number }[]>;
+    unclassifiedRequests: number;
+  };
+  series: {
+    bucket: "hour" | "day" | "week";
+    buckets: {
+      ts: number;
+      label: string;
+      requests: number;
+      pricedRequests: number;
+      pricedTokens: number;
+      cost: number | null;
+      blendedPer1M: number | null;
+      tiers: Record<PriceTierId, { requests: number; tokens: number; blendedPer1M: number | null; requestShare: number | null; tokenShare: number | null }>;
+    }[];
+  };
+  classMix: {
+    source: Source;
+    pricedRequests: number;
+    tokens: { freshInput: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number };
+    cost: ClassCostTotals;
+    totalCost: number;
+    tokenShare: Record<CostClassId, number | null>;
+    costShare: Record<CostClassId | "adjustment", number | null>;
+    buckets: { ts: number; label: string; cost: ClassCostTotals; total: number; share: Record<CostClassId | "adjustment", number | null> }[];
+  }[];
 }
