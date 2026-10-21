@@ -33,6 +33,13 @@ quota then remains the last captured account observation.
   cumulative cost, gross cache-read discount, blended price per million tokens,
   expensive sessions and unpriced coverage. Gross read discount excludes write
   premiums; use Cache Detective for net fixed-workload economics.
+- **Context:** how long contexts are (`inputTokens`, including cached tokens):
+  median, p90, p99 and maximum per model, a box plot, a model-by-band grid, the
+  share of requests and list-price cost at or above 50k, 150k and 300k, a
+  by-band table of cost, time to first token and cancel rate, and session
+  growth. Statistics below their minimum sample read "too few requests";
+  opencodex-only columns read "not recorded" for Claude Code. The context
+  histograms on Overview, Usage and Performance link here.
 - **Performance:** measured duration and time-to-first-token (TTFT) percentiles,
   throughput, distributions, TTFT/output scatter, slow requests and model
   timings. Claude transcripts are ineligible for timing and throughput.

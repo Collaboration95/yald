@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { filtersKey, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
@@ -17,6 +18,7 @@ function formatLocalDate(timestamp: number, timeZone: string): string {
 }
 
 export function UsagePage() {
+  const { search } = useLocation();
   const { filters, set } = useFilters();
   const { chartTheme } = useTheme();
   const query = useEndpoint<UsageResponse>("/api/usage", filters, { metric: filters.metric, groupBy: filters.groupBy });
@@ -245,7 +247,7 @@ export function UsagePage() {
           </section> : null}
         </Card>
         <Card>
-          <CardHeader title="Context pressure" subtitle={data ? `${formatCoverage(data.summary.measurementCoverage.context)} · logical input only` : "Logical input tokens per request"} />
+          <CardHeader title="Context pressure" subtitle={data ? `${formatCoverage(data.summary.measurementCoverage.context)} · logical input only` : "Logical input tokens per request"} action={<Link to={{ pathname: "/context", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
             {contextOption ? <Chart option={contextOption} height={180} /> : null}
             <div className="mt-2 grid grid-cols-3 gap-2 text-center">

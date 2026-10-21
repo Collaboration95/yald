@@ -280,6 +280,17 @@ when tokens or prices are zero; missing days are not evidence of known zero use.
 Model mix is source/provider qualified. The API reference documents sorting,
 units and the exact fixed-window selectors for both periods and each group.
 
+## Context length
+
+The Context page reads `inputTokens` of requests that pass `contextEligible` (input measured, logical usage, not attempt-summed); every other request is counted in the coverage line and never enters a distribution or a share. Yald has no per-model context-window table, so nothing is shown as a percent of a window.
+
+- **Minimum samples.** p10, p25, p75 and p90 need at least 10 eligible requests, p99 needs 100, and a band's cost per request, median TTFT and cancel rate each need 10 values of their own. Below that the value is `null` and shown as "too few requests". The median and mean need one request.
+- **Bands.** Fixed edges, not quintiles, so they do not move with the selection: under 50k, 50-150k, 150-300k and 300k+ (lower edge inclusive).
+- **At or above a threshold.** Share of eligible requests and of priced list-price cost at or above 50k, 150k and 300k, and with `contextTier === "long"`. The tier cutoff varies by model, so the two differ. Cost shares use priced eligible requests only; unpriced requests count as requests but carry no dollars, and a band or threshold with no priced request has no cost (`null`), not $0.
+- **Context tax.** Per band: requests, cost, cost per priced request, median TTFT and cancel rate (`cancelled / (ok + error + cancelled)` over observed outcomes). TTFT and outcomes exist for opencodex requests only; Claude rows read "not recorded". Cancel rate covers requests with a measured context length, so a request cancelled before any usage was recorded is not in it, and a request cancelled before its first token has no TTFT.
+- **Session growth.** The median input of a session's first 3 eligible requests versus its last 3, ranked from 6 eligible, through the same helper as Context Replay. Sessions with requests outside the window (loaded history only) are counted as clipped.
+- **Interpretation.** These are associations in loaded data. Cost per request mixes models and is partly a model effect. Claude Code subagent requests are not labelled, so Claude per-model numbers can mix a main conversation with its subagents' smaller contexts.
+
 ## Labs context growth
 
 Context Replay compares median input of the first three eligible requests with

@@ -42,6 +42,7 @@ import {
 import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
+import { contextBreakdown } from "./contextView";
 import { buildCacheEconomics } from "./labs/cache";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
@@ -611,6 +612,20 @@ api.get("/api/performance", async c => {
       .map(row => ({ ttftMs: row.ttftMs, outputTokens: row.outputTokens, model: row.model, ts: row.ts })),
     slowest: slowest(rows, 15).map(publicRow),
     context: contextPressure(rows),
+  });
+});
+
+/** The Context page (#102): context length per model, over time, by band, and what long contexts coincide with. */
+api.get("/api/context", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { ...query.window, bucket: query.bucket },
+    ...contextBreakdown(rows, { bucket: query.bucket, from: query.from, to: query.to, tz: query.tz, datasetRows: dataset.rows }),
+    histogram: contextPressure(rows),
   });
 });
 

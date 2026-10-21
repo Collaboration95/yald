@@ -1,7 +1,7 @@
 import { filterRows, projectCoverage, type RowFilter } from "../analytics";
 import type { RequestRow } from "../ocx/store";
 import { contextEligible, sourceOf } from "../report/source";
-import { analysisScope, evidenceFor, orderedRequests, sessionKey, type AnalysisWindow } from "./scope";
+import { analysisScope, evidenceFor, orderedRequests, sessionGrowth, sessionKey, type AnalysisWindow } from "./scope";
 
 const EXCLUSION_REASONS = ["attempt-summed usage", "input accounting missing", "input accounting unavailable"] as const;
 type ContextExclusion = typeof EXCLUSION_REASONS[number];
@@ -30,10 +30,6 @@ function coverage(rows: RequestRow[]) {
     pricedRequests, unpricedRequests: rows.length - pricedRequests,
     attributedRequests, unattributedRequests: rows.length - attributedRequests,
   };
-}
-
-function medianOfThree(rows: RequestRow[]): number {
-  return rows.map(row => row.inputTokens).sort((a, b) => a - b)[1]!;
 }
 
 function observation(row: RequestRow, ordinal: number) {
@@ -90,10 +86,7 @@ export function buildContextReplay(datasetRows: RequestRow[], filter: RowFilter,
     const first = requests[0]!;
     const source = sourceOf(first);
     const conversationId = first.conversationId!;
-    const eligible = requests.filter(contextEligible);
-    const ranked = eligible.length >= 6;
-    const baseline = ranked ? medianOfThree(eligible.slice(0, 3)) : null;
-    const latest = ranked ? medianOfThree(eligible.slice(-3)) : null;
+    const { ranked, baseline, latest, absoluteChange, ratio } = sessionGrowth(requests);
     const counts = histories.get(key)!;
     const rangeLimited = counts.beforeWindowRequests + counts.afterWindowRequests > 0;
     const outsideCohortRequests = counts.windowRequests - requests.length;
@@ -105,11 +98,7 @@ export function buildContextReplay(datasetRows: RequestRow[], filter: RowFilter,
         beforeWindowRequests: counts.beforeWindowRequests, afterWindowRequests: counts.afterWindowRequests,
         outsideCohortRequests, rangeLimited, cohortLimited: outsideCohortRequests > 0, loadedHistoryOnly: true as const,
       },
-      growth: {
-        ranked, baseline, latest,
-        absoluteChange: baseline === null ? null : latest! - baseline,
-        ratio: baseline !== null && baseline !== 0 ? latest! / baseline : null,
-      },
+      growth: { ranked, baseline, latest, absoluteChange, ratio },
       requests: requests.map(observation),
       evidence: evidenceFor(filter, window, { kind: "session", source, conversationId }, "all"),
     };
