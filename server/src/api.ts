@@ -43,7 +43,7 @@ import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputElig
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
 import { buildCacheEconomics } from "./labs/cache";
-import { pricingStatus } from "./ocx/pricing";
+import { pricingGeneration, pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
 import { accountScope, EMPTY_QUOTA, lookupSession, scopeSummary } from "./dashboardScope";
@@ -163,10 +163,97 @@ function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
 
 const newestFirst = (a: RequestRow, b: RequestRow) => b.ts - a.ts;
 
-/** `Server-Timing` durations in milliseconds; never data-dependent values. */
-function serverTiming(build: number, compute: number): string {
-  return `build;dur=${build.toFixed(1)}, compute;dur=${compute.toFixed(1)}`;
+/** `Server-Timing` durations in milliseconds, and whether the body came from the memo; never data. */
+function serverTiming(build: number, compute: number, memoHit = false): string {
+  return `build;dur=${build.toFixed(1)}, compute;dur=${compute.toFixed(1)}${memoHit ? ', memo;desc="hit"' : ""}`;
 }
+
+/** Rolling windows end on a clock rounded down to this quantum (docs/api.md). */
+export const CLOCK_QUANTUM_MS = 10_000;
+
+function clockQuantum(): number {
+  const configured = Number(process.env.YALD_CLOCK_QUANTUM_MS);
+  return process.env.YALD_CLOCK_QUANTUM_MS?.trim() && Number.isSafeInteger(configured) && configured >= 1 ? configured : CLOCK_QUANTUM_MS;
+}
+
+/**
+ * The time analytics windows are resolved against: the demo's fixed clock, else the wall
+ * clock rounded down to the quantum. Requests within one quantum therefore share one window,
+ * one body and one ETag, at the cost of `window.to` lagging the wall clock by under a quantum.
+ */
+function windowClock(): number {
+  if (DEMO?.now != null) return DEMO.now;
+  const quantum = clockQuantum();
+  const wall = requestNow();
+  return wall - (((wall % quantum) + quantum) % quantum);
+}
+
+/** The query as parsed: parameters sorted by name (repeats keep their order), so order does not split memo entries. */
+function canonicalQuery(url: string): string {
+  const params = [...new URL(url).searchParams];
+  params.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return new URLSearchParams(params).toString();
+}
+
+/**
+ * Routes whose body is not a function of (dataset, pricing, canonical query, clock): project
+ * views, Labs findings and reports resolve git roots on disk, the report stamps its request
+ * time, export bodies are too large to keep, and refresh rebuilds.
+ */
+const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/evidence", "/api/export"]);
+
+/**
+ * Serialized response bodies for one dataset and pricing generation, bounded by entry count
+ * and total size; the least recently used go first. A new dataset (any rebuild: append,
+ * Refresh, price change) or pricing generation drops every entry.
+ */
+class ResponseMemo {
+  private dataset: Dataset | null = null;
+  private generation: string | null = null;
+  private readonly entries = new Map<string, { body: string; type: string }>();
+  private size = 0;
+
+  constructor(private readonly maxEntries: number, private readonly maxSize: number) {}
+
+  private own(dataset: Dataset): void {
+    const generation = pricingGeneration();
+    if (this.dataset === dataset && this.generation === generation) return;
+    this.dataset = dataset;
+    this.generation = generation;
+    this.entries.clear();
+    this.size = 0;
+  }
+
+  get(dataset: Dataset, key: string): { body: string; type: string } | undefined {
+    this.own(dataset);
+    const hit = this.entries.get(key);
+    if (hit) {
+      this.entries.delete(key);
+      this.entries.set(key, hit);
+    }
+    return hit;
+  }
+
+  set(dataset: Dataset, key: string, body: string, type: string): void {
+    // Computed from an older dataset than the current owner: not this memo's to keep.
+    if (this.dataset !== dataset || this.generation !== pricingGeneration() || body.length > this.maxSize / 4) return;
+    const previous = this.entries.get(key);
+    if (previous) {
+      this.entries.delete(key);
+      this.size -= previous.body.length;
+    }
+    this.entries.set(key, { body, type });
+    this.size += body.length;
+    for (const [oldest, entry] of this.entries) {
+      if (this.entries.size <= this.maxEntries && this.size <= this.maxSize) break;
+      this.entries.delete(oldest);
+      this.size -= entry.body.length;
+    }
+  }
+}
+
+/** 64 bodies or 32 M characters of JSON, whichever comes first. */
+const responses = new ResponseMemo(64, 32_000_000);
 
 
 function toCsv(rows: Record<string, unknown>[]): string {
@@ -200,17 +287,18 @@ api.use("/api/*", async (c, next) => {
   }
   const dataset = await getDataset();
   const built = performance.now();
-  const timing = () => serverTiming(built - started, performance.now() - built);
-  const now = requestNow();
+  const timing = (memoHit = false) => serverTiming(built - started, performance.now() - built, memoHit);
+  const now = windowClock();
   c.set("dataset", dataset);
   c.set("now", now);
   // A conversation detail without window parameters is all-history, so only its dataset revision matters.
   const unwindowed = !["from", "to", "last", "range"].some(key => c.req.query(key)?.trim());
   const pointInTime = c.req.path === "/api/health" || c.req.path === "/api/meta"
     || (c.req.path.startsWith("/api/conversations/") && unwindowed);
-  // An unchanged ledger does not mean an unchanged rolling time window.
+  // An unchanged ledger does not mean an unchanged rolling time window. Prices can change
+  // without a new revision (a forced rebuild re-prices the same rows), so they are keyed too.
   const clockKey = pointInTime || clockFree(c.req.query()) ? "" : now;
-  const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
+  const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${pricingGeneration()}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
@@ -219,7 +307,18 @@ api.use("/api/*", async (c, next) => {
     c.header("Server-Timing", timing());
     return c.body(null, 304);
   }
+  // The memo key holds everything a memoized body depends on besides the dataset and pricing it
+  // is bound to. The clock is always part of it: even a pinned window can read it (range=all on an empty dataset).
+  const memoKey = UNMEMOIZED.has(c.req.path) ? null : `${c.req.path}?${canonicalQuery(c.req.url)}|${now}`;
+  const hit = memoKey ? responses.get(dataset, memoKey) : undefined;
+  if (hit) {
+    c.header("Content-Type", hit.type);
+    c.header("Server-Timing", timing(true));
+    return c.body(hit.body, 200);
+  }
   await next();
+  const type = c.res.headers.get("content-type") ?? "";
+  if (memoKey && c.res.status === 200 && type.startsWith("application/json")) responses.set(dataset, memoKey, await c.res.clone().text(), type);
   c.header("Server-Timing", timing());
 });
 
@@ -236,8 +335,20 @@ api.get("/api/health", async c => {
   });
 });
 
+/** The /api/meta payload walks every row; it is built once per dataset and pricing generation. */
+const metaPayloads = new WeakMap<Dataset, { generation: string | null; payload: Record<string, unknown> }>();
+
 api.get("/api/meta", async c => {
   const dataset = c.get("dataset");
+  const generation = pricingGeneration();
+  const known = metaPayloads.get(dataset);
+  if (known?.generation === generation) return c.json(known.payload);
+  const payload = metaPayload(dataset);
+  metaPayloads.set(dataset, { generation, payload });
+  return c.json(payload);
+});
+
+function metaPayload(dataset: Dataset): Record<string, unknown> {
   const providers = new Set<string>();
   const models = new Set<string>();
   const efforts = new Set<string>();
@@ -258,7 +369,7 @@ api.get("/api/meta", async c => {
     if (!list.includes(row.model)) list.push(row.model);
     modelsByProvider.set(row.provider, list);
   }
-  return c.json({
+  return {
     ok: true,
     ocxHome: OCX_HOME,
     ...(DEMO ? { demo: DEMO } : {}),
@@ -282,8 +393,8 @@ api.get("/api/meta", async c => {
     ledger: { byKind: dataset.ledger.byKind, settledTokens: dataset.ledger.settledTokens, updatedAt: dataset.ledger.updatedAt },
     quota: { windows: dataset.quota.windows, updatedAt: dataset.quota.updatedAt },
     paths: PATHS,
-  });
-});
+  };
+}
 
 api.get("/api/labs/evidence", c => {
   const intent = parseCaseIntent(new URL(c.req.url).searchParams);
@@ -340,7 +451,8 @@ api.get("/api/overview", async c => {
     heatmap: heatmap(rows, "tokens", query.tz),
     context: contextPressure(rows),
     // Quota is an opencodex account observation: never narrowed by, or attributed to, the selection.
-    quota: quotaView(quotaScope.available ? dataset : { quota: EMPTY_QUOTA }, { from: query.from, to: query.to }),
+    // Projections are dated at the request clock, like the window, so one quantum gives one body.
+    quota: quotaView(quotaScope.available ? dataset : { quota: EMPTY_QUOTA }, { from: query.from, to: query.to }, c.get("now")),
     quotaScope,
     recent: topN(rows, 25, newestFirst).map(publicRow),
   });
@@ -531,7 +643,7 @@ api.get("/api/quota", async c => {
   return c.json({
     ok: true,
     range: c.req.query("range") ?? "30d",
-    ...quotaView(scope.available ? dataset : { quota: EMPTY_QUOTA }, { from: window.from, to: window.to }),
+    ...quotaView(scope.available ? dataset : { quota: EMPTY_QUOTA }, { from: window.from, to: window.to }, c.get("now")),
     scope,
     window: windowEcho(window),
   });
@@ -755,7 +867,8 @@ export const REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-sr
  */
 api.get("/api/report", async c => {
   const dataset = c.get("dataset");
-  const now = c.get("now");
+  // Not memoized and stamped with its request time, like `yald report`: the exact clock, not the quantized one.
+  const now = requestNow();
   const query = c.req.query();
   const format = query.format?.trim() || "json";
   if (format !== "json" && format !== "html") {

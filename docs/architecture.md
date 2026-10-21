@@ -43,7 +43,11 @@ filters. The dashboard polls visible views every 30 seconds; hidden tabs pause
 polling. ETags and parsed snapshots avoid repeated work when inputs are unchanged.
 The server checks the source files at most once per second, and time-bucketed
 series resolve each local bucket once rather than once per row; `Server-Timing`
-headers report build and compute time. Refresh forces a re-read. Account quota/send data declare their account scope
+headers report build and compute time. Rolling windows resolve on a clock
+rounded down to 10 seconds, so `window.to` can lag real time by up to that
+quantum; within it, repeats share one window, one ETag and one memoized body,
+and one selection's filtered rows are shared by the toolbar and page requests.
+Any rebuild empties these memos. Refresh forces a re-read. Account quota/send data declare their account scope
 rather than claiming project attribution. See [metrics](metrics.md) and the
 [API reference](api.md).
 

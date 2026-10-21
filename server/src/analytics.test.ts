@@ -122,6 +122,21 @@ test("analytics exports cover bucketing, filters, summaries, and view aggregates
   expect(analytics.bucketStarts("day", now - 86_400_000, nextDay, tz).map(ts => analytics.bucketLabel(ts, "day", tz))).toEqual(["2026-03-07", "2026-03-08", "2026-03-09"]);
 });
 
+test("filterRows shares one frozen result per equivalent filter and never one across arrays or filters", () => {
+  const source = [...rows, row({ id: "r3", ts: now + 120_000, provider: "anthropic", protocol: "claude-code" })];
+  const scans = analytics.filterScans();
+  const first = analytics.filterRows(source, { from: now, to: now + 600_000, providers: ["openai", "anthropic"], search: " R " });
+  // Order, duplicates, case and blank values are the same filter; naming every source is no source filter.
+  expect(analytics.filterRows(source, { to: now + 600_000, from: now, providers: ["anthropic", "openai", "openai"], search: "r", sources: ["ocx", "claude-code"], conversationId: "" })).toBe(first);
+  expect(analytics.filterScans()).toBe(scans + 1);
+  expect(Object.isFrozen(first)).toBe(true);
+  expect(() => (first as RequestRow[]).sort((a, b) => b.ts - a.ts)).toThrow();
+  expect(first.map(r => r.id)).toEqual(["r1", "r2", "r3"]);
+  expect(analytics.filterRows(source, { from: now, to: now + 600_000, providers: ["openai"] }).map(r => r.id)).toEqual(["r1", "r2"]);
+  expect(analytics.filterRows(source, { sources: ["claude-code"] }).map(r => r.id)).toEqual(["r3"]);
+  expect(analytics.filterRows([...source], { from: now, to: now + 600_000, providers: ["openai", "anthropic"], search: "r" })).not.toBe(first);
+});
+
 test("heatmap date detail ranks actual local dates across range boundaries and DST", () => {
   // New York jumps over 02:00 in spring and repeats 01:00 in fall.
   const samples = [
@@ -196,13 +211,20 @@ test("API routes return their documented payloads and range-scoped quota and led
     expect(original.summary.requests).toBe(2);
     const rollingEtag = first.headers.get("etag")!;
     expect((await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } })).status).toBe(304);
+    // Rolling windows end on the clock rounded down to the 10 s quantum: within one
+    // quantum the window, the body and the ETag stay put.
     clock.mockReturnValue(now + 7 * 86_400_000 + 1);
+    const sameQuantum = await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } });
+    expect(sameQuantum.status).toBe(200);
+    expect((await sameQuantum.json() as typeof original).window.to).toBe(now + 7 * 86_400_000);
+    clock.mockReturnValue(now + 7 * 86_400_000 + 10_001);
     const expired = await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } });
     expect(expired.status).toBe(200);
     const current = await expired.json() as typeof original;
     expect(current.summary.requests).toBe(1);
     expect(current.window.to - current.window.from).toBe(168 * 3_600_000);
-    expect(current.window.to).toBe(Date.now());
+    expect(current.window.to).toBe(now + 7 * 86_400_000 + 10_000);
+    expect(Date.now() - current.window.to).toBeLessThan(10_000);
     // A pinned end time still permits a 304 while the clock advances.
     expect((await api.request(`/api/overview?range=7d&to=${now + 60_000}`, { headers: { "if-none-match": etag } })).status).toBe(304);
   } finally {

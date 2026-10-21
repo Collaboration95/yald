@@ -1,7 +1,7 @@
 import { attributionCoverage, type AttributionCoverage } from "./attribution";
 import type { Dataset, RequestRow } from "./ocx/store";
 import { projectMatcher } from "./projects";
-import { cacheEligible, contextEligible, sourceOf, throughputEligible } from "./report/source";
+import { ALL_SOURCES, cacheEligible, contextEligible, sourceOf, throughputEligible } from "./report/source";
 import type { Source } from "./report/types";
 import { isoInZone, makeBucketer, nextBucketStart, zonedBucketStart } from "./time/window";
 
@@ -55,7 +55,55 @@ export function pickBucket(spanMs: number): Bucket {
   return "week";
 }
 
+/** Recent filterRows results for each rows array, so header and page requests for one selection share a scan. */
+const filtered = new WeakMap<readonly RequestRow[], Map<string, RequestRow[]>>();
+const FILTER_MEMO_SIZE = 24;
+let scans = 0;
+
+/** Row scans performed by filterRows (memo hits excluded); for tests. */
+export const filterScans = (): number => scans;
+
+/**
+ * The filter as filterRows reads it: list order, duplicates and blank values do not change the
+ * result, and every row has one of ALL_SOURCES, so naming all of them is the same as naming none.
+ */
+function filterKey(filter: RowFilter): string {
+  const set = (values: readonly string[] | undefined) => (values?.length ? [...new Set(values)].sort() : null);
+  const sources = set(filter.sources);
+  const everySource = sources !== null && ALL_SOURCES.every(source => sources.includes(source));
+  return JSON.stringify([
+    filter.from ?? null, filter.to ?? null, set(filter.providers), everySource ? null : sources, set(filter.models), set(filter.efforts),
+    set(filter.statuses), set(filter.routeKinds), filter.conversationId || null, filter.search?.toLowerCase().trim() || null, set(filter.projects),
+  ]);
+}
+
+/**
+ * The rows matching `filter`, in their original order. Results are memoized per rows array
+ * (a small LRU per array, released with it) and shared between callers, so they must never
+ * be mutated; under test they are frozen to catch any caller that tries.
+ */
 export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
+  let memo = filtered.get(rows);
+  if (!memo) {
+    memo = new Map();
+    filtered.set(rows, memo);
+  }
+  const key = filterKey(filter);
+  const known = memo.get(key);
+  if (known) {
+    memo.delete(key);
+    memo.set(key, known);
+    return known;
+  }
+  const result = scanRows(rows, filter);
+  scans++;
+  if (process.env.NODE_ENV === "test") Object.freeze(result);
+  memo.set(key, result);
+  if (memo.size > FILTER_MEMO_SIZE) memo.delete(memo.keys().next().value!);
+  return result;
+}
+
+function scanRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
   const search = filter.search?.toLowerCase().trim();
   const providerSet = filter.providers?.length ? new Set(filter.providers) : null;
   const sourceSet = filter.sources?.length ? new Set(filter.sources) : null;

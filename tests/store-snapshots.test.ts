@@ -283,7 +283,7 @@ test("invalid registry version is unknown safety, not permission to reuse priced
   expect(comparable(changed)).toEqual(comparable(await fresh.ask({ op: "get", force: true })));
 }, 30_000);
 
-test("pricing-only changes retain the documented file-driven fast path and existing force ETag limitation", async () => {
+test("pricing-only changes retain the documented file-driven fast path, and a forced re-price changes the ETag", async () => {
   const f = await fixture();
   const before: View = await f.probe.ask({ op: "get" });
   const path = `/api/overview?from=${epoch - 3_600_000}&to=${epoch}`;
@@ -298,11 +298,12 @@ test("pricing-only changes retain the documented file-driven fast path and exist
   expect(comparable(forced)).toEqual(comparable(await fresh.ask({ op: "get", force: true })));
   const updated = (await f.probe.ask({ op: "api", paths: [path] }))[0];
   expect(updated.body.summary.cost).toBeGreaterThan(original.body.summary.cost);
-  // Explicitly expose the pre-existing issue: file signatures did not change,
-  // so price-only force rebuilds still share an ETag. This test is not a claim
-  // that the limitation is correct or fixed by per-file reuse.
-  expect(updated.etag).toBe(original.etag);
-  expect((await f.probe.ask({ op: "api", paths: [path], etag: original.etag }))[0].status).toBe(304);
+  // File signatures did not change, but the pricing generation did: the ETag (and the
+  // response memo) are keyed on it, so the re-priced body is never answered with a 304.
+  expect(updated.etag).not.toBe(original.etag);
+  const revalidated = (await f.probe.ask({ op: "api", paths: [path], etag: original.etag }))[0];
+  expect(revalidated.status).toBe(200);
+  expect(revalidated.body).toEqual(updated.body);
 }, 30_000);
 
 test("unavailable pricing preserves unpriced/null conventions through quota rebuild", async () => {
@@ -650,6 +651,67 @@ test("external Claude archive cwd rewrites refresh dataset rows and project ETag
   expect(afterApi.status).toBe(200);
   expect(afterApi.etag).not.toBe(beforeApi.etag);
   expect(afterApi.body.summary.requests).toBe(0);
+}, 30_000);
+
+/** Every memoized route (#99), with rolling and pinned windows. */
+const MEMOIZED = [
+  "/api/health", "/api/meta", "/api/overview?range=30d&groupBy=model&metric=tokens", "/api/overview", "/api/timeseries?range=30d",
+  "/api/models?range=30d", "/api/usage?range=30d&groupBy=model&metric=tokens", "/api/usage/heatmap-dates?range=30d&weekday=0&hour=0",
+  "/api/cost?range=30d&groupBy=model&metric=tokens", "/api/performance?range=30d", "/api/reliability?range=30d", "/api/quota?range=30d",
+  "/api/ledger?range=30d", "/api/conversations?range=30d", "/api/conversations/c1", "/api/conversations/c1?range=7d", "/api/filters?range=30d",
+  "/api/window?range=24h", "/api/scope?range=30d", "/api/labs/context?range=30d", "/api/labs/cache?range=30d",
+  `/api/cost?from=${epoch - 7 * 86_400_000}&to=${epoch}&bucket=hour`,
+];
+const withoutTiming = (responses: any[]) => apiComparable(responses.map(({ timing: _timing, ...response }) => response));
+
+test("a repeat within one clock quantum is served from the memo, and the default view answers 304", async () => {
+  const f = await fixture();
+  const first = await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true });
+  expect(first.every((response: any) => response.status === 200 && !response.timing.includes("memo"))).toBe(true);
+  const again = await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true });
+  expect(again.map((response: any) => response.timing.includes('memo;desc="hit"'))).toEqual(MEMOIZED.map(() => true));
+  // A hit is the stored body byte for byte, under the same ETag.
+  expect(again.map((response: any) => [response.body, response.etag])).toEqual(first.map((response: any) => [response.body, response.etag]));
+  // Parameter order does not split entries.
+  const [reordered] = await f.probe.ask({ op: "api", paths: ["/api/cost?metric=tokens&groupBy=model&range=30d"], timing: true });
+  expect(reordered.timing).toContain('memo;desc="hit"');
+  expect(reordered.body).toEqual(first[MEMOIZED.indexOf("/api/cost?range=30d&groupBy=model&metric=tokens")].body);
+  // The default view (no window parameters, rolling 30d) can now be revalidated.
+  const overview = first[MEMOIZED.indexOf("/api/overview")];
+  expect((await f.probe.ask({ op: "api", paths: ["/api/overview"], etag: overview.etag }))[0]).toMatchObject({ status: 304, body: "" });
+}, 30_000);
+
+test("an append, a Refresh and a price change each miss the memo and return the body of a cold compute", async () => {
+  const f = await fixture();
+  await f.probe.ask({ op: "api", paths: MEMOIZED });
+  expect((await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true })).every((response: any) => response.timing.includes("memo"))).toBe(true);
+  let priceEpoch = 0;
+  for (const change of [
+    async () => appendFile(f.usage, JSON.stringify(entry("memo-append", epoch - 30_000)) + "\n"),
+    async () => f.probe.ask({ op: "get", force: true }),
+    async () => { priceEpoch = 1; await f.probe.ask({ op: "price", epoch: 1 }); await f.probe.ask({ op: "get", force: true }); },
+  ]) {
+    await change();
+    const actual = await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true });
+    expect(actual.filter((response: any) => response.timing.includes("memo")).map((response: any) => response.path)).toEqual([]);
+    // A new process has no memo: its answer is the cold compute for the same data, prices and clock.
+    const cold = await new Probe(root, f.home, f.pricing, true).ready();
+    if (priceEpoch) await cold.ask({ op: "price", epoch: priceEpoch });
+    expect(withoutTiming(actual)).toEqual(withoutTiming(await cold.ask({ op: "api", paths: MEMOIZED })));
+    cold.stop();
+  }
+}, 60_000);
+
+test("the toolbar's and the page's requests for one open share one row scan, and meta is built once", async () => {
+  const f = await fixture();
+  const before = await f.probe.ask({ op: "scans" });
+  await f.probe.ask({ op: "api", paths: ["/api/meta", "/api/scope?range=30d", "/api/projects?range=30d", "/api/cost?range=30d&groupBy=model&metric=tokens", "/api/usage?range=30d&groupBy=model&metric=tokens"] });
+  expect(await f.probe.ask({ op: "scans" })).toBe(before + 1);
+  // Another selection is another scan; the same one again is none.
+  await f.probe.ask({ op: "api", paths: ["/api/scope?range=7d", "/api/models?range=7d", "/api/models?range=30d"] });
+  expect(await f.probe.ask({ op: "scans" })).toBe(before + 2);
+  const [meta] = await f.probe.ask({ op: "api", paths: ["/api/meta"], timing: true });
+  expect(meta.timing).toContain('memo;desc="hit"');
 }, 30_000);
 
 test("the disk is checked at most once per freshness interval, Refresh always rebuilds, and Server-Timing reports both phases", async () => {

@@ -105,6 +105,7 @@ async function command(input: Record<string, any>) {
     }
     case "last": return last ? view(last) : null;
     case "lookups": return { ...lookups };
+    case "scans": return (await import(pathToFileURL(join(root, "server/src/analytics.ts")).href)).filterScans?.() ?? null;
     case "fault": {
       readFailures = { file: input.file, code: input.code, remaining: input.count };
       return { armed: true };
