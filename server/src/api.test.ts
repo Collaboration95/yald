@@ -388,3 +388,30 @@ test("session cost ranking covers every session, and token-class costs reconcile
   expect(composition.freshInput + composition.cacheRead + composition.cacheWrite + composition.output).toBeCloseTo(summary.cost, 3);
   expect(composition.total).toBeCloseTo(summary.cost, 3);
 });
+
+test("GET /api/labs/spend flags a planted spike, echoes its rule and answers 400 for an unusable day", async () => {
+  const day = 86_400_000;
+  const entries = Array.from({ length: 24 }, (_, i) => ({ ...usageEntry(`day-${i}`, now - (24 - i) * day, 100_000), conversationId: `c${i}`, cwd: "/synthetic/app" }));
+  // 300x the usual day, five days before the clock.
+  entries.push({ ...usageEntry("spike", now - 5 * day + 3_600_000, 30_000_000), conversationId: "big", cwd: "/synthetic/app" });
+  const request = await serve(entries);
+  const [ok, picked, badFormat, outside, filtered] = await request(
+    "/api/labs/spend?range=30d", "/api/labs/spend?range=30d&day=2026-09-28", "/api/labs/spend?range=30d&day=yesterday", "/api/labs/spend?range=7d&day=2020-01-01", "/api/labs/spend?range=30d&models=absent",
+  );
+  expect(ok!.status).toBe(200);
+  expect(ok!.body.analysis).toBe("spend-changes");
+  expect(ok!.body.rule).toMatchObject({ id: "trailing-median", baselineActiveDays: 14, minBaselineActiveDays: 7, spikeMultiple: 2.5 });
+  const spikes = ok!.body.days.filter((entry: any) => entry.state === "spike");
+  expect(spikes).toHaveLength(1);
+  expect(ok!.body.selected.day.date).toBe(spikes[0].date);
+  expect(ok!.body.selected.decomposition.cuts.session.new[0].label).toContain("big");
+  expect(ok!.body.selected.evidence.href).toContain("investigation=spend-changes");
+  expect(ok!.body.coverage).toMatchObject({ spikeDays: 1, unpricedRequests: 0 });
+  expect(picked!.status).toBe(200);
+  expect(badFormat!.status).toBe(400);
+  expect(badFormat!.body.error).toMatchObject({ code: "invalid_day", param: "day" });
+  expect(outside!.status).toBe(400);
+  // A cohort with no rows has no spike and no selected day, rather than a normal one.
+  expect(filtered!.body.days.every((entry: any) => entry.state !== "spike" && entry.state !== "normal")).toBe(true);
+  expect(filtered!.body.selected).toBeNull();
+});

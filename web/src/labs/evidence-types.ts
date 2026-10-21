@@ -1,9 +1,11 @@
 import type { CaseIntent } from "../../../server/src/labs/evidence-intent";
-import type { CacheEconomicsTotals, ContextSession, MeasurementCoverage, ProjectCoverage, ProjectRadarResponse, RadarCohort, RadarPeriod, RadarWindow, RequestRow } from "../types";
+import type { CacheEconomicsTotals, SpendDay, SpendDecomposition, SpendRule, ContextSession, MeasurementCoverage, ProjectCoverage, ProjectRadarResponse, RadarCohort, RadarPeriod, RadarWindow, RequestRow } from "../types";
 import type { ContextCounts } from "./context-types";
 
 type Finding = { state: "empty" | "insufficient" | "observed"; summary: string; notes: string[] };
 export type CaseObservation =
+  | (Finding & { investigation: "spend-changes"; rule: SpendRule; day: SpendDay;
+    decomposition: SpendDecomposition | null; baselineDays: { date: string; pricedCostUsd: number; pricedRequests: number; requests: number }[] })
   | (Finding & { investigation: "project-radar"; current: RadarPeriod; prior: RadarPeriod;
     comparison: ProjectRadarResponse["comparison"]; history: ProjectRadarResponse["history"];
     project: { key: string; present: boolean; gitRoot: boolean } | null })

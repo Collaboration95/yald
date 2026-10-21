@@ -9,7 +9,7 @@ export const MAX_TOP = 100;
 /** The window when neither a window nor phases are given. */
 export const DEFAULT_REPORT_RANGE = "24h";
 
-export type ReportSpecErrorCode = "invalid_source" | "invalid_top";
+export type ReportSpecErrorCode = "invalid_source" | "invalid_top" | "invalid_day";
 
 /**
  * A report input that is not about time. Same shape as WindowError (`code`,

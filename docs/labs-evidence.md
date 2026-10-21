@@ -1,10 +1,17 @@
 # Labs case evidence
 
-Enable Labs, open Project Radar, Cache Detective or Context Replay, and select a
+Enable Labs, open Project Radar, Cache Detective, Context Replay or Spend spikes, and select a
 finding's request evidence. The case shows its observations, fixed bounds,
 source-qualified selection, eligible sample and limitations above the request list.
 Expand Complete fixed cohort and coverage to inspect every cohort dimension.
 Artwork can be hidden without losing any explanation.
+
+For Spend spikes the case is one local day (`selector`) plus the baseline window
+before it (`priorSelector`), recomputed from only those rows: the day's cost,
+the baseline median and threshold, the state and the change against the baseline
+mean, with the rule printed. Contributor links (a project, a session or a model)
+keep the same two windows. A model link narrows the cohort to that model, so the
+day may read as not above the threshold on its own; its change is still shown.
 
 The case URL carries its complete selection. Opening it directly, refreshing,
 reloading or changing/resetting the global toolbar keeps that fixed case. Toolbar

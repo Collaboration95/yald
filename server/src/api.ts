@@ -4,6 +4,7 @@ import { publicRow } from "./publicRow";
 import { EvidenceIntentError, parseCaseIntent } from "./labs/evidence-intent";
 import { buildEvidenceCase } from "./labs/evidence";
 import { buildProjectRadar } from "./labs/projects";
+import { buildSpendChanges } from "./labs/spend";
 import { createHash } from "node:crypto";
 import {
   breakdown,
@@ -203,7 +204,7 @@ function canonicalQuery(url: string): string {
  * views, Labs findings and reports resolve git roots on disk, the report stamps its request
  * time, export bodies are too large to keep, and refresh rebuilds.
  */
-const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/evidence", "/api/export"]);
+const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/spend", "/api/labs/evidence", "/api/export"]);
 
 /**
  * Serialized response bodies for one dataset and pricing generation, bounded by entry count
@@ -306,7 +307,7 @@ api.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
   // a ledger revision. These routes hash the resolved payload after validation.
-  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) {
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/spend" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) {
     c.header("Server-Timing", timing());
     return c.body(null, 304);
   }
@@ -793,6 +794,27 @@ api.get("/api/labs/projects", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const payload = buildProjectRadar(dataset.rows, query.filter, query.window);
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
+});
+
+/**
+ * Spend spikes (#106): unusually expensive local days against the trailing baseline, and what changed on one
+ * of them. Project folders resolve git roots on disk, so the body is hashed after validation like Radar's.
+ */
+api.get("/api/labs/spend", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const day = c.req.query("day")?.trim() || null;
+  if (day !== null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    throw new ReportSpecError("invalid_day", "day", `Could not read "${day}" as a local date. Use YYYY-MM-DD in the window's time zone.`);
+  }
+  const payload = buildSpendChanges(dataset.rows, query.filter, query.window, c.get("now"), day);
+  if ("error" in payload) {
+    throw new ReportSpecError("invalid_day", "day", `The day ${day} is not in the selected window. Pick a local date inside it.`);
+  }
   const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   if (c.req.header("if-none-match") === etag) return c.body(null, 304);

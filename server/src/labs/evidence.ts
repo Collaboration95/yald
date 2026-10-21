@@ -7,6 +7,7 @@ import { buildCacheEconomics, cacheEligibility, round6 } from "./cache";
 import { buildContextReplay, contextExclusionReason } from "./context";
 import { buildProjectRadar } from "./projects";
 import { analysisScope, evidenceFor, orderedRequests, sessionKey } from "./scope";
+import { SPEND_RULE, spendCaseObservation } from "./spend";
 import type { CaseIntent, CaseSelector } from "./evidence-intent";
 
 export function caseFilter(selector: CaseSelector): RowFilter {
@@ -107,6 +108,34 @@ function contextObservation(datasetRows: RequestRow[], selectedRows: RequestRow[
   };
 }
 
+/**
+ * The spend case recomputes detection and decomposition from exactly the rows of the day's window and the
+ * baseline window just before it, under the same cohort and selection, so it reproduces the finding.
+ */
+function spendObservation(datasetRows: RequestRow[], intent: CaseIntent) {
+  const day = selectCaseRows(datasetRows, intent.selector);
+  const baseline = selectCaseRows(datasetRows, intent.priorSelector!);
+  const result = spendCaseObservation(day, baseline, intent.selector.window);
+  const { day: record, decomposition } = result;
+  const state = !day.length && !baseline.length ? "empty" as const
+    : record.state === "insufficient" || record.state === "no-priced" ? "insufficient" as const : "observed" as const;
+  const usd = (value: number | null) => money(value);
+  const ratio = record.baseline.ratio === null ? "unavailable" : `${record.baseline.ratio.toFixed(2)}x`;
+  const text = record.state === "no-priced" ? `No priced request on ${record.date}; ${record.requests} requests, ${record.tokens} recorded tokens.`
+    : record.state === "insufficient" ? `${record.date}: ${record.baseline.activeDays} active baseline days; the rule needs ${SPEND_RULE.minBaselineActiveDays} and a median above $0, so this day is insufficient, not normal.`
+    : `${record.date}: ${usd(record.pricedCostUsd)} priced, ${ratio} the median ${usd(record.baseline.medianUsd)} of the previous ${record.baseline.activeDays} active days (${record.state === "spike" ? "above" : "not above"} the ${SPEND_RULE.spikeMultiple}x threshold ${usd(record.baseline.thresholdUsd)}). ${record.pricedRequests} of ${record.requests} requests that day had a price.`;
+  return {
+    investigation: "spend-changes" as const, state, summary: text, rule: SPEND_RULE,
+    day: record, decomposition, baselineDays: result.baselineDays,
+    notes: [
+      "Unusual means unusual against your own loaded recent history. It is not wasteful, wrong or over budget.",
+      "Dollars are API list-price equivalents under today's loaded prices, priced requests only. Unpriced requests add requests and tokens, never dollars.",
+      "A share says where recorded dollars landed; it does not establish a cause or a change in behaviour. Loaded history is not necessarily history that happened.",
+      COST_NOTE,
+    ],
+  };
+}
+
 /** Bounded public metadata plus full-population metrics from the accepted investigation builders. */
 export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent) {
   const selectedSelector = intent.period === "prior" ? intent.priorSelector! : intent.selector;
@@ -126,6 +155,7 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent)
   const originalOrdinals = new Map(datasetRows.map((row, ordinal) => [row, ordinal]));
   const identity = createProjectIdentity();
   const observation = intent.investigation === "project-radar" ? radarObservation(datasetRows, intent)
+    : intent.investigation === "spend-changes" ? spendObservation(datasetRows, intent)
     : intent.investigation === "cache-detective" ? cacheObservation(datasetRows, selected, selectedSelector)
     : contextObservation(datasetRows, selected, selectedSelector);
   // Cache evidence reuses the builder's exact pricing-pair sum, already rounded
