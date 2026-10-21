@@ -1,6 +1,7 @@
 import { stat, readFile } from "node:fs/promises";
-import { readClaudeEntries } from "../claude/transcripts";
+import { readClaudeEntries, transcriptBytesRead } from "../claude/transcripts";
 import { readCodexSessionIndex, type CodexSession } from "../codex/sessions";
+import { readTail, TailChangedError, type TailCursor, type TailFile, type TailRead } from "../ingest/tail";
 import { SOURCE_CAPABILITIES, sourceOf, type Measurements } from "../report/source";
 import { PATHS } from "../env";
 import { loadPricing, priceWithCacheCounterfactual, pricingGeneration, type CacheEconomics } from "./pricing";
@@ -313,7 +314,7 @@ function normalizeLedger(events: SpendEvent[]): Dataset["ledger"] {
   return { events, byKind, settledTokens, updatedAt: updatedAt || null };
 }
 
-interface FileInfo {
+interface FileInfo extends TailFile {
   bytes: number;
   mtimeMs: number;
   fingerprint: string;
@@ -326,14 +327,21 @@ async function fileInfo(path: string): Promise<FileInfo | null> {
       bytes: Number(info.size),
       mtimeMs: Number(info.mtimeNs / 1_000_000n) + Number(info.mtimeNs % 1_000_000n) / 1_000_000,
       fingerprint: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`,
+      dev: String(info.dev),
+      ino: String(info.ino),
+      size: Number(info.size),
     };
   } catch {
     return null;
   }
 }
 
-async function parseUsage(path: string): Promise<{ rows: RequestRow[]; lines: number; malformed: number }> {
-  const text = await readFile(path, "utf8");
+interface Usage { rows: RequestRow[]; lines: number; malformed: number }
+
+const EMPTY_USAGE: Usage = { rows: [], lines: 0, malformed: 0 };
+
+/** Rows of the non-empty lines of `text`, in file order; a line without a requestId or not JSON is malformed. */
+function parseUsageLines(text: string): Usage {
   const rows: RequestRow[] = [];
   let malformed = 0;
   let lines = 0;
@@ -354,6 +362,54 @@ async function parseUsage(path: string): Promise<{ rows: RequestRow[]; lines: nu
     start = end + 1;
   }
   return { rows, lines, malformed };
+}
+
+const byTime = (a: RequestRow, b: RequestRow) => a.ts - b.ts;
+
+/**
+ * Two arrays each sorted by time, merged into a new one in O(n). At equal times `first`'s rows
+ * come first, each in its own order: exactly `first.concat(second)` stably sorted by time.
+ */
+function mergeByTime(first: RequestRow[], second: RequestRow[]): RequestRow[] {
+  if (!second.length) return first;
+  if (!first.length) return second;
+  if (first[first.length - 1]!.ts <= second[0]!.ts) return first.concat(second);
+  const merged: RequestRow[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < first.length && j < second.length) merged.push(second[j]!.ts < first[i]!.ts ? second[j++]! : first[i++]!);
+  while (i < first.length) merged.push(first[i++]!);
+  while (j < second.length) merged.push(second[j++]!);
+  return merged;
+}
+
+/** What the usage file held at its last complete line: sorted rows and counts. */
+interface UsageTail { readonly cursor: TailCursor; readonly committed: Usage }
+
+/**
+ * The usage file as the full parser would read it now. With `previous` (same file, same
+ * pricing), only the bytes appended since its cursor are read and parsed; complete new lines
+ * are merged into its sorted rows. An unterminated last line is parsed for this result, as the
+ * full parser does, but never committed: the next read starts before it again. The published
+ * arrays are new; `previous` is never modified.
+ */
+async function readUsage(path: string, file: FileInfo, previous: UsageTail | null): Promise<{ usage: Usage; tail: UsageTail; read: TailRead }> {
+  const read = await readTail(path, file, previous?.cursor ?? null);
+  const base = read.reset || !previous ? EMPTY_USAGE : previous.committed;
+  const added = parseUsageLines(read.complete);
+  // Stable: rows with equal times keep file order, and older lines precede newer ones.
+  const committed: Usage = {
+    rows: mergeByTime(base.rows, added.rows.sort(byTime)),
+    lines: base.lines + added.lines,
+    malformed: base.malformed + added.malformed,
+  };
+  const partial = parseUsageLines(read.partial);
+  const usage = partial.lines ? {
+    rows: mergeByTime(committed.rows, partial.rows),
+    lines: committed.lines + partial.lines,
+    malformed: committed.malformed + partial.malformed,
+  } : committed;
+  return { usage, tail: { cursor: read.cursor, committed }, read };
 }
 
 async function parseLedger(path: string): Promise<SpendEvent[]> {
@@ -394,32 +450,72 @@ function codexSignature(index: CodexIndex): string {
   return `codex:${codexGeneration}`;
 }
 
+/** Attributed copies per source row, for one index: an append re-attributes only its new rows. */
+let attributions: { index: CodexIndex; copies: WeakMap<RequestRow, RequestRow> } | null = null;
+
 /**
  * opencodex rows carry no cwd; their conversationId is the hashed Codex session id, so the
  * rollout index supplies one. Rows are copied (published rows may be frozen): matched ones get
  * the folder, unmatched ones with an id are marked `rolloutMiss`. The array is reused untouched
- * when ~/.codex has no sessions, so no miss is claimed without an index to miss in.
+ * when ~/.codex has no sessions, so no miss is claimed without an index to miss in. A row's copy
+ * is reused while the index is the same Map.
  */
 function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[] {
   if (!index.size) return rows;
+  if (attributions?.index !== index) attributions = { index, copies: new WeakMap() };
+  const copies = attributions.copies;
   let attributed: RequestRow[] | null = null;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     if (row.cwd !== null || row.protocol === "claude-code" || !row.conversationId) continue;
-    const session = index.get(row.conversationId);
+    let copy = copies.get(row);
+    if (!copy) {
+      const session = index.get(row.conversationId);
+      copy = session ? { ...row, cwd: session.cwd } : { ...row, rolloutMiss: true };
+      copies.set(row, copy);
+    }
     attributed ??= rows.slice();
-    attributed[i] = session ? { ...row, cwd: session.cwd } : { ...row, rolloutMiss: true };
+    attributed[i] = copy;
   }
   return attributed ?? rows;
 }
 
-type Usage = Awaited<ReturnType<typeof parseUsage>>;
+/** Normalized rows per Claude entry object, for one pricing generation: unchanged entries keep identity. */
+let claudeRows: { generation: string; rows: WeakMap<object, RequestRow> } | null = null;
+
+/**
+ * Claude entries as rows, stably sorted by time. readClaudeEntries keeps the identity of every
+ * entry it did not replace, so only new or changed entries are normalized (and priced) again.
+ * With no known pricing generation nothing is reused.
+ */
+function claudeRowsByTime(entries: Record<string, unknown>[], generation: string | null): RequestRow[] {
+  if (generation === null) return entries.map(normalizeRow).sort(byTime);
+  if (claudeRows?.generation !== generation) claudeRows = { generation, rows: new WeakMap() };
+  const known = claudeRows.rows;
+  return entries.map(entry => {
+    let row = known.get(entry);
+    if (!row) {
+      row = normalizeRow(entry);
+      known.set(entry, row);
+    }
+    return row;
+  }).sort(byTime);
+}
+
 interface Snapshot<T> {
   readonly fingerprint: string;
   readonly value: T;
 }
 
-let usageSnapshot: (Snapshot<Usage> & { readonly generation: string | null }) | null = null;
+let usageSnapshot: (Snapshot<Usage> & { readonly generation: string | null; readonly tail: UsageTail | null }) | null = null;
+
+/** How the last build read its sources; for tests and diagnostics. */
+export interface IngestReport {
+  usage: { mode: "reused" | "append" | "full" | "none"; bytesRead: number };
+  transcripts: { bytesRead: number };
+}
+let lastIngest: IngestReport = { usage: { mode: "none", bytesRead: 0 }, transcripts: { bytesRead: 0 } };
+export const ingestReport = (): IngestReport => lastIngest;
 let spendSnapshot: Snapshot<Dataset["ledger"]> | null = null;
 let quotaSnapshot: Snapshot<Dataset["quota"]> | null = null;
 
@@ -442,7 +538,10 @@ async function currentFiles() {
 }
 
 async function build(force: boolean): Promise<Dataset> {
-  const [initialFiles, claude, codex] = await Promise.all([currentFiles(), readClaudeEntries(), readCodexSessionIndex()]);
+  // Refresh re-reads changed transcripts whole rather than from their last line.
+  const transcriptBytesBefore = transcriptBytesRead();
+  const [initialFiles, claude, codex] = await Promise.all([currentFiles(), readClaudeEntries(undefined, undefined, { full: force }), readCodexSessionIndex()]);
+  const transcriptIngest = { bytesRead: transcriptBytesRead() - transcriptBytesBefore };
   const codexKey = codexSignature(codex);
   // Preserve the existing file-driven whole-dataset fast path. Pricing-only
   // changes still require force; generation guards component reuse on rebuild.
@@ -459,22 +558,29 @@ async function build(force: boolean): Promise<Dataset> {
     const spendKey = fingerprint(files.spend);
     const quotaKey = fingerprint(files.quota);
 
-    let nextUsage = !force && usageSnapshot?.fingerprint === usageKey
-      && generation !== null && usageSnapshot.generation === generation
-      ? usageSnapshot
-      : null;
+    // Rows are priced when normalized: only rows from the same known pricing generation are reused.
+    const samePricing = !force && generation !== null && usageSnapshot?.generation === generation;
+    let nextUsage = samePricing && usageSnapshot?.fingerprint === usageKey ? usageSnapshot : null;
+    let usageIngest: IngestReport["usage"] = { mode: "reused", bytesRead: 0 };
     if (!nextUsage) {
-      let usage: Usage;
+      let usage: Usage = EMPTY_USAGE;
+      let tail: UsageTail | null = null;
       try {
-        usage = files.usage ? await parseUsage(PATHS.usage) : { rows: [], lines: 0, malformed: 0 };
+        if (files.usage) {
+          // Same file and pricing: read only what was appended since the last complete line.
+          const result = await readUsage(PATHS.usage, files.usage, samePricing ? usageSnapshot?.tail ?? null : null);
+          ({ usage, tail } = result);
+          usageIngest = { mode: result.read.reset ? "full" : "append", bytesRead: result.read.bytesRead };
+        } else {
+          usageIngest = { mode: "full", bytesRead: 0 };
+        }
       } catch (error) {
         // Rotation/deletion can land after stat. Start a fresh composition rather
         // than assigning the observed fingerprint to missing or different bytes.
-        if (disappearedDuringRead(error) && attempt < 2) continue;
+        if ((disappearedDuringRead(error) || error instanceof TailChangedError) && attempt < 2) continue;
         throw error;
       }
-      usage.rows.sort((a, b) => a.ts - b.ts);
-      nextUsage = { fingerprint: usageKey, generation, value: usage };
+      nextUsage = { fingerprint: usageKey, generation, value: usage, tail };
     }
 
     let nextSpend = !force && spendSnapshot?.fingerprint === spendKey ? spendSnapshot : null;
@@ -513,11 +619,16 @@ async function build(force: boolean): Promise<Dataset> {
     // Claude Code subscription traffic bypasses ocx; its transcripts normalize to the same rows.
     // Memoized so quota/spend-only rebuilds keep reusing one rows array, like the usage snapshot.
     let nextMerged = mergedRows;
-    if (nextMerged?.usage !== usage || nextMerged.claude !== claude.signature || nextMerged.codex !== codex) {
-      const ocxRows = attributeCodexRows(usage.rows, codex);
-      const rows = claude.entries.length ? ocxRows.concat(claude.entries.map(normalizeRow)) : ocxRows;
-      // concat and attribution copy, so the reused usage snapshot array is never re-sorted.
-      if (rows !== usage.rows) rows.sort((a, b) => a.ts - b.ts);
+    if (force || nextMerged?.usage !== usage || nextMerged.claude !== claude.signature || nextMerged.codex !== codex) {
+      if (force) {
+        // Refresh recomputes every derived row.
+        attributions = null;
+        claudeRows = null;
+      }
+      // Both sources are sorted by time, so one O(n) merge gives the order of concatenating
+      // them and stably re-sorting: opencodex rows first at equal times, each source in its own
+      // order. Labs evidence identities use these positions. Nothing published is modified.
+      const rows = mergeByTime(attributeCodexRows(usage.rows, codex), claudeRowsByTime(claude.entries, generation));
       nextMerged = { usage, claude: claude.signature, codex, rows };
     }
     const rows = nextMerged.rows;
@@ -542,6 +653,7 @@ async function build(force: boolean): Promise<Dataset> {
     quotaSnapshot = nextQuota;
     mergedRows = nextMerged;
     signature = nextSignature;
+    lastIngest = { usage: usageIngest, transcripts: transcriptIngest };
     dataset = nextDataset;
     return nextDataset;
   }

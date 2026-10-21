@@ -736,3 +736,136 @@ test("the disk is checked at most once per freshness interval, Refresh always re
   expect(forced.dataset.rows.map(row => row.id)).toContain("inside-interval");
   expect((await probe.ask({ op: "lookups" })).stat).toBeGreaterThan(lookups.stat);
 }, 30_000);
+
+// Incremental ingestion (#100): every step is compared with a cold, forced full parse in a
+// fresh process (`oracle`: rows and their order, line and malformed counts), and every
+// published array is frozen, so an incremental build that mutated one would throw.
+const bulk = (prefix: string, count: number, at = epoch - 400_000) =>
+  Array.from({ length: count }, (_, i) => JSON.stringify(entry(`${prefix}-${i}`, at + i * 1_000, { note: "x".repeat(150) }))).join("\n") + "\n";
+/** opencodex rows first at equal times, each source in its own order: concatenation stably sorted by time. */
+function expectMergedOrder(rows: Dataset["rows"]) {
+  const ocx = rows.filter(row => row.protocol !== "claude-code");
+  const claude = rows.filter(row => row.protocol === "claude-code");
+  expect(rows.map(row => row.id)).toEqual([...ocx, ...claude].sort((a, b) => a.ts - b.ts).map(row => row.id));
+}
+
+test("appended usage lines are parsed alone and equal a full parse: chunks, torn and unterminated lines, out-of-order and equal times", async () => {
+  const f = await fixture();
+  // Larger than the checked window, so a resumed read really skips most of the file.
+  await appendFile(f.usage, bulk("bulk", 40));
+  let view: View = await f.probe.ask({ op: "get", freeze: true });
+  await oracle(f, view);
+  const step = async (text: string) => {
+    await appendFile(f.usage, text);
+    view = await f.probe.ask({ op: "get", freeze: true });
+    const ingest = await f.probe.ask({ op: "ingest" });
+    expect(ingest.usage.mode).toBe("append");
+    // The checked 4 KB before the cursor, any unterminated line before it, and the new bytes.
+    expect(ingest.usage.bytesRead).toBeLessThan(4096 + 1024 + Buffer.byteLength(text));
+    await oracle(f, view);
+    return view;
+  };
+  const late = JSON.stringify(entry("late", epoch - 5_000));
+  await step(late.slice(0, 20));
+  await step(late.slice(20, 60));
+  expect((await step(late.slice(60) + "\n")).dataset.rows.at(-1)!.id).toBe("late");
+  // An unterminated final line that is valid JSON counts, as the full parser counts it.
+  const unterminated = await step(JSON.stringify(entry("out-of-order", epoch - 500_000)));
+  expect(unterminated.dataset.rows[0]!.id).toBe("out-of-order");
+  // Equal times keep file order, the appended row after the earlier ones.
+  const ties = await step("\n" + JSON.stringify(entry("tie-c")) + "\n{oops}\n\n");
+  expect(ties.dataset.rows.filter(row => row.ts === epoch - 60_000).map(row => row.id)).toEqual(["tie-a", "tie-b", "零-🙂", "tie-c"]);
+}, 60_000);
+
+test("a rewrite inside the checked window, a replaced file and a truncated file fall back to a full parse", async () => {
+  const f = await fixture();
+  await appendFile(f.usage, bulk("bulk", 40));
+  await f.probe.ask({ op: "get", freeze: true });
+  const full = async () => {
+    const view: View = await f.probe.ask({ op: "get", freeze: true });
+    expect((await f.probe.ask({ op: "ingest" })).usage.mode).toBe("full");
+    await oracle(f, view);
+    return view;
+  };
+  // Same inode, grown, but a byte before the cursor changed: the checksum mismatch forces a full parse.
+  const text = await readFile(f.usage, "utf8");
+  const at = text.lastIndexOf('"inputTokens":100');
+  await writeFile(f.usage, text.slice(0, at) + '"inputTokens":700' + text.slice(at + 17) + JSON.stringify(entry("after-rewrite")) + "\n");
+  expect((await full()).dataset.rows.find(row => row.id === "bulk-39")!.inputTokens).toBe(700);
+  // Changed without growing: a rewrite, never an append.
+  const same = await readFile(f.usage, "utf8");
+  await writeFile(f.usage, same.replace('"inputTokens":700', '"inputTokens":800'));
+  expect((await full()).dataset.rows.find(row => row.id === "bulk-39")!.inputTokens).toBe(800);
+  // A new file at the path (rotation), larger than the old one.
+  const replacement = join(f.home, "replacement");
+  await writeFile(replacement, same + bulk("rotated", 5));
+  await rename(replacement, f.usage);
+  await full();
+  // Truncated.
+  await writeFile(f.usage, JSON.stringify(entry("only")) + "\n");
+  expect((await full()).dataset.rows.map(row => row.id)).toEqual(["only"]);
+  // And appends resume from the new file.
+  await appendFile(f.usage, JSON.stringify(entry("next")) + "\n");
+  const resumed: View = await f.probe.ask({ op: "get", freeze: true });
+  expect((await f.probe.ask({ op: "ingest" })).usage.mode).toBe("append");
+  await oracle(f, resumed);
+}, 60_000);
+
+test("Claude transcripts: appends, a replaced snapshot, duplicates across files and the archive, and equal times across sources equal a full parse", async () => {
+  const f = await fixture();
+  const dir = join(f.home, "claude-projects");
+  await mkdir(dir);
+  const at = new Date(epoch - 60_000).toISOString(); // the fixture's tie-a/tie-b time: equal times across sources
+  const line = (id: string, output: number, extra: Record<string, unknown> = {}) => JSON.stringify({
+    type: "assistant", requestId: id, sessionId: "s1", cwd: "/work/app-a", timestamp: at,
+    message: { id, model: "priced", stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: output } }, ...extra,
+  }) + "\n";
+  const a = join(dir, "a.jsonl"), b = join(dir, "b.jsonl");
+  await writeFile(a, Array.from({ length: 30 }, (_, i) => line(`claude-${i}`, 1, { padding: "x".repeat(150) })).join(""));
+  await writeFile(b, line("dup", 5));
+  // A resumed copy in the archive with fewer tokens: the live copy must win, wherever it lives.
+  // (Written literally, in toUsageEntry's shape: importing server modules here would pin env.ts
+  // for the other test files sharing this runtime.)
+  await writeFile(join(f.home, "yald-claude-usage.jsonl"), JSON.stringify({
+    requestId: "dup", timestamp: epoch - 60_000, provider: "anthropic", model: "priced", conversationId: "s1", cwd: "/work/app-a",
+    inboundProtocol: "claude-code", status: 200, usageStatus: "reported", cacheProvenance: "observed", spend: { sends: 1, settled: 1, unresolved: 0 },
+    usagePresence: { input: true, output: true, cacheRead: false, cacheWrite: false },
+    usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, reasoningOutputTokens: 0 },
+    totalTokens: 12, closeReason: "end_turn",
+  }) + "\n");
+  const check = async () => {
+    const view: View = await f.probe.ask({ op: "get", freeze: true });
+    await oracle(f, view);
+    expectMergedOrder(view.dataset.rows);
+    // Labs evidence identities use row positions: Context Replay ordinals must match a full parse.
+    const path = "/api/labs/context?range=all";
+    const cold = await new Probe(root, f.home, f.pricing, true).ready();
+    expect((await f.probe.ask({ op: "api", paths: [path] }))[0].body).toEqual((await cold.ask({ op: "api", paths: [path] }))[0].body);
+    cold.stop();
+    return view;
+  };
+  await check();
+  const before = (await f.probe.ask({ op: "ingest" })).transcripts;
+  // The same request again in another file, more complete: the winner moves across files.
+  await appendFile(a, line("dup", 9));
+  let view = await check();
+  expect(view.dataset.rows.find(row => row.id === "dup")!.outputTokens).toBe(9);
+  // Read from the last line: bytes proportional to the append, not to the 6 KB transcript.
+  expect((await f.probe.ask({ op: "ingest" })).transcripts.bytesRead).toBeLessThan(4096 + 1024);
+  expect(before.bytesRead).toBeGreaterThan(0);
+  // A later, more complete snapshot of a request from file a, appended to file b, replaces it.
+  await appendFile(b, line("claude-3", 4));
+  view = await check();
+  expect(view.dataset.rows.find(row => row.id === "claude-3")!.outputTokens).toBe(4);
+  // A torn line, then its completion.
+  const next = line("claude-new", 1);
+  await appendFile(a, next.slice(0, 30));
+  await check();
+  await appendFile(a, next.slice(30));
+  view = await check();
+  expect(view.dataset.rows.some(row => row.id === "claude-new")).toBe(true);
+  // Refresh re-reads changed transcripts whole and still matches.
+  await appendFile(b, line("claude-after", 1));
+  const forced: View = await f.probe.ask({ op: "get", force: true, freeze: true });
+  await oracle(f, forced);
+}, 90_000);
