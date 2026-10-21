@@ -1,5 +1,5 @@
 // The case intent is shared by the API and browser. No store, environment or collector imports.
-import { parseWindow } from "../time/window";
+import { nextBucketStart, parseWindow, zonedBucketStart } from "../time/window";
 
 // Structural counterpart of scope.ts's EvidenceSelector. Keep the browser
 // validator independent of analytics and its server-only Bun project matcher.
@@ -17,7 +17,7 @@ export interface CaseSelector {
   eligibility: "all" | "cache" | "context";
 }
 export interface CaseIntent {
-  investigation: "project-radar" | "cache-detective" | "context-replay";
+  investigation: "project-radar" | "cache-detective" | "context-replay" | "spend-changes";
   selector: CaseSelector;
   priorSelector?: CaseSelector;
   period: "current" | "prior";
@@ -100,11 +100,13 @@ export const CASE_QUERY_KEYS = ["investigation", "selector", "priorSelector", "p
 export function parseCaseIntent(params: URLSearchParams): CaseIntent {
   for (const key of CASE_QUERY_KEYS) if (params.getAll(key).length > 1) fail(key, `The case link repeats ${key}. Open the finding again.`);
   if (params.has("selectorVersion") && params.get("selectorVersion") !== "1") fail("selectorVersion", "This case link uses an unsupported selector version.");
-  const investigation = enumeration(params.get("investigation"), ["project-radar", "cache-detective", "context-replay"] as const, "investigation");
+  const investigation = enumeration(params.get("investigation"), ["project-radar", "cache-detective", "context-replay", "spend-changes"] as const, "investigation");
   const selector = decode(params.get("selector"), "selector");
   const eligibility = investigation === "cache-detective" ? "cache" : "all";
   if (selector.eligibility !== eligibility) fail("eligibility", `This investigation requires ${eligibility} evidence eligibility. Open the finding again.`);
-  if (investigation === "project-radar" ? !["scope", "project"].includes(selector.selection.kind) : selector.selection.kind === "project") {
+  const allowedSelections = investigation === "project-radar" ? ["scope", "project"]
+    : investigation === "spend-changes" ? ["scope", "project", "session"] : ["scope", "session", "unnamed"];
+  if (!allowedSelections.includes(selector.selection.kind)) {
     fail("selection", "This selection is unsupported for the investigation. Open the finding again.");
   }
   const period = enumeration(params.get("period") ?? "current", ["current", "prior"] as const, "period");
@@ -117,7 +119,17 @@ export function parseCaseIntent(params: URLSearchParams): CaseIntent {
       || a.tz !== b.tz || b.to !== a.from || a.to - a.from !== b.to - b.from) {
       fail("priorSelector", "The case needs the original equal-length, immediately preceding window with the same cohort and selection. Open the finding again.");
     }
-  } else if (params.has("priorSelector") || period !== "current") fail("period", "Only Project Radar supports paired periods.");
+  } else if (investigation === "spend-changes") {
+    priorSelector = decode(params.get("priorSelector"), "priorSelector");
+    const a = selector.window, b = priorSelector.window;
+    // One local day against the baseline window that ends exactly where it starts: not equal-length like Radar's pair.
+    const oneDay = zonedBucketStart(a.from, "day", a.tz) === a.from && nextBucketStart(a.from, "day", a.tz) === a.to;
+    if (priorSelector.eligibility !== "all" || JSON.stringify(selector.cohort) !== JSON.stringify(priorSelector.cohort)
+      || JSON.stringify(selector.selection) !== JSON.stringify(priorSelector.selection)
+      || a.tz !== b.tz || b.to !== a.from || !(b.from < b.to) || !oneDay) {
+      fail("priorSelector", "The case needs one local day and the baseline window ending exactly where that day starts, with the same cohort and selection. Open the finding again.");
+    }
+  } else if (params.has("priorSelector") || period !== "current") fail("period", "Only Project Radar and Spend spikes support paired periods.");
   const integer = (key: string, fallback: number, max: number) => {
     const raw = params.get(key);
     if (raw === null) return fallback;
