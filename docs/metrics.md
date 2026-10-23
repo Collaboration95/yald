@@ -136,9 +136,11 @@ The projects list rolls each folder up to the nearest enclosing git root (a fold
 The dashboard's Source and Project controls apply the same scope to request-based
 views and exports. Project choices use that existing aggregation, but selection
 uses the report's folder/ancestor glob rule: a selected root includes nested
-projects too. An unattributed row is not a project choice. The selection status
-states how many otherwise-matching requests and tokens had no folder and were
-excluded; a zero match offers a reset instead of assigning that usage elsewhere.
+projects too. An unattributed row is not a project choice. Under a project
+selection, a small note beside the filter chip (below the toolbar) states how many
+otherwise-matching requests and tokens had no folder and were excluded; the chip
+itself appears only while a filter narrows the data. A zero match offers a reset
+instead of assigning that usage elsewhere.
 URL filters survive navigation/reload, and session links retain the cohort plus
 the source-qualified `(source, conversationId)` identity. Session detail reports
 how much history was excluded by the window and the other filters.

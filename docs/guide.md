@@ -23,44 +23,43 @@ so. Unavailable values stay unavailable in saved results. See
 [data locations](install.md#data-locations-and-local-archive) for what the browser keeps. Recorded usage is available with the proxy stopped;
 quota then remains the last captured account observation.
 
-- **Overview:** period comparisons, usage by model/provider/effort, token-class
-  cost composition, gross cache-read discount, model leaderboard, activity
-  heatmap, quota, context pressure, throughput and recent requests.
-- **Usage:** fresh input, cache read/write, output and reasoning composition;
-  eligible cache-read ratio, grouped volume, activity heatmap, context-size
-  distribution and breakdown tables. Reasoning is already within output.
-- **Cost & spend:** priced cost by model/provider/effort and token class,
-  cumulative cost, gross cache-read discount, blended price per million tokens
-  (priced tokens only), the most expensive sessions across all sessions and
-  unpriced coverage. Structure sections show how concentrated spend is (top 1%
-  and 5% of sessions, top 10 sessions, Gini and a Pareto curve), blended price
-  over time by fixed price tier, and each token class's cost beside its token
-  share per source. Gross read discount excludes write
-  premiums; use Cache Detective for net fixed-workload economics.
+- **Overview:** six headline figures with the change against the previous period
+  (hover a change for what it compares), usage over time by model, provider or
+  effort, the top models, plan usage and the biggest sessions. Success rate and
+  time to first token are tagged **Codex only**. Plan usage is an account-wide
+  opencodex reading; a reading older than a day is marked stale. It shows only
+  when your selection includes opencodex.
+- **Usage:** cached versus new tokens, the cache hit rate, tokens by model,
+  provider or effort, and the activity heatmap (click a cell for its busiest
+  dates), with effort and provider tables. Reasoning is already within output.
+  Claude Code records no effort level, so its requests read "Not recorded".
+- **Cost:** estimated cost, cost per million tokens and the share of spend held by
+  your ten costliest sessions; spend over time, cumulative spend, the most
+  expensive sessions, where tokens and dollars go by token class for each source,
+  and a cost-by-model table (top eight; models with no price fold into
+  "+N unpriced"). Dollars are API list-price equivalents, not a bill. Use Cache
+  savings in Labs for net cache economics.
+- **Performance:** speed and reliability for opencodex requests, tagged **Codex
+  only** because Claude transcripts record no timing or outcome: time to first
+  token and latency percentiles, generation speed, a first-token/output scatter,
+  timings by model and the slowest requests (requests open for over ten minutes
+  are stalled streams and are left out). When there are failures it adds
+  failures over time, an error breakdown and recent failures grouped by model and
+  error.
 - **Context:** how long contexts are (`inputTokens`, including cached tokens):
-  median, p90, p99 and maximum per model, a box plot, a model-by-band grid, the
-  share of requests and list-price cost at or above 50k, 150k and 300k, a
-  by-band table of cost, time to first token and cancel rate, and session
-  growth. Statistics below their minimum sample read "too few requests";
-  opencodex-only columns read "not recorded" for Claude Code. The context
-  histograms on Overview, Usage and Performance link here.
-- **Performance:** measured duration and time-to-first-token (TTFT) percentiles,
-  throughput, distributions, TTFT/output scatter, slow requests and model
-  timings. Claude transcripts are ineligible for timing and throughput.
-- **Reliability:** observed outcomes and HTTP codes, measured attempts/retries,
-  errors, metered retry overhead and failure coverage. Claude outcomes and
-  retries are unobserved; they cannot establish a success or failure rate.
-- **Models:** volume, provider/model and effort mix, base rates, measured timing,
-  throughput, observed-outcome success rate and eligible cache-read ratio.
-  Missing measurements stay unavailable rather than entering those denominators.
-- **Quota:** opencodex account gauges, observed burn, exhaustion/reset comparisons,
-  utilization history, send/token flow and burn tables. The selected window
-  scopes history and burn; current utilization is point-in-time. Project/model
-  filters cannot scope account quota or the physical-send ledger. Claude-only
-  selection makes these unavailable.
-- **Conversations:** source-qualified sessions ranked by tokens, priced cost,
-  requests, recency or observed errors. Detail shows recorded input, cumulative
-  volume, model mix and request metadata, with window/cohort exclusions.
+  median and p90, requests by context size, a box plot per model, length over
+  time, a per-model table, what longer contexts coincide with by band, and
+  session growth. Statistics below their minimum sample read "few requests". The
+  box-plot legend, caveats and coverage sit behind (i) tooltips; a **Partial**
+  badge appears when under 95% of requests could be measured.
+- **Sessions:** source-qualified sessions, named by the project they ran in, ranked
+  by tokens, cost, requests, recency or errors; the count and medians cover every
+  session in the selection. Detail shows tokens over the session, context size
+  per request and the requests, with cache misses (a request that reread none of
+  its prompt from the cache) highlighted.
+
+Models, Quota and Reliability are no longer pages: their links open Cost, Overview
+and Performance. `/conversations` links open `/sessions`.
 
 Source and Project controls apply to request views and CSV export. Provider is
 a separate filter: an Anthropic provider does not imply a Claude transcript.
@@ -71,52 +70,55 @@ coverage counts priced requests independently of known project folders.
 
 ## Labs investigations
 
-Enable **Labs** in the sidebar and choose an investigation. The preference is
-saved for this browser origin. Disabling Labs unmounts its views and stops their
-queries; a disabled case URL can be recovered by enabling Labs. **Hide artwork**
-hides Yaldi's decorative images while keeping every explanation, value and
-control. Artwork supplies no evidence of its own.
+Turn **Labs** on from the settings menu (the gear next to the theme toggle). The
+preference is saved for this browser origin. Turning Labs off unmounts its views
+and stops their queries; a disabled Labs link offers to turn it back on. **Hide
+artwork**, in the same menu, hides Yaldi's decorative images while keeping every
+explanation, value and control. Artwork supplies no evidence of its own.
 
-**Project Radar** asks which projects account for requests, tokens and priced
-cost, and what changed against the immediately preceding equal-duration window.
-Named projects and `(unattributed)` remain distinct. Both periods use the same
-cohort and loaded price assumptions. Price gaps, unknown folders and incomplete
-loaded history have separate coverage. “New” means newly observed activity in
+Labs opens on a board of four cases, each a finding and one number. Every
+investigation uses one layout: Yaldi's one-line verdict with a big number, one
+chart, a top-five list with short names, a **See the requests** button, and an (i)
+holding the rule, coverage, scope and windows. Each investigation reads in its own
+window until you pick a range (spikes and context growth 30 days, projects and
+cache savings 7 days). Only range, source, project and model apply, so the other
+filters are hidden there.
+
+**Spikes** marks local days whose priced cost is unusually high against your own
+recent loaded history. A day is unusual when its priced cost is above 2.5 times the
+median daily priced cost over the previous 14 active days (days with at least one
+priced request). With fewer than 7 baseline days, or a $0 median, the day is "not
+enough history", never "normal"; partial days (today, or cut by the window edge)
+get a hollow bar with the reason. The page opens on the biggest unusual day; click
+any bar to pick another. The breakdown lists the five biggest increases by model,
+project, session or token class, opening on Model when unattributed requests make
+up most of the change. The day is compared with a typical day (the median); the
+per-group breakdown compares each group with the average of the baseline days.
+Dollars are API list-price equivalents of priced requests at today's prices. A
+spike is not a budget breach, and a share of dollars says where they landed, not
+why.
+
+**Projects** asks which projects cost more or less than the equally long period
+right before. Named projects and Unattributed stay distinct. Both periods use the
+same cohort and loaded price assumptions. "New" means newly observed activity in
 these windows, not a project creation date or delivered value.
 
-**Cache Detective** compares the identical recorded workload, with its observed
-cache counters, against the same input priced uncached. Read discount minus write
-premium is net benefit; negative means write premiums outweigh read discounts.
-Eligibility needs logical reported usage, inclusive input, both observed cache
-counters and adequate engine prices/tier provenance. Excluded requests and
-reasons remain visible. This comparison does not measure prefix survival, cache
-miss causes, a different request cadence or subscription savings. See
+**Cache savings** leads with what caching saved: the identical recorded workload,
+with its observed cache counters, priced against the same input uncached. Read
+discount minus write premium is the net; negative means write premiums outweigh
+read discounts. Eligibility needs logical reported usage, inclusive input, both
+observed cache counters and adequate engine prices/tier provenance. This does not
+measure prefix survival, cache-miss causes or subscription savings. See
 [net cache economics](metrics.md#net-cache-economics).
 
-**Context Replay** displays submitted input in request order within a
-source-qualified session. With at least six eligible requests, it compares
-median input of the first three with the last three; a zero baseline has no
-ratio. Missing input and attempt sums remain gaps, while measured zero remains
-valid. Shorter sequences stay inspectable without ranked growth. An input drop
-or adjacent model change establishes no compaction, cause or answer quality.
-See [context metrics](labs-context.md).
+**Context growth** shows submitted input in request order within a
+source-qualified session. With at least six eligible requests, it compares the
+median input of the first three with the last three; a zero baseline has no ratio.
+Missing input and attempt sums remain gaps, while measured zero remains valid. An
+input drop or adjacent model change establishes no compaction, cause or answer
+quality. See [context metrics](labs-context.md).
 
-**Spend spikes** marks local days whose priced cost is unusually high against
-your own recent loaded history, then shows what changed on one of them. The rule
-is stated on the page: a day is a spike when its priced cost is above 2.5 times
-the median daily priced cost over the previous 14 active days (days with at
-least one priced request). With fewer than 7 baseline days, or a $0 median, the
-day is "insufficient", never "normal"; partial days (today, or cut by the window
-edge) get a hollow bar with the reason. Pick a spike day to see its change
-against the baseline mean as a waterfall by project, model, token class or
-session, with new contributors marked, an exact-values table, a drill-down from
-project to model to token class, and the day's coverage (priced requests,
-unpriced requests, known project folders). Dollars are API list-price
-equivalents of priced requests at today's prices. A spike is not a budget
-breach, and a share of dollars says where they landed, not why. "Open this
-day's requests as a fixed case" shows the exact day and baseline rows.
-
-Each finding's evidence action opens a **fixed case**. It retains the exact
+Each finding's **See the requests** button opens a **fixed case**: a plain table of time, model, project, tokens and cost. It retains the exact
 original half-open window, timezone, full cohort and source-qualified selection
 through reload, pagination and global-toolbar changes. Radar keeps its original
 current/prior pair; switching periods does not rebase it. Full-population counts

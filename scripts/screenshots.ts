@@ -37,10 +37,8 @@ const routes: Record<string, string> = {
   usage: "/usage",
   cost: "/cost",
   performance: "/performance",
-  reliability: "/reliability",
-  models: "/models",
-  quota: "/quota",
-  conversations: "/conversations",
+  context: "/context",
+  sessions: "/sessions",
 };
 
 async function waitForServer() {
