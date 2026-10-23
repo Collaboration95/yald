@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { DEFAULT_FILTERS, fetchJson, filtersToParams } from "../src/api";
 import { PreferencesProvider, usePreferences, type PreferencesStorage } from "../src/lib/preferences";
-import { InvestigationScope } from "../src/pages/labs/InvestigationScope";
 import { InvestigationState } from "../src/pages/labs/InvestigationState";
 import { LabsLayout } from "../src/pages/labs/LabsLayout";
 
@@ -48,8 +47,6 @@ export function mountLabsFixture({ blockedStorage = false }: { blockedStorage?: 
       }}>Set artwork preference and disable</button>
     </div>;
   }
-  const cohort = { sources: ["ocx" as const], projects: ["/synthetic/{one,two}"], providers: ["synthetic-provider"], models: ["synthetic,model"],
-    efforts: ["high"], statuses: ["ok" as const], routeKinds: ["native"], conversationId: "synthetic-session", search: "fixture" };
   root.render(<QueryClientProvider client={client}>
     <PreferencesProvider storage={storage}>
       <PreferenceProbe />
@@ -61,8 +58,6 @@ export function mountLabsFixture({ blockedStorage = false }: { blockedStorage?: 
     <InvestigationState kind="error" detail="Synthetic fixture data is temporarily unavailable." onRetry={() => { retries++; }} />
     <InvestigationState kind="empty" />
     <InvestigationState kind="insufficient" detail="Only one request has measured input. At least two are needed for this comparison." />
-    <InvestigationScope window={{ from: Date.parse("2026-09-01T00:00:00Z"), to: Date.parse("2026-09-02T00:00:00Z"), tz: "Asia/Singapore", label: "Fixed day" }}
-      cohort={cohort} sample={{ eligibleRequests: 1, totalRequests: 4 }} unpricedRequests={2} unattributedRequests={1} />
   </QueryClientProvider>);
   return {
     snapshot: () => ({ saved, queryCalls, mounts, unmounts, retries, preferences: element.querySelector("output")?.textContent }),

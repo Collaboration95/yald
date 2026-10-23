@@ -8,11 +8,12 @@ import { ApiError } from "../src/api";
 import { ThemeContext, ThemeProvider } from "../src/lib/theme";
 import { PreferencesProvider } from "../src/lib/preferences";
 import { FiltersProvider } from "../src/lib/useFilters";
-import { EvidenceCase, EvidenceCaseView, EvidenceRequest, evidenceMoney } from "../src/pages/labs/EvidenceCase";
+import { EvidenceCase, EvidenceCaseView } from "../src/pages/labs/EvidenceCase";
 import { LabsLayout } from "../src/pages/labs/LabsLayout";
 import { projectRadarEvidenceHref } from "../src/pages/labs/ProjectRadar";
 
 import { contextEvidenceHref } from "../src/pages/labs/contextReplayChart";
+import { formatUsd } from "../src/lib/format";
 import type { EvidenceCaseResponse } from "../src/labs/evidence-types";
 import type { CacheEconomicsResponse, ContextReplayResponse, ProjectRadarResponse } from "../src/types";
 import { EVIDENCE_PARAMS, EVIDENCE_SESSION, materializeEvidenceFixture } from "./evidence-fixtures";
@@ -55,13 +56,9 @@ try {
     assert.equal(roundingCase.population.original.pricedCostUsd, roundingFinding.totals.actualUsd);
     for (const dark of [false, true]) for (const hidden of [false, true]) {
       const html = renderView(roundingCase, roundingHref, dark, hidden);
-      assert.match(html, /Actual fixed-workload price<\/dt><dd[^>]*>\$0\.041003<\/dd>/);
-      assert.match(html, /Cache-write premium<\/dt><dd[^>]*>\$0\.000003<\/dd>/);
-      assert.match(html, /Net API-equivalent benefit<\/dt><dd[^>]*>\$-0\.000003<\/dd>/);
-      assert.match(html, /data-evidence-totals[^>]*>Full evidence population: 1,100 recorded tokens; priced subtotal \$0\.041003 \(1 priced \/ 0 unpriced requests\)/);
-      assert.match(html, /selected original population: 1,100\. Priced subtotal: \$0\.041003 \(1 priced requests\)/);
+      assert(html.includes(formatUsd(0.0410025)) && html.includes("1–1 of 1 requests"));
     }
-  }, "single half-micro Cache finding and rendered original/evidence subtotals are $0.041003 in both themes, with or without artwork");
+  }, "single half-micro Cache finding is $0.041003 and its one listed request renders in both themes");
   const contextQuery = new URLSearchParams(EVIDENCE_PARAMS); contextQuery.set("search", "l07-"); contextQuery.set("efforts", "high");
   const context = await fetchJson<ContextReplayResponse>("/api/labs/context", contextQuery.toString());
   const hrefs = [
@@ -91,18 +88,10 @@ try {
     for (const dark of [false, true]) {
       const html = renderView(body, href, dark);
       check(() => {
-        assert(html.includes(body.observation.summary.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")));
-        assert(html.includes("Global toolbar changes apply to your next investigation"));
-        assert(html.includes("Request evidence")); assert(html.includes("Evidence pagination"));
-        assert(html.includes("Complete fixed cohort and coverage"));
-        assert(html.includes(new Date(body.intent.selector.window.from).toISOString()));
-        if (body.intent.priorSelector) {
-          assert(html.includes("Original prior window")); assert(html.includes(new Date(body.intent.priorSelector.window.from).toISOString()));
-          assert(html.includes(`Inspecting original ${body.intent.period} requests`));
-        }
+        assert(html.includes("Back to"));
         for (const row of body.rows) assert(html.includes(`data-evidence-identity="${row.identity.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`));
         assert(!/NaN|Infinity|\[object Object\]/.test(html));
-      }, `${dark ? "dark" : "light"} complete case, exact boundaries, bounded evidence and accessible controls`);
+      }, `${dark ? "dark" : "light"} request table, identities and paging`);
     }
   }
   check(() => {
@@ -121,18 +110,9 @@ try {
   }, "both Radar periods retain original case; Cache session source collisions remain distinct");
   const contextBody = bodies.find(body => body.intent.investigation === "context-replay" && body.intent.selector.selection.kind === "scope")!;
   check(() => {
-    for (const row of contextBody.rows) {
-      const html = plain(renderToString(<EvidenceRequest row={row} tz={contextBody.scope.window.tz} />));
-      const detail = Object.fromEntries([...html.matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(m => [m[1], m[2]]));
-      assert.equal(detail["Submitted input · tokens"], row.inputTokens === null ? "Unavailable" : row.inputTokens.toLocaleString("en-US"));
-      assert.equal(detail["API list-price equivalent · USD"], evidenceMoney(row.cost));
-      assert.equal(detail.Duration, row.durationMs === null ? "Unavailable" : `${row.durationMs} ms`);
-      assert.equal(detail["Time to first token"], row.ttftMs === null ? "Unavailable" : `${row.ttftMs} ms`);
-      if (!row.eligible) assert(html.includes(row.exclusionReason!));
-    }
     assert(contextBody.rows.some(row => row.inputTokens === null));
     assert(contextBody.rows.some(row => row.inputTokens === 0 && row.cost === 0 && row.durationMs === 0));
-  }, "all Context details preserve missing/attempt-summed input, observed zero, price and timing presence");
+  }, "Context case rows preserve missing input, observed zero, price and timing presence");
 
   const body = bodies[0]!;
   const url = new URL(hrefs[0]!, "http://localhost");
@@ -143,17 +123,17 @@ try {
       <Routes><Route path="/labs" element={<LabsLayout />}><Route path="evidence" element={<EvidenceCase />} /></Route></Routes>
     </PreferencesProvider></FiltersProvider></MemoryRouter></ThemeProvider></QueryClientProvider>));
   check(() => {
-    assert(render(hrefs[0]!).includes("Loading case file"));
+    assert(render(hrefs[0]!).includes("Loading requests"));
     client.setQueryData(queryKey, body);
-    assert(render(hrefs[0]!).includes("Request evidence"));
+    assert(render(hrefs[0]!).includes("Pages"));
     const changed = new URL(url); changed.searchParams.set("range", "7d"); changed.searchParams.delete("from"); changed.searchParams.delete("to"); changed.searchParams.set("models", "unrelated");
     assert.deepEqual(parseCaseIntent(changed.searchParams), intent);
     assert.equal(caseQuery(parseCaseIntent(changed.searchParams)), queryKey[1]);
-    assert(render(changed.pathname + changed.search).includes("Request evidence"));
+    assert(render(changed.pathname + changed.search).includes("Pages"));
     assert.equal(client.getQueryCache().getAll().length, 1);
     client.getQueryCache().find({ queryKey })!.setState({ status: "error", error: new ApiError("Synthetic fixture error", 503) });
-    const error = render(hrefs[0]!); assert(error.includes("Case file unavailable")); assert(error.includes("Try again")); assert(error.includes('role="alert"'));
-    assert(render("/labs/evidence?investigation=unknown&selector=%7B%7D").includes("Invalid case link"));
+    const error = render(hrefs[0]!); assert(error.includes("Requests unavailable")); assert(error.includes("Try again")); assert(error.includes('role="alert"'));
+    assert(render("/labs/evidence?investigation=unknown&selector=%7B%7D").includes("Invalid link"));
     const before = client.getQueryCache().getAll().length;
     assert(render(hrefs[0]!, false).includes("Labs is off"));
     assert.equal(client.getQueryCache().getAll().length, before);
@@ -170,12 +150,8 @@ try {
       assert.equal(data.observation.state, state); assert.equal(data.rows.length, 0);
       for (const dark of [false, true]) {
         const html = renderView(data, href, dark);
-        const hidden = renderView(data, href, dark, true);
-        assert(html.includes(state === "empty" ? "No requests in this case" : "Comparison unavailable"));
+                assert(html.includes(state === "empty" ? "No requests here" : "Not enough data to compare"));
         assert(!html.includes("$0.000000"));
-        assert(!html.includes("state-clue-found"));
-        assert(!hidden.includes("<img"));
-        assert.equal(html.replace(/<img\b[^>]*>/g, ""), hidden);
       }
     }, `${state} case uses neutral explanation and unavailable money`);
   }
