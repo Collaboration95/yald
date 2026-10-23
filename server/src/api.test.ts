@@ -382,6 +382,9 @@ test("session cost ranking covers every session, and token-class costs reconcile
   expect(byCost!.body.conversations.map((c: any) => c.id)).toEqual(["costly", "long-session", expect.any(String)]);
   expect(byTokens!.body.conversations[0].id).toBe("long-session");
   expect(byRequests!.body.conversations).toHaveLength(1);
+  // The KPI counts every session in the selection, not the page of them the list returns.
+  expect(byRequests!.body.totals.conversations).toBe(62);
+  expect(byCost!.body.totals.conversations).toBe(62);
   // Classes add up to the engine's total on every row, including the long-context-tier one.
   const { composition, summary } = cost!.body;
   expect(composition.adjustment).toBe(0);

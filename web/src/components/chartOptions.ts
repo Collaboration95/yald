@@ -28,6 +28,18 @@ export function axisCommon(theme: ThemeTokens) {
   };
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Axis text for a bucket label: "2026-09-23" reads "Sep 23". Anything else is left alone; tooltips keep the full label. */
+export function shortAxisLabel(label: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(label);
+  if (!match) return label;
+  const day = `${MONTHS[Number(match[2]) - 1] ?? match[2]} ${Number(match[3])}`;
+  return match[4] ? `${day} ${match[4]}` : day;
+}
+
+const dateAxisLabel = (theme: ThemeTokens) => ({ ...axisCommon(theme).axisLabel, formatter: shortAxisLabel });
+
 export function tooltipCommon(theme: ThemeTokens) {
   return {
     trigger: "axis" as const,
@@ -41,14 +53,21 @@ export function tooltipCommon(theme: ThemeTokens) {
   };
 }
 
+/** Space the grid keeps for the legend; the legend sits below the plot so it can never cover an axis label. */
+export const LEGEND_SPACE = 30;
+
 export function legendCommon(theme: ThemeTokens, show = true) {
   return {
     show,
-    top: 0,
-    right: 4,
+    // One scrolling row at the bottom: a long legend pages instead of wrapping onto the plot.
+    type: "scroll" as const,
+    bottom: 0,
+    left: "center",
+    width: "92%",
     itemWidth: 8,
     itemHeight: 8,
     icon: "roundRect",
+    pageIconSize: 10,
     textStyle: { color: theme.axis, fontSize: 11 },
   };
 }
@@ -62,10 +81,10 @@ export function stackedAreaChart(
   const formatter = options.formatter ?? ((value: number) => String(value));
   const colorOf = (name: string, index: number) => options.colors?.[name] ?? colorAt(index);
   return {
-    grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
+    grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
-    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
+    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
     yAxis: { type: "value", ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
@@ -89,10 +108,10 @@ export function stackedBarChart(
   options: { formatter?: (value: number) => string; showLegend?: boolean; horizontal?: boolean } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
-  const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme) };
+  const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) };
   const valueAxis = { type: "value" as const, ...axisCommon(theme) };
   return {
-    grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
+    grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
     xAxis: options.horizontal ? valueAxis : categoryAxis,
@@ -122,11 +141,11 @@ export function lineChart(
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   return {
-    grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
+    grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => options.preserveGaps && (typeof value !== "number" || !Number.isFinite(value))
       ? "Unavailable" : formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
-    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
+    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
     yAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
@@ -335,7 +354,7 @@ export function pairedBarChart(
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   return {
-    grid: baseGrid({ top: 30, right: 36 }),
+    grid: baseGrid({ top: 12, right: 36, bottom: LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), axisPointer: { type: "shadow" }, valueFormatter: (value: unknown) => (typeof value === "number" ? formatter(value) : "Unavailable") },
     legend: legendCommon(theme),
     xAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
@@ -418,7 +437,7 @@ export function scatterChart(
   const yFormatter = options.yFormatter ?? ((value: number) => String(value));
   const divisor = options.scaleSize ?? 12;
   return {
-    grid: baseGrid({ top: 34, right: 24, bottom: 26 }),
+    grid: baseGrid({ top: 34, right: 24, bottom: 26 + (series.length > 1 ? LEGEND_SPACE : 0) }),
     tooltip: {
       trigger: "item",
       backgroundColor: theme.tooltipBg,

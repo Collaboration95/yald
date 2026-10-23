@@ -2,6 +2,9 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import { useLocation, useSearchParams } from "react-router-dom";
 import { canonicalSources, DEFAULT_FILTERS, filtersFromParams, type Filters } from "../api";
 
+/** The time window and zone: part of the view, not a request filter, so Reset keeps them. */
+const WINDOW_KEYS = new Set(["range", "from", "to", "last", "tz"]);
+
 type FilterListKey = "providers" | "models" | "efforts" | "statuses" | "sources" | "projects";
 
 interface FiltersContextValue {
@@ -53,11 +56,10 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
   const reset = useCallback(() => {
     setSearchParams(current => {
       const next = new URLSearchParams(current);
-      // Reset dashboard filters only; preserve case intent, including paired selectors.
-      for (const key of Object.keys(DEFAULT_FILTERS)) next.delete(key);
-      next.set("range", DEFAULT_FILTERS.range);
+      // Reset request filters only. The time window is not a filter, and case intent (including paired selectors) stays.
+      for (const key of Object.keys(DEFAULT_FILTERS)) if (!WINDOW_KEYS.has(key)) next.delete(key);
       // Session identity is not a cohort filter. Reset must still open the same source's session.
-      if (pathname.startsWith("/conversations/") && current.has("sessionSource")) next.set("sessionSource", current.get("sessionSource")!);
+      if (pathname.startsWith("/sessions/") && current.has("sessionSource")) next.set("sessionSource", current.get("sessionSource")!);
       return next;
     }, { replace: true });
   }, [setSearchParams, pathname]);

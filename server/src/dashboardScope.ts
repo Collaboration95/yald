@@ -60,10 +60,14 @@ export function scopeSummary(rows: RequestRow[], filter: RowFilter) {
   // Source choices are counted under every other filter, so they stay comparable while one is picked.
   const otherSources = filterRows(rows, { ...filter, sources: undefined });
   const coverage = projectCoverage(rows, filter);
+  // Model choices follow the same rule: counted in the window under every other filter, most used first.
+  const modelCounts = new Map<string, number>();
+  for (const row of filterRows(rows, { ...filter, models: undefined })) modelCounts.set(row.model, (modelCounts.get(row.model) ?? 0) + 1);
   return {
     matched: tally(filterRows(rows, filter)),
     windowTotal: tally(filterRows(rows, { from: filter.from, to: filter.to })),
     sources: ALL_SOURCES.map(source => ({ source, ...tally(otherSources.filter(row => sourceOf(row) === source)) })),
+    models: [...modelCounts.entries()].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests || a.model.localeCompare(b.model)),
     ...(coverage ? { coverage } : {}),
   };
 }

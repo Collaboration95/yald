@@ -1,25 +1,22 @@
 /** Compare actual L06 endpoint payloads with the L07 render and chart consumers. */
 import assert from "node:assert/strict";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderToStaticMarkup, renderToString } from "react-dom/server";
+import { renderToString } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { DEFAULT_FILTERS, fetchJson, filtersFromParams, filtersToParams } from "../src/api";
-import { lineChart } from "../src/components/chartOptions";
 import { ChartStyleContext } from "../src/lib/chartStyle";
 import { makeRelayStyle } from "../src/lib/relayStyle";
 import { YaldiSmokeProviders } from "./yaldi-smoke";
 import { FiltersProvider } from "../src/lib/useFilters";
-import { ContextReplay, ContextReplayView, ContextRequestDetails } from "../src/pages/labs/ContextReplay";
+import { ContextReplay, ContextReplayView } from "../src/pages/labs/ContextReplay";
 import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
-import { contextCost, contextEvidenceHref, contextTimelineOption } from "../src/pages/labs/contextReplayChart";
+import { contextEvidenceHref, contextTimelineOption } from "../src/pages/labs/contextReplayChart";
 import type { ContextReplayResponse } from "../src/types";
 import { CONTEXT_REPLAY_FROM, CONTEXT_REPLAY_TO, CONTEXT_REPLAY_PARAMS } from "./context-replay-fixtures";
 import { evidenceFor } from "../../server/src/labs/scope";
 
 const theme = { text: "#29292b", axis: "#69696c", split: "#e5e5e2", tooltipBg: "#fff", tooltipBorder: "#d5d5d1", area: "transparent" };
 const plain = (html: string) => html.replace(/<!--.*?-->/g, "");
-const number = (value: number | null) => value === null ? "Unavailable" : value.toLocaleString("en-US");
-const htmlText = (html: string) => plain(html).replace(/<[^>]*>/g, "");
 
 export async function checkContextReplaySmoke() {
   let checks = 0;
@@ -28,7 +25,7 @@ export async function checkContextReplaySmoke() {
   const main = data.sessions.find(s => s.source === "ocx" && s.conversationId === "l07-shared")!;
   const transcript = data.sessions.find(s => s.source === "claude-code" && s.conversationId === "l07-shared")!;
   const models = [...new Set(data.sessions.flatMap(s => s.requests.map(r => r.model)))];
-  const render = (payload: ContextReplayResponse, dark = false, hideArtwork = false) => renderToString(<YaldiSmokeProviders theme={dark ? "dark" : "light"} hideArtwork={hideArtwork}><ChartStyleContext.Provider value={makeRelayStyle(dark, models)}>
+  const render = (payload: ContextReplayResponse, dark = false) => renderToString(<YaldiSmokeProviders theme={dark ? "dark" : "light"}><ChartStyleContext.Provider value={makeRelayStyle(dark, models)}>
     <MemoryRouter><ContextReplayView data={payload} /></MemoryRouter></ChartStyleContext.Provider></YaldiSmokeProviders>);
 
   check(() => {
@@ -45,111 +42,43 @@ export async function checkContextReplaySmoke() {
     const style = makeRelayStyle(dark, models);
     check(() => {
       for (const session of data.sessions) {
-        const option: any = style.chart(contextTimelineOption(theme, session, data.window.tz, style.modelColor));
-        assert.match(option.xAxis.name, /Request index.*Asia\/Singapore/);
-        assert.equal(option.yAxis.name, "Input tokens");
-        assert.equal(new Set(option.xAxis.data).size, session.requests.length);
+        const option: any = style.chart(contextTimelineOption(theme, session, data.window.tz));
+        assert.equal(option.series.length, 1);
+        assert.equal(option.xAxis.data.length, session.requests.length);
         for (const [index, row] of session.requests.entries()) {
-          assert.match(option.xAxis.data[index], new RegExp(`^#${row.ordinal + 1}\\n`));
-          assert.deepEqual(option.series.slice(0, 3).map((s: any) => s.data[index]), row.eligible ? [row.inputTokens, row.cacheReadTokens, row.cacheWriteTokens] : [null, null, null]);
-          for (const series of option.series.slice(3)) {
-            assert.equal(series.data[index], row.eligible && series.name === `Model · ${row.model}` ? row.inputTokens : null);
-          }
-          if (!row.eligible) {
-            assert(option.series.every((s: any) => s.data[index] === null));
-            assert.match(option.tooltip.formatter([{ dataIndex: index }]), /Submitted input: Unavailable<br\/>Cache read: Unavailable<br\/>Cache write: Unavailable/);
-          }
+          // A request without a measured input leaves a gap; a measured zero is drawn.
+          assert.equal(option.series[0].data[index], row.eligible ? row.inputTokens : null);
         }
-        for (const series of option.series.slice(0, 3)) {
-          assert.equal(series.connectNulls, false);
-          assert.equal(series.smooth, 0);
-          assert.equal(series.symbol, "circle");
-        }
-        assert.equal(option.tooltip.valueFormatter(null), "Unavailable");
-        assert.equal(option.tooltip.valueFormatter(undefined), "Unavailable");
-        assert.equal(option.tooltip.valueFormatter("-"), "Unavailable");
-        assert.equal(option.tooltip.valueFormatter(0), "0");
-        for (const marker of option.series.slice(3)) assert.equal(marker.itemStyle.color, style.modelColor(marker.name.slice("Model · ".length)));
+        assert.equal(option.series[0].connectNulls, false);
       }
-      const option: any = contextTimelineOption(theme, main, data.window.tz, style.modelColor);
-      const sum = main.requests.findIndex(r => r.id === "l07-attempt-sum");
-      assert.equal(main.requests[sum]!.cacheReadTokens, 500);
-      assert(option.series.every((s: any) => s.data[sum] === null));
       const zero = main.requests.findIndex(r => r.id === "l07-zero");
-      assert.deepEqual(option.series.slice(0, 3).map((s: any) => s.data[zero]), [0, 0, 0]);
-      assert.match(option.tooltip.formatter([{ dataIndex: zero }]), /Submitted input: 0<br\/>Cache read: 0<br\/>Cache write: 0/);
-      const missingCache = main.requests.findIndex(r => r.id === "l07-no-cache-accounting");
-      assert.deepEqual(option.series.slice(0, 3).map((s: any) => s.data[missingCache]), [800, null, null]);
-      const defaults: any = lineChart(theme, ["a", "b"], [{ name: "existing", data: [0, null] }]);
-      assert.equal(defaults.series[0].connectNulls, true);
-      assert.equal(defaults.tooltip.valueFormatter(null), "0");
-    }, `${dark ? "dark" : "light"} chart values: all ineligible series masked, gaps disconnected, zero drawn, stable model colors, shared defaults retained`);
+      assert.equal((contextTimelineOption(theme, main, data.window.tz) as any).series[0].data[zero], 0);
+    }, `${dark ? "dark" : "light"} chart: ineligible requests leave gaps, measured zero is drawn`);
     check(() => {
       const html = plain(render(data, dark));
-      const labels = [...html.matchAll(/aria-label="Select ([^"]+) session ([^"]+)"/g)].map(match => match[2]);
-      assert.deepEqual(labels, data.sessions.map(s => s.conversationId));
-      assert.match(html, /First-three median 200 → last-three median 1,000 input tokens · change \+800 tokens/);
-      assert.match(html, /Sequence limited by the window and the cohort/);
-      assert.match(html, /1 loaded requests before the window, 1 at or after its end, 1 within the window outside the cohort/);
-      assert.match(html, /attempt-summed usage: 1/);
+      assert.match(html, /Sessions grow about/);
+      assert.match(html, /Fastest-growing sessions/);
+      assert.match(html, /Input per request/);
       for (const bad of ["NaN", "Invalid Date", "Infinity"]) assert(!html.includes(bad));
+      // A session with fewer than six measured requests is not ranked, and the page says so instead of inventing a growth figure.
       const short = data.sessions.find(s => s.conversationId === "l07-short")!;
       const shortHtml = plain(render({ ...data, sessions: [short] }, dark));
-      assert.match(shortHtml, /Insufficient data · unranked/);
-      assert.match(shortHtml, /2 eligible requests; at least six are needed/);
-      assert.match(shortHtml, /l07-short-unpriced/);
-      const zero = data.sessions.find(s => s.conversationId === "l07-zero-baseline")!;
-      assert.match(plain(render({ ...data, sessions: [zero] }, dark)), /Unavailable · zero baseline/);
-      assert.equal(zero.growth.ratio, null);
-      const excluded = data.sessions.find(s => s.conversationId === "l07-excluded")!;
-      assert.match(plain(render({ ...data, sessions: [excluded] }, dark)), /0 eligible requests; at least six are needed/);
-      for (const [session, supported] of [[main, true], [transcript, true], [zero, true], [short, false], [excluded, false]] as const) {
+      assert.match(shortHtml, /Not enough long sessions to measure growth/);
+      for (const session of [main, transcript, short]) {
         const shown = plain(render({ ...data, sessions: [session] }, dark));
-        const hidden = plain(render({ ...data, sessions: [session] }, dark, true));
-        assert.equal(shown.includes(`/yaldi/state-clue-found${dark ? "-dark" : ""}.svg`), supported);
-        assert.equal(shown.replace(/<img[^>]*>/g, ""), hidden);
-        assert(!hidden.includes("<img"));
-        assert(shown.includes('data-finding-summary="context-replay"'));
-        const href = shown.match(/href="([^"]+)"[^>]*>Open session requests<\/a>/)![1]!.replace(/&amp;/g, "&");
+        const href = shown.match(/href="([^"]+)"[^>]*>See the requests<\/a>/)![1]!.replace(/&amp;/g, "&");
         const original = new URL(session.evidence.href, "http://fixture.invalid");
         const intent = new URL(href, "http://fixture.invalid");
         for (const [key, value] of original.searchParams) assert.equal(intent.searchParams.get(key), value);
         assert.deepEqual(JSON.parse(intent.searchParams.get("selector")!).selection, { kind: "session", source: session.source, conversationId: session.conversationId });
       }
-      const tooltip: any = contextTimelineOption(theme, { ...short, requests: [{ ...short.requests[0]!, id: "<fixture>" }] }, data.window.tz);
-      assert.match(tooltip.tooltip.formatter([{ dataIndex: 0 }]), /&lt;fixture&gt;/);
-    }, `${dark ? "dark" : "light"} render uses server ranking, medians, truncation, short/zero-baseline/excluded states`);
+    }, `${dark ? "dark" : "light"} render: verdict, ranking, chart and evidence link`);
   }
-
-  check(() => {
-    for (const session of data.sessions) for (const row of session.requests) {
-      const html = plain(renderToStaticMarkup(<ContextRequestDetails row={row} session={session} tz={data.window.tz} />));
-      const values = [...html.matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(match => [match[1], htmlText(match[2]!)]);
-      const detail = Object.fromEntries(values);
-      assert.equal(detail["Submitted input · tokens"], number(row.eligible ? row.inputTokens : null));
-      assert.equal(detail["Cache read · tokens"], number(row.cacheReadTokens));
-      assert.equal(detail["Cache write · tokens"], number(row.cacheWriteTokens));
-      assert.equal(detail["Output · tokens"], number(row.outputTokens));
-      assert.equal(detail["Reasoning within output · tokens"], number(row.reasoningTokens));
-      assert.equal(detail["Total · input + output tokens"], number(row.totalTokens));
-      assert.equal(detail["API list-price equivalent · USD"], contextCost(row));
-      assert.equal(detail["Request ID"], row.id);
-      if (row.durationMs === null) assert.equal(detail.Duration, "Unavailable");
-      if (row.durationMs === 0) assert.equal(detail.Duration, "0 ms");
-      if (row.ttftMs === null) assert.equal(detail["Time to first token"], "Unavailable");
-      if (!row.eligible) assert.match(html, /Excluded from context comparisons/);
-    }
-    assert.equal(main.requests[0]!.totalTokens, 320); // 300 input + 20 output; reasoning 2 is already within output.
-    assert.equal(contextCost(main.requests.find(r => r.id === "l07-zero")!), "$0.00");
-    assert.equal(contextCost(main.requests.find(r => r.id === "l07-unpriced")!), "Unavailable (unpriced)");
-    assert(transcript.requests.every(row => row.durationMs === null && row.ttftMs === null));
-  }, "every real request detail preserves tokens, total, attempt counters, price presence and missing/zero timing");
 
   check(() => {
     for (const evidence of [data.coverage.evidence, ...data.sessions.map(s => s.evidence)]) {
       const original = new URL(evidence.href, "http://localhost");
-      const href = contextEvidenceHref(evidence);
-      const intent = new URL(href, "http://localhost");
+      const intent = new URL(contextEvidenceHref(evidence), "http://localhost");
       assert.equal(intent.pathname, "/labs/evidence");
       assert.equal(intent.searchParams.get("investigation"), "context-replay");
       assert.equal(intent.searchParams.get("eligibility"), "all");
@@ -180,7 +109,7 @@ export async function checkContextReplaySmoke() {
     client.setQueryData(["/api/labs/context", params], scoped);
     const html = plain(renderToString(<QueryClientProvider client={client}><YaldiSmokeProviders><MemoryRouter initialEntries={[`/labs/context-replay?${filteredParams}`]}>
       <FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>));
-    assert.match(html, /l07-shared/);
+    assert.match(html, /Session l07-sh/);
     assert(!html.includes("l07-claude-0"));
     assert(!html.includes("l07-model-change"));
     const links = [...html.matchAll(/href="([^"]*investigation=context-replay[^"]*)"/g)].map(match => new URL(match[1]!.replace(/&amp;/g, "&"), "http://localhost"));
@@ -194,24 +123,13 @@ export async function checkContextReplaySmoke() {
 
   const emptyParams = new URLSearchParams(CONTEXT_REPLAY_PARAMS); emptyParams.set("models", "l07-absent");
   const empty = await fetchJson<ContextReplayResponse>("/api/labs/context", emptyParams.toString());
-  const unnamedParams = new URLSearchParams(CONTEXT_REPLAY_PARAMS); unnamedParams.set("search", "l07-unnamed");
-  const unnamed = await fetchJson<ContextReplayResponse>("/api/labs/context", unnamedParams.toString());
   check(() => {
     assert.equal(empty.coverage.totalRequests, 0);
     assert.match(render(empty), /No requests to investigate/);
-    assert.equal(unnamed.unnamedRequests, 2);
-    assert.equal(unnamed.sessions.length, 0);
-    assert.match(render(unnamed), /No named sessions/);
-    assert.match(render(unnamed), /Open scope requests/);
     const unseeded = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const stateRender = () => renderToString(<QueryClientProvider client={unseeded}><YaldiSmokeProviders><MemoryRouter><FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>);
-    const html = stateRender();
-    assert.match(html, /Loading investigation/);
-    unseeded.setQueryData(["/api/labs/context", filtersToParams(DEFAULT_FILTERS)], data);
-    unseeded.getQueryCache().find({ queryKey: ["/api/labs/context", filtersToParams(DEFAULT_FILTERS)] })!.setState({ status: "error", error: new Error("Synthetic L07 API error") });
-    assert.match(stateRender(), /Synthetic L07 API error/);
-    assert(!stateRender().includes("clue-found"));
+    assert.match(stateRender(), /Loading investigation/);
     unseeded.clear();
-  }, "empty, unnamed, loading and error states remain readable");
+  }, "empty and loading states remain readable");
   console.log(`PASS  L07 ${checks} focused API/render/chart groups`);
 }

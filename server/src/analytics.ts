@@ -858,6 +858,13 @@ export function reliability(rows: RequestRow[], tz: string): {
   };
 }
 
+/** A request open longer than this was a stalled stream, not a slow answer: it would bury every real tail. */
+export const STALLED_REQUEST_MS = 10 * 60_000;
+
+export function slowestRequests(rows: RequestRow[], limit = 10): RequestRow[] {
+  return topN(rows.filter(row => row.measurements.duration && row.durationMs <= STALLED_REQUEST_MS), limit, (a, b) => b.durationMs - a.durationMs);
+}
+
 export interface ConversationRow {
   id: string;
   /** A conversation id is only unique within its source, so sessions group by `(source, id)`. */
@@ -877,6 +884,8 @@ export interface ConversationRow {
   outputTokens: number;
   avgDurationMs: number;
   intensity: number;
+  /** Where the session last ran (a working directory), or null when it cannot be attributed. */
+  project: string | null;
 }
 
 export type ConversationSort = "tokens" | "cost" | "requests" | "recent" | "errors";
@@ -892,6 +901,11 @@ const CONVERSATION_ORDER: Record<ConversationSort, (a: ConversationRow, b: Conve
 
 /** Sessions ranked by `order` across every session in `rows`, then cut to `limit`: the cut never decides the ranking. */
 export function conversations(rows: RequestRow[], limit = 200, order: ConversationSort = "tokens"): ConversationRow[] {
+  return allConversations(rows, order).slice(0, limit);
+}
+
+/** Every session in `rows`, ranked: the list a page shows is cut from this, but counts and medians cover all of it. */
+export function allConversations(rows: RequestRow[], order: ConversationSort = "tokens"): ConversationRow[] {
   const map = new Map<string, RequestRow[]>();
   for (const row of rows) {
     if (!row.conversationId) continue;
@@ -914,7 +928,10 @@ export function conversations(rows: RequestRow[], limit = 200, order: Conversati
     let duration = 0;
     let started = Infinity;
     let ended = 0;
+    let project: string | null = null;
+    let projectAt = -Infinity;
     for (const row of list) {
+      if (row.cwd && row.ts >= projectAt) { project = row.cwd; projectAt = row.ts; }
       models.add(row.model);
       providers.add(row.provider);
       tokens += row.totalTokens;
@@ -946,9 +963,10 @@ export function conversations(rows: RequestRow[], limit = 200, order: Conversati
       outputTokens: output,
       avgDurationMs: Math.round(duration / list.length),
       intensity: round(tokens / (spanMs / 3_600_000), 1),
+      project,
     });
   }
-  return result.sort(CONVERSATION_ORDER[order]).slice(0, limit);
+  return result.sort(CONVERSATION_ORDER[order]);
 }
 
 export function conversationTimeline(rows: RequestRow[], id: string): {

@@ -5,7 +5,7 @@ import {
   barChart, boxplotChart, paretoChart, pairedBarChart, donutChart, heatmapChart, lineChart, scatterChart,
   stackedAreaChart, stackedBarChart, type ThemeTokens,
 } from "../web/src/components/chartOptions";
-import { formatCompact, formatInteger, formatUsdPrecise } from "../web/src/lib/format";
+import { formatCompact, formatInteger, formatUsd } from "../web/src/lib/format";
 import { colorAt, COMPOSITION_COLORS, OUTCOME_COLORS } from "../web/src/lib/palette";
 
 const models = ["gpt-6-sol", "gpt-6-astra", "deepseek-flash", "gpt-6-luna"];
@@ -47,7 +47,7 @@ function fixtures(tokens: ThemeTokens): [string, ChartOption][] {
     ["cost / stacked columns", stackedBarChart(tokens, dates, [
       { name: "gpt-6-sol", data: [0, 0.0025, null] },
       { name: "gpt-6-astra", data: [1.25, 0, 2.5] },
-    ], { formatter: formatUsdPrecise })],
+    ], { formatter: formatUsd })],
     ["horizontal stacked bars", stackedBarChart(tokens, dates, grouped, { horizontal: true, showLegend: false })],
     ["performance / nullable percentile lines", lineChart(tokens, dates, [
       { name: "Latency p50", data: [0, null, 3500] },
@@ -61,7 +61,7 @@ function fixtures(tokens: ThemeTokens): [string, ChartOption][] {
     ["cost / composition donut", donutChart(tokens, [
       { name: "Fresh input", value: 0 }, { name: "Cache read", value: 1.25 },
       { name: "Cache write", value: 0.0025 }, { name: "Output", value: 2.5 },
-    ], { colors: COMPOSITION_COLORS, formatter: formatUsdPrecise, centerValue: "$3.75", centerLabel: "estimated" })],
+    ], { colors: COMPOSITION_COLORS, formatter: formatUsd, centerValue: "$3.75", centerLabel: "estimated" })],
     ["usage / activity heatmap", heatmapChart(tokens, [
       { weekday: 6, hour: 23, value: 0, requests: 0 },
       { weekday: 0, hour: 0, value: 10, requests: 2 },
@@ -89,7 +89,7 @@ function fixtures(tokens: ThemeTokens): [string, ChartOption][] {
     ], { formatter: formatCompact, preserveGaps: true })],
     ["models / price versus speed bubbles", scatterChart(tokens, [{
       name: "Models", points: [[0, 0.0025, 0], [1500, 2.5, 160000], [3000, 0.125]],
-    }], { xName: "TTFT p50 (s)", yName: "$ per 1M tokens", xFormatter: value => `${(value / 1000).toFixed(1)}s`, yFormatter: formatUsdPrecise, scaleSize: 40 })],
+    }], { xName: "TTFT p50 (s)", yName: "$ per 1M tokens", xFormatter: value => `${(value / 1000).toFixed(1)}s`, yFormatter: formatUsd, scaleSize: 40 })],
     ["performance / model scatter", scatterChart(tokens, [
       { name: "gpt-6-sol", points: [[0, 0, 1], [900, 1200, 1]] },
       { name: "gpt-6-astra", points: [[1500, 24000, 1]] },
@@ -149,7 +149,7 @@ describe("Relay production chart contracts", () => {
         const style = makeRelayStyle(dark, models);
         const money = inspect(style.chart(stackedBarChart(tokens, dates, [
           { name: "gpt-6-sol", data: [0, 0.0025, 1.25] },
-        ], { formatter: formatUsdPrecise })));
+        ], { formatter: formatUsd })));
         expect(money.tooltip.valueFormatter(0)).toBe("$0.00");
         expect(money.tooltip.valueFormatter(0.0025)).toBe("$0.0025");
         // Stacked bars originally lack an axis formatter. Relay must not
@@ -249,7 +249,7 @@ describe("Relay production chart contracts", () => {
       test("scatter tooltip and bubble area retain all three coordinates, including zero and absent volume", () => {
         const original = scatterChart(tokens, [{ name: "Models", points: [
           [0, 0, 0], [1500, 2.5, 160000], [3000, 0.125], [1000, 5, 100000000],
-        ] }], { xName: "TTFT p50 (s)", yName: "$ per 1M tokens", xFormatter: value => `${(value / 1000).toFixed(1)}s`, yFormatter: formatUsdPrecise, scaleSize: 40 });
+        ] }], { xName: "TTFT p50 (s)", yName: "$ per 1M tokens", xFormatter: value => `${(value / 1000).toFixed(1)}s`, yFormatter: formatUsd, scaleSize: 40 });
         const result = inspect(makeRelayStyle(dark, models).chart(freeze(original)));
         expect(result.series[0].data).toEqual(inspect(original).series[0].data);
         expect(result.series[0].data.map(result.series[0].symbolSize)).toEqual([8, 10, 8, 40]);

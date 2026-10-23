@@ -6,6 +6,7 @@ import { buildEvidenceCase } from "./labs/evidence";
 import { buildProjectRadar } from "./labs/projects";
 import { buildSpendChanges } from "./labs/spend";
 import { createHash } from "node:crypto";
+import { opencodexVersion, yaldVersion } from "./versions";
 import {
   breakdown,
   bucketer,
@@ -17,6 +18,8 @@ import {
   cumulativeSeries,
   contextPressure,
   conversationTimeline,
+  allConversations,
+  slowestRequests,
   conversations,
   costComposition,
   filterRows,
@@ -159,10 +162,6 @@ function delta(current: number, prior: number): number | null {
   if (!Number.isFinite(current) || !Number.isFinite(prior)) return null;
   if (prior === 0) return current === 0 ? 0 : null;
   return round((current - prior) / prior, 4);
-}
-
-function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
-  return topN(rows.filter(row => row.measurements.duration), limit, (a, b) => b.durationMs - a.durationMs);
 }
 
 const newestFirst = (a: RequestRow, b: RequestRow) => b.ts - a.ts;
@@ -359,7 +358,9 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
   const routeKinds = new Set<string>();
   let tokens = 0;
   let cost = 0;
+  const modelRequests = new Map<string, number>();
   for (const row of dataset.rows) {
+    modelRequests.set(row.model, (modelRequests.get(row.model) ?? 0) + 1);
     providers.add(row.provider);
     models.add(row.model);
     efforts.add(row.effort ?? "unknown");
@@ -379,6 +380,7 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
     ...(DEMO ? { demo: DEMO } : {}),
     timeZone: TIME_ZONE,
     pricing: pricingStatus(),
+    versions: { yald: yaldVersion(), opencodex: opencodexVersion(pricingStatus().packageDir) },
     files: dataset.files,
     parse: dataset.parse,
     builtAt: dataset.builtAt,
@@ -390,6 +392,8 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
     sourceCapabilities: SOURCE_CAPABILITIES,
     providers: [...providers].sort(),
     models: [...models].sort(),
+    // Most used first: charts colour the models people actually see before the long tail.
+    modelsByUse: [...modelRequests.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([model]) => model),
     modelsByProvider: Object.fromEntries([...modelsByProvider.entries()].map(([key, value]) => [key, value.sort()])),
     efforts: [...efforts].sort(),
     routeKinds: [...routeKinds].sort(),
@@ -631,7 +635,7 @@ api.get("/api/performance", async c => {
       .filter(row => row.measurements.ttft && row.measurements.output && row.outputTokens > 0)
       .slice(-2000)
       .map(row => ({ ttftMs: row.ttftMs, outputTokens: row.outputTokens, model: row.model, ts: row.ts })),
-    slowest: slowest(rows, 15).map(publicRow),
+    slowest: slowestRequests(rows, 15).map(publicRow),
     context: contextPressure(rows),
   });
 });
@@ -734,18 +738,20 @@ api.get("/api/conversations", async c => {
   const requested = c.req.query("sort");
   const sort: ConversationSort = requested === "cost" || requested === "requests" || requested === "recent" || requested === "errors" ? requested : "tokens";
   // Ranked across every session, then cut: a costly low-token session is never lost to the cut.
-  const sorted = conversations(rows, limit, sort);
+  const every = allConversations(rows, sort);
+  const sorted = every.slice(0, limit);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
     window: query.window,
     conversations: sorted,
     totals: {
-      conversations: sorted.length,
+      // Every session in the selection, not just the page of them returned above.
+      conversations: every.length,
       requests: rows.filter(row => row.conversationId).length,
       unattributed: rows.filter(row => !row.conversationId).length,
-      medianRequests: percentile(sorted.map(row => row.requests), 0.5),
-      medianTokens: percentile(sorted.map(row => row.tokens), 0.5),
+      medianRequests: percentile(every.map(row => row.requests), 0.5),
+      medianTokens: percentile(every.map(row => row.tokens), 0.5),
     },
   });
 });
