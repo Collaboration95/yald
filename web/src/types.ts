@@ -182,6 +182,8 @@ export interface ConversationRow {
   outputTokens: number;
   avgDurationMs: number;
   intensity: number;
+  /** Where the session last ran, or null when it cannot be attributed. */
+  project: string | null;
 }
 
 export interface QuotaWindowSnapshot {
