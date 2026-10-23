@@ -1,31 +1,26 @@
 import { Suspense } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { clsx } from "clsx";
 import { usePreferences } from "../../lib/preferences";
 import { InvestigationState } from "./InvestigationState";
-import { YaldiArtwork } from "../../components/YaldiArtwork";
+import { LAB_TABS } from "./shared";
 
 /** The route boundary prevents disabled investigation components from mounting or polling. */
 export function LabsLayout() {
   const { labsEnabled, setPreference } = usePreferences();
-  const { pathname, search } = useLocation();
+  const { search } = useLocation();
+  if (!labsEnabled) {
+    return <div className="card flex items-center justify-between gap-4 p-4">
+      <p className="text-[12.5px] text-ink-soft">Labs is off.</p>
+      <button type="button" onClick={() => setPreference("labsEnabled", true)} className="rounded-lg border border-line bg-surface px-3 py-2 text-[12px] font-medium text-ink">Turn on Labs</button>
+    </div>;
+  }
   return <div className="space-y-4">
-    <section className="card flex flex-wrap items-start justify-between gap-4 p-4" aria-labelledby="labs-preference-title">
-      <div className="flex min-w-0 flex-1 items-center gap-4">
-        {!labsEnabled || pathname.replace(/\/$/, "") === "/labs" ? <YaldiArtwork state="resting" /> : null}
-        <div>
-          <h2 id="labs-preference-title" className="text-[14px] font-semibold text-ink">{labsEnabled ? "Labs is on" : "Labs is off"}</h2>
-          <p className="mt-1 max-w-xl text-[12px] leading-5 text-ink-soft">{labsEnabled
-            ? "Explore patterns in your selected requests. You can turn Labs off at any time."
-            : "Labs is optional. Turn it on to explore investigations, or continue with the dashboard."}</p>
-          <p className="mt-1 text-[11.5px] text-muted">Yaldi is Yald's detective companion. Findings stay tied to request evidence.</p>
-        </div>
-      </div>
-      <button type="button" aria-pressed={labsEnabled} onClick={() => setPreference("labsEnabled", !labsEnabled)}
-        className="rounded-lg border border-line bg-surface px-3 py-2 text-[12px] font-medium text-ink">
-        {labsEnabled ? "Disable Labs" : "Enable Labs"}
-      </button>
-    </section>
-    {labsEnabled ? <Suspense fallback={<InvestigationState kind="loading" />}><Outlet /></Suspense>
-      : <Link to={{ pathname: "/", search }} className="inline-block rounded-lg px-1 py-2 text-[12px] text-accent">Return to Overview</Link>}
+    <nav aria-label="Investigations" className="flex flex-wrap gap-1 border-b border-line">
+      <NavLink to={{ pathname: "/labs", search }} end className={({ isActive }) => clsx("-mb-px border-b-2 px-3 py-2 text-[12.5px] font-medium", isActive ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink-soft")}>Overview</NavLink>
+      {LAB_TABS.map(tab => <NavLink key={tab.path} to={{ pathname: `/labs/${tab.path}`, search }}
+        className={({ isActive }) => clsx("-mb-px border-b-2 px-3 py-2 text-[12.5px] font-medium", isActive ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink-soft")}>{tab.label}</NavLink>)}
+    </nav>
+    <Suspense fallback={<InvestigationState kind="loading" />}><Outlet /></Suspense>
   </div>;
 }

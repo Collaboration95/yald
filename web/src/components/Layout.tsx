@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -28,6 +28,7 @@ import type { ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
 import { DEMO } from "../lib/demo";
 import { YaldiDemoArtwork } from "./YaldiArtwork";
+import { LAB_TABS, labRange } from "../pages/labs/shared";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -78,7 +79,15 @@ export function Layout() {
   const scopeData = scope.isPlaceholderData ? undefined : scope.data;
   const updating = usePlaceholderShown();
   const saved = useSavedShown();
+  const [searchParams] = useSearchParams();
   const isLabs = location.pathname === "/labs" || location.pathname.startsWith("/labs/");
+  // Labs: only the four investigations read the toolbar, and only for range, source, project and model.
+  // The board and the request list keep their own scope, so the filters are not shown there.
+  const labsTab = isLabs ? LAB_TABS.find(tab => location.pathname === `/labs/${tab.path}`) : undefined;
+  const showFilters = !isLabs || Boolean(labsTab);
+  const showRequestFilters = !isLabs;
+  const explicitWindow = ["range", "from", "to", "last"].some(key => searchParams.has(key));
+  const shownRange = labsTab && !explicitWindow ? labRange(labsTab.path) : filters.range;
   const title = isLabs ? "Labs" : TITLES[location.pathname] ?? "Session";
   const page = isLabs ? "labs" : location.pathname.startsWith("/sessions/") ? "session" : location.pathname.slice(1) || "overview";
 
@@ -127,15 +136,16 @@ export function Layout() {
         <header className="relay-toolbar">
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
             <div className="flex flex-wrap items-center gap-1.5">
+              {showFilters ? <>
               <Segmented
-                value={filters.from || filters.to || filters.last ? "" : filters.range}
+                value={filters.from || filters.to || filters.last ? "" : shownRange}
                 options={RANGES.map(range => ({ id: range.id, label: range.label }))}
                 onChange={range => set({ range })}
               />
               {filters.from || filters.to || filters.last ? <span className="px-1 text-[11px] text-accent">Custom window</span> : null}
               <SourceFilter scope={scopeData} />
               <ProjectFilter />
-              <Popover
+              {showRequestFilters ? <Popover
                 label={filters.providers.length ? `Provider · ${filters.providers.length}` : "Provider"}
                 active={filters.providers.length > 0}
               >
@@ -144,15 +154,16 @@ export function Layout() {
                   selected={filters.providers}
                   onToggle={value => toggleIn("providers", value)}
                 />
-              </Popover>
+              </Popover> : null}
               <ModelFilter scope={scopeData} />
-              <Popover label={filters.efforts.length ? `Effort · ${filters.efforts.length}` : "Effort"} active={filters.efforts.length > 0} width={200}>
+              {showRequestFilters ? <><Popover label={filters.efforts.length ? `Effort · ${filters.efforts.length}` : "Effort"} active={filters.efforts.length > 0} width={200}>
                 <CheckList items={meta.data?.efforts ?? []} selected={filters.efforts} onToggle={value => toggleIn("efforts", value)} labelFor={effortLabel} />
               </Popover>
               <Popover label={filters.statuses.length ? `Outcome · ${filters.statuses.length}` : "Outcome"} active={filters.statuses.length > 0} width={220}>
                 <CheckList items={["ok", "error", "cancelled", "unobserved"]} selected={filters.statuses} onToggle={value => toggleIn("statuses", value)} labelFor={status => OUTCOME_LABELS[status] ?? status} />
-              </Popover>
-              <div className="relative">
+              </Popover></> : null}
+              </> : null}
+              {showRequestFilters ? <div className="relative">
                 <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
                 <input
                   value={filters.search}
@@ -161,7 +172,7 @@ export function Layout() {
                   placeholder="Search model, error, id…"
                   className="w-[170px] rounded-lg border border-line bg-surface py-1.5 pl-7 pr-2 text-[11.5px] text-ink outline-none transition placeholder:text-muted focus:border-accent/50"
                 />
-              </div>
+              </div> : null}
               <button
                 type="button"
                 onClick={() => void refresh()}
