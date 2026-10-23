@@ -6,7 +6,7 @@ import { Badge, Card, CardHeader, Stat, StateBlock, TableShell, Td, Th } from ".
 import { Chart } from "../components/Chart";
 import { barChart, boxplotChart, heatmapChart, lineChart } from "../components/chartOptions";
 import { colorAt } from "../lib/palette";
-import { formatCompact, formatDuration, formatInteger, formatPercent, formatUsdPrecise } from "../lib/format";
+import { formatCompact, formatDuration, formatInteger, formatPercent, formatUsd } from "../lib/format";
 import type { ContextModelRow, ContextResponse, ContextSpread } from "../types";
 
 type SortKey = "n" | "mean" | "p50" | "p90" | "p99" | "max";
@@ -123,7 +123,7 @@ export function ContextPage() {
     chartTheme, taxCategories, values,
     { formatter, showLabels: true, color: index => (values[index] === null || data?.tax[index]?.belowMinimum ? GREY : "#2563eb") },
   );
-  const costOption = useMemo(() => (data ? taxChart(data.tax.map(band => band.costPerPricedRequest), formatUsdPrecise) : null), [data, chartTheme]);
+  const costOption = useMemo(() => (data ? taxChart(data.tax.map(band => band.costPerPricedRequest), formatUsd) : null), [data, chartTheme]);
   const ttftOption = useMemo(() => (data ? taxChart(data.tax.map(band => band.ttftP50), value => formatDuration(value)) : null), [data, chartTheme]);
   const cancelOption = useMemo(() => (data ? taxChart(data.tax.map(band => band.cancelRate), value => formatPercent(value, 1)) : null), [data, chartTheme]);
   const recordedTiming = Boolean(data?.tax.some(band => band.ttftMeasured > 0));
@@ -242,7 +242,7 @@ export function ContextPage() {
                     <Td className="font-medium text-ink">{row.label}</Td>
                     <Td align="right">{formatInteger(row.requests)}</Td>
                     <Td align="right">{formatPercent(row.requestShare)}</Td>
-                    <Td align="right">{row.cost === null ? "—" : formatUsdPrecise(row.cost)}</Td>
+                    <Td align="right">{row.cost === null ? "—" : formatUsd(row.cost)}</Td>
                     <Td align="right">{formatPercent(row.costShare)}</Td>
                     <Td align="right">{formatInteger(row.pricedRequests)}</Td>
                   </tr>
@@ -272,9 +272,9 @@ export function ContextPage() {
                   <Td className="font-medium text-ink">{band.label}</Td>
                   <Td align="right">{formatInteger(band.requests)}</Td>
                   <Td align="right">{formatPercent(band.requestShare)}</Td>
-                  <Td align="right">{band.cost === null ? "—" : formatUsdPrecise(band.cost)}</Td>
+                  <Td align="right">{band.cost === null ? "—" : formatUsd(band.cost)}</Td>
                   <Td align="right">{formatPercent(band.costShare)}</Td>
-                  <Td align="right">{band.costPerPricedRequest === null ? (band.pricedRequests === 0 ? "—" : <span className="text-[10px] text-muted">too few requests</span>) : formatUsdPrecise(band.costPerPricedRequest)}<span className="ml-1 text-[10px] text-muted">n {formatInteger(band.pricedRequests)}</span></Td>
+                  <Td align="right">{band.costPerPricedRequest === null ? (band.pricedRequests === 0 ? "—" : <span className="text-[10px] text-muted">too few requests</span>) : formatUsd(band.costPerPricedRequest)}<span className="ml-1 text-[10px] text-muted">n {formatInteger(band.pricedRequests)}</span></Td>
                   <Td align="right">{band.ttftMeasured === 0 ? <span className="text-[10px] text-muted">not recorded</span> : band.ttftP50 === null ? <span className="text-[10px] text-muted">too few requests</span> : formatDuration(band.ttftP50)}{band.ttftMeasured > 0 ? <span className="ml-1 text-[10px] text-muted">n {formatInteger(band.ttftMeasured)}</span> : null}</Td>
                   <Td align="right">{band.outcomesObserved === 0 ? <span className="text-[10px] text-muted">not recorded</span> : band.cancelRate === null ? <span className="text-[10px] text-muted">too few requests</span> : formatPercent(band.cancelRate)}{band.outcomesObserved > 0 ? <span className="ml-1 text-[10px] text-muted">n {formatInteger(band.outcomesObserved)}</span> : null}</Td>
                   <Td className="max-w-[240px] truncate text-[11px]">{band.topModels.map(entry => `${entry.model} ${formatPercent(entry.share, 0)}`).join(" · ") || "—"}</Td>

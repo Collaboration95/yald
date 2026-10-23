@@ -18,18 +18,43 @@ export function formatInteger(value: number | null | undefined): string {
   return Math.round(value).toLocaleString(LOCALE);
 }
 
-export function formatUsd(value: number | null | undefined, digits = 2): string {
+/** Money: $X.XX, $X.XXk past $1k, two significant figures under one cent. */
+export function formatUsd(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
-  if (abs > 0 && abs < 0.01) return `$${value.toFixed(4)}`;
-  if (abs >= 1000) return `$${(value / 1000).toFixed(2)}k`;
-  return `$${value.toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  const sign = value < 0 ? "-" : "";
+  if (abs === 0) return "$0.00";
+  if (abs < 0.000001) return `${sign}<$0.000001`;
+  if (abs < 0.01) return `${sign}$${Number(abs.toFixed(1 - Math.floor(Math.log10(abs)))).toString()}`;
+  if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(2)}k`;
+  return `${sign}$${abs.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function formatUsdPrecise(value: number | null | undefined): string {
+/** Compact money for chart axes: $600, $1.5k, $0.50. */
+export function formatUsdAxis(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  if (Math.abs(value) < 0.01 && value !== 0) return `$${value.toFixed(4)}`;
-  return `$${value.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const abs = Math.abs(value);
+  if (abs >= 1000) return `${value < 0 ? "-" : ""}$${Number((abs / 1000).toFixed(2))}k`;
+  if (abs >= 10) return `${value < 0 ? "-" : ""}$${Math.round(abs)}`;
+  return formatUsd(value);
+}
+
+/** Signed money for differences: +$1.20 / -$3.40. */
+export function formatUsdDelta(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${value > 0 ? "+" : ""}${formatUsd(value)}`;
+}
+
+/** A ratio with at most two decimals: 3.2×, 14×. */
+export function formatRatio(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${Number(value.toFixed(2))}×`;
+}
+
+/** Plain decimal with at most `digits` places and no trailing zeros. */
+export function formatNumber(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return Number(value.toFixed(digits)).toLocaleString(LOCALE, { maximumFractionDigits: digits });
 }
 
 export function formatPercent(value: number | null | undefined, digits = 1): string {
@@ -114,4 +139,19 @@ export function titleCase(value: string): string {
 export function formatCoverage(sample: { eligibleRequests: number; totalRequests: number } | undefined): string {
   if (!sample) return "";
   return `${formatInteger(sample.eligibleRequests)} of ${formatInteger(sample.totalRequests)} requests observed`;
+}
+
+/** "Oct 13" for a YYYY-MM-DD day key or a timestamp. Full values belong in tooltips. */
+export function formatShortDate(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString(LOCALE, { month: "short", day: "numeric" });
+}
+
+/** The last two path segments: /Users/me/work/app -> work/app. */
+export function shortPath(path: string | null | undefined): string {
+  if (!path) return "—";
+  const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+  return parts.slice(-2).join("/") || path;
 }

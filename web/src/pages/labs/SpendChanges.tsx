@@ -5,7 +5,7 @@ import { Chart, type ChartOption } from "../../components/Chart";
 import { axisCommon, baseGrid, legendCommon, tooltipCommon, type ThemeTokens } from "../../components/chartOptions";
 import { Card, CardHeader, Segmented } from "../../components/ui";
 import { YaldiFindingArtwork } from "../../components/YaldiArtwork";
-import { formatInteger, formatUsd } from "../../lib/format";
+import { formatInteger, formatUsdAxis } from "../../lib/format";
 import { colorAt } from "../../lib/palette";
 import { useTheme } from "../../lib/theme";
 import { useFilters } from "../../lib/useFilters";
@@ -180,7 +180,6 @@ function Contributors({ cut }: { cut: CutData }) {
 }
 
 /** Whole dollars on large axes; cents when every value is small, so ticks stay distinct. */
-const axisDigits = (values: number[]) => Math.max(...values, 0) < 10 ? 2 : 0;
 
 /** Bars per local day with the median line and dashed threshold. Hollow = partial or insufficient. */
 export function spendDailyOption(days: Day[], theme: ThemeTokens): ChartOption {
@@ -199,7 +198,7 @@ export function spendDailyOption(days: Day[], theme: ThemeTokens): ChartOption {
         whyNot(day), `${day.pricedRequests}/${day.requests} requests priced`].filter(Boolean).join("\n");
     } },
     xAxis: { ...axisCommon(theme), type: "category", data: days.map(day => day.date.slice(5)), splitLine: { show: false } },
-    yAxis: { ...axisCommon(theme), type: "value", min: 0, axisLabel: { color: theme.axis, fontSize: 10, formatter: (value: number) => formatUsd(value, axisDigits(days.map(d => d.pricedCostUsd ?? 0))) } },
+    yAxis: { ...axisCommon(theme), type: "value", min: 0, axisLabel: { color: theme.axis, fontSize: 10, formatter: (value: number) => formatUsdAxis(value) } },
     series: [
       { name: "Priced cost", type: "bar", barMaxWidth: 18, data: days.map(day => {
         if (day.pricedCostUsd === null) return null;
@@ -251,7 +250,7 @@ export function spendWaterfallOption(d: Decomposition, cut: CutData, theme: Them
       return `${item.label}\n${signed(item.change)}`;
     } },
     xAxis: { ...axisCommon(theme), type: "category", data: labels, axisLabel: { color: theme.axis, fontSize: 10, interval: 0, rotate: labels.length > 6 ? 30 : 0 }, splitLine: { show: false } },
-    yAxis: { ...axisCommon(theme), type: "value", axisLabel: { color: theme.axis, fontSize: 10, formatter: (value: number) => formatUsd(value, axisDigits([d.dayCostUsd, d.baselineMeanUsd])) } },
+    yAxis: { ...axisCommon(theme), type: "value", axisLabel: { color: theme.axis, fontSize: 10, formatter: (value: number) => formatUsdAxis(value) } },
     series: [
       bar("Base", base, "transparent", { silent: true, tooltip: { show: false } }),
       bar("Increase", up, colorAt(5)), bar("Decrease", down, colorAt(0)), bar("Totals", total, colorAt(1)),

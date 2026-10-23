@@ -1,7 +1,7 @@
 import { useChartStyle } from "../lib/chartStyle";
 import { clsx } from "clsx";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ChevronDown, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Info, Loader2 } from "lucide-react";
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
   return <section className={clsx("card widget-card min-w-0", padded && "p-4", className)}>{children}</section>;
@@ -17,6 +17,41 @@ export function CardHeader({ title, subtitle, action, className }: { title: Reac
       {action ? <div className="widget-action flex shrink-0 items-center gap-1.5">{action}</div> : null}
     </header>
   );
+}
+
+/** A small (i) that holds method, coverage and caveat text instead of a paragraph on the page. */
+export function InfoTip({ children, label = "More info", align = "left", className }: { children: ReactNode; label?: string; align?: "left" | "right"; className?: string }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  return (
+    <span className={clsx("info-tip relative inline-flex align-middle", className)} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-describedby={open ? id : undefined}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted transition hover:text-ink focus-visible:text-ink"
+      >
+        <Info size={12} strokeWidth={2} />
+      </button>
+      {open ? (
+        <span
+          id={id}
+          role="tooltip"
+          className={clsx("info-tip-body fade-in absolute top-full z-50 mt-1 w-[min(300px,calc(100vw-2rem))] rounded-lg border border-line bg-surface px-3 py-2 text-left text-[11.5px] font-normal normal-case leading-[1.45] tracking-normal text-ink-soft shadow-xl", align === "right" ? "right-0" : "left-0")}
+        >
+          {children}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Marks a metric or section that only covers some of the traffic, with the detail one hover away. */
+export function PartialBadge({ children, label = "Partial" }: { children: ReactNode; label?: string }) {
+  return <Badge tone="warn" className="gap-0.5">{label}<InfoTip label={`${label}: details`}>{children}</InfoTip></Badge>;
 }
 
 type Tone = "neutral" | "good" | "bad" | "warn" | "info" | "violet";
@@ -47,6 +82,8 @@ export function Stat({
   spark,
   icon,
   tone = "neutral",
+  info,
+  tag,
 }: {
   label: string;
   value: ReactNode;
@@ -56,6 +93,10 @@ export function Stat({
   spark?: number[];
   icon?: ReactNode;
   tone?: Tone;
+  /** Method or coverage detail, shown in an (i) next to the label. */
+  info?: ReactNode;
+  /** Short scope tag next to the label, e.g. "Codex only". */
+  tag?: string;
 }) {
   const deltaColor = delta === null || delta === undefined
     ? "text-muted"
@@ -78,15 +119,19 @@ export function Stat({
     <div className="card stat-card relative overflow-hidden p-3.5" data-stat={label} data-tone={tone}>
       <div className={clsx("stat-accent absolute left-0 top-0 h-full w-[3px]", accentBar[tone])} />
       <div className="flex items-start justify-between gap-2">
-        <p className="stat-label text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</p>
+        <p className="stat-label flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+          {label}
+          {tag ? <Badge className="normal-case tracking-normal">{tag}</Badge> : null}
+          {info ? <InfoTip label={`${label}: details`}>{info}</InfoTip> : null}
+        </p>
         {icon ? <span className="text-muted">{icon}</span> : null}
       </div>
       <p className="stat-value num mt-2 text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">{value}</p>
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="stat-hint min-w-0 truncate text-[11px] text-muted">{hint}</div>
         {delta !== undefined ? (
-          <span className={clsx("num shrink-0 text-[11px] font-semibold", deltaColor)}>
-            {delta === null ? "—" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(1)}%`}
+          <span title="vs the previous period of the same length" className={clsx("num shrink-0 text-[11px] font-semibold", deltaColor)}>
+            {delta === null ? "—" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(Math.abs(delta) >= 1 ? 0 : 1)}%`}
           </span>
         ) : null}
       </div>

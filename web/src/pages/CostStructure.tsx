@@ -7,7 +7,7 @@ import { Badge, Card, CardHeader, Segmented, StateBlock } from "../components/ui
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, paretoChart, pairedBarChart, stackedAreaChart } from "../components/chartOptions";
 import { COMPOSITION_COLORS, colorAt } from "../lib/palette";
-import { formatCompact, formatInteger, formatPercent, formatUsd, formatUsdPrecise } from "../lib/format";
+import { formatCompact, formatInteger, formatPercent, formatUsd } from "../lib/format";
 import type { PriceTierId, SpendStructureResponse } from "../types";
 
 /** True once the element has come within `margin` of the viewport (and stays true); false without IntersectionObserver. */
@@ -191,7 +191,7 @@ export function ClassMixSection({ data, loading, error }: Section) {
       data: source.buckets.map(bucket => (mode === "share" ? bucket.share[key] : bucket.total > 0 || key === "adjustment" ? bucket.cost[key] : null)),
     }));
     const area = stackedAreaChart(chartTheme, labels, series, {
-      formatter: mode === "share" ? value => formatPercent(value, 0) : value => formatUsdPrecise(value), colors: COLORS, ...(mode === "share" ? { max: 1 } : {}),
+      formatter: mode === "share" ? value => formatPercent(value, 0) : value => formatUsd(value), colors: COLORS, ...(mode === "share" ? { max: 1 } : {}),
     });
     const paired = pairedBarChart(chartTheme, CLASS_KEYS.map(key => CLASS_NAMES[key]), [
       { name: "Share of tokens", data: CLASS_KEYS.map(key => source.tokenShare[key]), color: colorAt(9) },

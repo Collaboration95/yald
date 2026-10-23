@@ -8,7 +8,7 @@ import { Card, CardHeader, Legend, ProgressBar, Segmented, Stat, StateBlock, Tab
 import { Chart } from "../components/Chart";
 import { barChart, donutChart, lineChart, stackedBarChart } from "../components/chartOptions";
 import { COMPOSITION_COLORS } from "../lib/palette";
-import { formatCompact, formatInteger, formatPercent, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
+import { formatCompact, formatInteger, formatPercent, formatUsd, shortId } from "../lib/format";
 import { ClassMixSection, ConcentrationCard, PriceDriftCard, TiersCard, useInView } from "./CostStructure";
 import type { CostResponse, SpendStructureResponse } from "../types";
 
@@ -32,7 +32,7 @@ export function CostPage() {
       name: group.name,
       data: data.series.buckets.map(bucket => bucket.groups[group.name] ?? 0),
     }));
-    return stackedBarChart(chartTheme, labels, series, { formatter: value => formatUsdPrecise(value) });
+    return stackedBarChart(chartTheme, labels, series, { formatter: value => formatUsd(value) });
   }, [data, chartTheme]);
 
   const cumulativeOption = useMemo(() => {
@@ -52,7 +52,7 @@ export function CostPage() {
       { name: "Output", value: data.composition.output },
     ].filter(entry => entry.value > 0);
     return donutChart(chartTheme, entries, {
-      formatter: value => formatUsdPrecise(value),
+      formatter: value => formatUsd(value),
       colors: COMPOSITION_COLORS,
       centerValue: formatUsd(data.composition.total),
       centerLabel: "estimated",

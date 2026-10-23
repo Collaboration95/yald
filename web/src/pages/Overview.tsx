@@ -9,7 +9,7 @@ import { Chart } from "../components/Chart";
 import { AccountScopeNotice } from "../components/AccountScopeNotice";
 import { barChart, donutChart, heatmapChart, stackedAreaChart } from "../components/chartOptions";
 import { COMPOSITION_COLORS } from "../lib/palette";
-import { formatCoverage, formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
+import { formatCoverage, formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, shortId } from "../lib/format";
 import type { OverviewResponse } from "../types";
 
 export function OverviewPage() {
@@ -47,7 +47,7 @@ export function OverviewPage() {
       { name: "Output", value: data.composition.output },
     ].filter(entry => entry.value > 0);
     return donutChart(chartTheme, entries, {
-      formatter: value => formatUsdPrecise(value),
+      formatter: value => formatUsd(value),
       colors: COMPOSITION_COLORS,
       centerValue: formatUsd(data.composition.total),
       centerLabel: "estimated",
