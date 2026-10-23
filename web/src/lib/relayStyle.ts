@@ -2,6 +2,8 @@ import type { ChartOption } from "../components/Chart";
 import type { ChartStyle } from "./chartStyle";
 import { PALETTE } from "./palette";
 
+const neutralNames = new Set(["Other", "Not recorded", "unknown"]);
+
 export function makeRelayStyle(dark: boolean, modelNames: string[] = []): ChartStyle {
   const colors = dark
     ? ["#eee9e2", "#f09082", "#acd0be", "#d9bd76", "#a3b5d6", "#d995bc", "#88c4cc", "#bea5d1", "#e4b990", "#a8a8a4"]
@@ -11,9 +13,12 @@ export function makeRelayStyle(dark: boolean, modelNames: string[] = []): ChartS
   const color = (value: string) => mapping.get(value.toLowerCase()) ?? value;
   const preferredOrder = ["gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "deepseek-flash"];
   const rank = (name: string) => preferredOrder.includes(name) ? preferredOrder.indexOf(name) : 10;
-  const modelMap = new Map([...modelNames].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).map((name, index) => [name, colors[index % colors.length]!]));
-  const modelColor = (name: string) => modelMap.get(name) ?? colors[[...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % colors.length]!;
-  const outcomes: Record<string, string> = { unobserved: dark ? "#9ca3af" : "#64748b", ok: colors[0]!, error: colors[1]!, cancelled: dark ? "#e0c087" : "#c49c45" };
+  // The last colour is the neutral grey: it belongs to "Other" and "not recorded", never to a model, so they cannot collide.
+  const neutral = colors[colors.length - 1]!;
+  const modelColors = colors.slice(0, -1);
+  const modelMap = new Map([...modelNames].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).map((name, index) => [name, modelColors[index % modelColors.length]!]));
+  const modelColor = (name: string) => modelMap.get(name) ?? (neutralNames.has(name) ? neutral : modelColors[[...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % modelColors.length]!);
+  const outcomes: Record<string, string> = { unobserved: dark ? "#9ca3af" : "#64748b", ok: colors[0]!, error: colors[1]!, cancelled: dark ? "#e0c087" : "#c49c45", Other: neutral, "Not recorded": neutral, unknown: neutral };
   const colorFor = (label: string, fallback: string) => outcomes[label] ?? modelMap.get(label) ?? color(fallback);
   const heatmapColors = dark ? ["#302e2c", "#754c45", "#c17c6f", "#f09082"] : ["#f5efec", "#f6d4cb", "#eea99b", "#e7584d"];
 
