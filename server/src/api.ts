@@ -6,6 +6,7 @@ import { buildEvidenceCase } from "./labs/evidence";
 import { buildProjectRadar } from "./labs/projects";
 import { buildSpendChanges } from "./labs/spend";
 import { createHash } from "node:crypto";
+import { opencodexVersion, yaldVersion } from "./versions";
 import {
   breakdown,
   bucketer,
@@ -379,6 +380,7 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
     ...(DEMO ? { demo: DEMO } : {}),
     timeZone: TIME_ZONE,
     pricing: pricingStatus(),
+    versions: { yald: yaldVersion(), opencodex: opencodexVersion(pricingStatus().packageDir) },
     files: dataset.files,
     parse: dataset.parse,
     builtAt: dataset.builtAt,

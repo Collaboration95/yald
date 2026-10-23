@@ -1,7 +1,7 @@
 import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import "./index.css";
 import "./styles/relay.css";
 import "./styles/delight.css";
@@ -26,6 +26,18 @@ const ConversationDetailPage = lazy(() => import("./pages/Conversations").then(m
 const LabsPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsPage })));
 const LabsInvestigationPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsInvestigationPage })));
 const EvidenceCase = lazy(() => import("./pages/labs/EvidenceCase").then(m => ({ default: m.EvidenceCase })));
+
+/** Old addresses keep working: the page moved, the filters in the query string stay. */
+function MovedTo({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: to, search }} replace />;
+}
+
+function MovedSession() {
+  const { id = "" } = useParams();
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: `/sessions/${encodeURIComponent(id)}`, search }} replace />;
+}
 
 console.info(
   "%cyald.%c\nEvery request leaves a trace. Psst: try the Konami code, or just type “yald”.",
@@ -64,8 +76,10 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="reliability" element={<ReliabilityPage />} />
                 <Route path="models" element={<ModelsPage />} />
                 <Route path="quota" element={<QuotaPage />} />
-                <Route path="conversations" element={<ConversationsPage />} />
-                <Route path="conversations/:id" element={<ConversationDetailPage />} />
+                <Route path="sessions" element={<ConversationsPage />} />
+                <Route path="sessions/:id" element={<ConversationDetailPage />} />
+                <Route path="conversations" element={<MovedTo to="/sessions" />} />
+                <Route path="conversations/:id" element={<MovedSession />} />
                 <Route path="labs" element={<LabsLayout />}>
                   <Route index element={<LabsPage />} />
                   <Route path="evidence" element={<EvidenceCase />} />

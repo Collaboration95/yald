@@ -199,27 +199,17 @@
 
 :root .relay-activity > div { border-top: 1px solid var(--line); padding: 16px 0 0; }
 :root .relay-activity p { margin: 0; font-size: 11px; line-height: 1.7; }
-:root .relay-activity .relay-activity-label { margin-bottom: 5px; font-size: 9px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
-:root .relay-activity > p { margin: 11px 0 0; padding: 6px 8px; font-size: 10px; line-height: 1.5; }
 
 :root .relay-workspace { min-width: 0; padding: 0 30px; }
 
 :root .relay-heading {
-  display: block;
-  margin-bottom: 25px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 18px;
   padding: 0;
   border: 0;
   background: transparent;
-}
-
-:root .relay-eyebrow {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: .015em;
 }
 
 :root .relay-heading h1 {
@@ -231,14 +221,13 @@
   line-height: 1.12;
 }
 
-:root .relay-heading p {
-  max-width: 70ch;
-  margin: 7px 0 0;
+:root .relay-updating-chip {
+  border-radius: 999px;
+  background: var(--surface-3);
+  padding: 2px 9px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 :root .relay-toolbar {
@@ -693,18 +682,6 @@
   background: var(--relay-coral);
   border-radius: 6px;
   box-shadow: none;
-}
-
-:root .relay-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px 20px;
-  margin-top: 33px;
-  padding: 15px 0 30px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
 }
 
 /* Wrapped metric rows start on the same editorial edge as the first row. */

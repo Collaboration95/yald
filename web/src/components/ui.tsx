@@ -178,7 +178,7 @@ export function Segmented<T extends string>({ value, options, onChange, size = "
   );
 }
 
-export function Popover({ label, children, active, width = 280, align = "right" }: { label: ReactNode; children: ReactNode; active?: boolean; width?: number; align?: "left" | "right" }) {
+export function Popover({ label, children, active, width = 280, align = "right", ariaLabel, chevron = true }: { label: ReactNode; children: ReactNode; active?: boolean; width?: number; align?: "left" | "right"; ariaLabel?: string; chevron?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -210,6 +210,7 @@ export function Popover({ label, children, active, width = 280, align = "right" 
         type="button"
         aria-expanded={open}
         aria-controls={id}
+        aria-label={ariaLabel}
         onClick={() => setOpen(current => !current)}
         className={clsx(
           "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11.5px] font-medium transition",
@@ -217,13 +218,13 @@ export function Popover({ label, children, active, width = 280, align = "right" 
         )}
       >
         {label}
-        <ChevronDown size={12} className={clsx("transition", open && "rotate-180")} />
+        {chevron ? <ChevronDown size={12} className={clsx("transition", open && "rotate-180")} /> : null}
       </button>
       {open ? (
         <div
           id={id}
           className={clsx("fade-in absolute z-40 mt-1.5 max-h-[380px] overflow-auto rounded-xl border border-line bg-surface p-2 shadow-xl", align === "right" ? "right-0" : "left-0")}
-          style={{ width }}
+          style={{ width, maxWidth: "calc(100vw - 1.5rem)" }}
         >
           {children}
         </div>
@@ -232,29 +233,57 @@ export function Popover({ label, children, active, width = 280, align = "right" 
   );
 }
 
-export function CheckList({ items, selected, onToggle, empty = "No options" }: { items: string[]; selected: string[]; onToggle: (value: string) => void; empty?: string }) {
+export function CheckList({ items, selected, onToggle, empty = "No options", labelFor, counts, searchable }: {
+  items: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  empty?: string;
+  /** Display text for an item whose stored value is not meant to be read. */
+  labelFor?: (item: string) => string;
+  counts?: Record<string, number>;
+  /** Show a search box; by default only lists longer than eight get one. */
+  searchable?: boolean;
+}) {
+  const [query, setQuery] = useState("");
   if (items.length === 0) return <p className="px-2 py-3 text-[11.5px] text-muted">{empty}</p>;
+  const label = (item: string) => labelFor?.(item) ?? item;
+  const needle = query.trim().toLowerCase();
+  const visible = needle ? items.filter(item => `${label(item)} ${item}`.toLowerCase().includes(needle)) : items;
   return (
-    <ul className="space-y-0.5">
-      {items.map(item => {
-        const checked = selected.includes(item);
-        return (
-          <li key={item}>
-            <button
-              type="button"
-              aria-pressed={checked}
-              onClick={() => onToggle(item)}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-ink-soft transition hover:bg-surface-3"
-            >
-              <span className={clsx("flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border", checked ? "border-accent bg-accent text-white" : "border-line-strong")}>
-                {checked ? <Check size={10} strokeWidth={3} /> : null}
-              </span>
-              <span className="truncate">{item}</span>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      {searchable ?? items.length > 8 ? (
+        <input
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          aria-label="Search options"
+          placeholder="Search…"
+          className="mb-1.5 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[11.5px] text-ink outline-none placeholder:text-muted focus:border-accent/50"
+        />
+      ) : null}
+      {visible.length === 0 ? <p className="px-2 py-3 text-[11.5px] text-muted">No match</p> : null}
+      <ul className="space-y-0.5">
+        {visible.map(item => {
+          const checked = selected.includes(item);
+          return (
+            <li key={item}>
+              <button
+                type="button"
+                aria-pressed={checked}
+                onClick={() => onToggle(item)}
+                title={label(item) === item ? undefined : item}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-ink-soft transition hover:bg-surface-3"
+              >
+                <span className={clsx("flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border", checked ? "border-accent bg-accent text-white" : "border-line-strong")}>
+                  {checked ? <Check size={10} strokeWidth={3} /> : null}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{label(item)}</span>
+                {counts && counts[item] !== undefined ? <span className="num shrink-0 text-muted">{counts[item]!.toLocaleString("en-US")}</span> : null}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

@@ -242,6 +242,7 @@ export interface MetaResponse {
   ocxHome: string;
   timeZone: string;
   pricing: { available: boolean; modulePath: string | null; packageDir: string | null; detail: string };
+  versions: { yald: string | null; opencodex: string | null };
   files: Record<string, { path: string; bytes: number; mtimeMs: number; lines?: number } | null>;
   parse: { malformedLines: number; durationMs: number };
   builtAt: number;
@@ -405,6 +406,8 @@ export interface ScopeResponse {
   matched: { requests: number; tokens: number };
   windowTotal: { requests: number; tokens: number };
   sources: { source: Source; requests: number; tokens: number }[];
+  /** Models with requests in the window under the other filters, most used first. */
+  models: { model: string; requests: number }[];
   coverage?: ProjectCoverage;
   account: AccountScope;
 }

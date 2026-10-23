@@ -15,7 +15,7 @@ export const RANGES = [
 /** Sources are determined by ingestion protocol, never by provider (see docs/metrics.md). */
 export const SOURCES: { id: Source; label: string; detail: string }[] = [
   { id: "claude-code", label: "Claude Code", detail: "Claude Code transcripts" },
-  { id: "ocx", label: "Codex · opencodex", detail: "Requests through the opencodex proxy" },
+  { id: "ocx", label: "Codex", detail: "Requests through the opencodex proxy" },
 ];
 
 /** CLI aliases the server also accepts, mapped to the canonical source id. */
@@ -91,7 +91,7 @@ export function filtersFromParams(params: URLSearchParams): Filters {
 export function conversationLink(conversation: { id: string; source: Source }, search: string) {
   const params = new URLSearchParams(search);
   params.set("sessionSource", conversation.source);
-  return { pathname: `/conversations/${encodeURIComponent(conversation.id)}`, search: `?${params}` };
+  return { pathname: `/sessions/${encodeURIComponent(conversation.id)}`, search: `?${params}` };
 }
 
 /** True for a selection that narrows beyond the time window: anything the scope strip and no-match state report on. */
@@ -102,10 +102,11 @@ export function hasScope(filters: Filters): boolean {
 
 export const hasCustomWindow = (filters: Filters): boolean => Boolean(filters.from || filters.to || filters.last);
 
+/** How many request filters narrow the data. The time range, a custom window and the time zone are not filters. */
 export function activeFilterCount(filters: Filters): number {
   return filters.sources.length + filters.projects.length + filters.providers.length + filters.models.length
-    + filters.efforts.length + filters.statuses.length + filters.routeKinds.length + Number(Boolean(filters.search))
-    + Number(Boolean(filters.conversationId)) + Number(hasCustomWindow(filters) || filters.range !== DEFAULT_FILTERS.range) + Number(Boolean(filters.tz));
+    + filters.efforts.length + filters.statuses.length + filters.routeKinds.length + Number(Boolean(filters.search.trim()))
+    + Number(Boolean(filters.conversationId));
 }
 
 /** The complete request scope as one string, to reset state that belongs to a particular selection. */

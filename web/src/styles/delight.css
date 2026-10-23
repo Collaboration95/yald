@@ -92,18 +92,6 @@
 :root .relay-title-stop { display: inline-block; transform-origin: bottom; }
 :root .relay-heading h1:hover .relay-title-stop { animation: delight-bounce 800ms cubic-bezier(.3, .7, .3, 1); }
 
-/* Every request leaves a trace, literally. */
-:root .relay-footer > span:first-child::after {
-  content: "· · ·";
-  display: inline-block;
-  margin-left: 5px;
-  color: var(--relay-coral);
-  font-weight: 800;
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 600ms steps(3, jump-start);
-}
-:root .relay-footer > span:first-child:hover::after { clip-path: inset(0); }
-
 /* Card links point where they go. */
 :root .widget-action > a::after {
   content: "→";
