@@ -280,42 +280,6 @@
   align-items: start;
 }
 
-/* Independent stacks let the next widget follow its own column's content. */
-:root .overview-board {
-  display: grid;
-  grid-template-columns: minmax(0, 1.85fr) minmax(290px, .72fr);
-  align-items: start;
-  gap: 24px;
-}
-
-:root :is(.overview-main-stack, .overview-side-stack, .overview-signal-stack) {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  min-width: 0;
-}
-
-:root .overview-signals {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 24px;
-}
-
-:root .leaderboard-list { display: grid; gap: 20px; }
-:root .leaderboard-row { min-width: 0; }
-:root .leaderboard-topline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
-:root .leaderboard-model { max-width: 100%; font-size: 13.5px; line-height: 1.5; letter-spacing: 0; }
-:root .leaderboard-model > .truncate { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-weight: 650; }
-:root .leaderboard-totals { display: grid; gap: 2px; text-align: right; font-size: 11.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
-:root .leaderboard-volume { color: var(--text-soft); font-weight: 650; }
-:root .leaderboard-volume > span { color: var(--muted); font-size: 10px; font-weight: 500; }
-:root .leaderboard-cost { color: var(--muted); }
-:root .leaderboard-bar { margin-top: 9px; }
-:root .leaderboard-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 9px; }
-:root .leaderboard-metrics > div { min-width: 0; }
-:root .leaderboard-metrics dt { color: var(--muted); font-size: 10.5px; line-height: 1.5; letter-spacing: .015em; }
-:root .leaderboard-metrics dd { margin: 3px 0 0; color: var(--text-soft); font-size: 12px; font-weight: 650; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 :root .relay-content .grid:has(> .stat-card) {
   gap: 20px 0;
@@ -484,36 +448,6 @@
   box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
 }
 
-/* Secondary comparisons sit on the paper instead of adding another card wall. */
-:root .overview-open-panel,
-:root .relay-content[data-page="models"] > .space-y-3 > .grid:nth-child(2) > .widget-card,
-:root .relay-content[data-page="performance"] > .space-y-3 > .grid:nth-child(4) > .widget-card {
-  border-width: 1px 0 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 23px 0 0;
-  box-shadow: none;
-}
-
-:root .overview-cost,
-:root .relay-content[data-page="cost"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child {
-  background: var(--relay-peach);
-  border-color: transparent;
-  box-shadow: none;
-}
-
-:root .relay-content[data-page="quota"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child {
-  background: var(--relay-lavender);
-  border-color: transparent;
-  box-shadow: none;
-}
-
-:root .relay-content[data-page="reliability"] > .space-y-3 > .grid:nth-child(2) > .widget-card:first-child {
-  background: var(--relay-mint);
-  border-color: transparent;
-  box-shadow: none;
-}
-
 /* Tables stay dense, locally scrollable and fully legible. No columns are removed. */
 :root .widget-card:has(.table-shell) {
   border-width: 1px 0 0;
@@ -648,40 +582,8 @@
   border-radius: 3px;
 }
 
-:root .relay-content[data-page="quota"] .widget-card .h-1\.5.w-full.overflow-hidden {
-  height: 12px;
-  background: var(--surface-3);
-}
-
-:root .relay-content[data-page="quota"] .widget-card .rounded-xl.border.p-2\.5 {
-  padding: 17px 10px 12px;
-  border-color: var(--line-strong);
-  border-radius: 10px;
-  background: var(--surface);
-}
-
 :root .relay-content :is([role="meter"], [role="progressbar"]) {
   border-radius: 4px;
-}
-
-:root .heatmap-slider::-webkit-slider-runnable-track {
-  height: 6px;
-  border-color: var(--line-strong);
-  background: var(--surface-2);
-}
-
-:root .heatmap-slider::-webkit-slider-thumb {
-  border-color: var(--relay-coral);
-  background: var(--relay-coral);
-  border-radius: 6px;
-  box-shadow: none;
-}
-
-:root .heatmap-slider::-moz-range-thumb {
-  border-color: var(--relay-coral);
-  background: var(--relay-coral);
-  border-radius: 6px;
-  box-shadow: none;
 }
 
 /* Wrapped metric rows start on the same editorial edge as the first row. */

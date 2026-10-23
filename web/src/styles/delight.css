@@ -103,14 +103,9 @@
 }
 :root .widget-action > a:is(:hover, :focus-visible)::after { opacity: 1; translate: 0 0; }
 
-/* Model dots perk up, leaderboard bars catch the light, pressed controls squish. */
+/* Model dots perk up, pressed controls squish. */
 :root .model-dot { transition: scale 220ms cubic-bezier(.3, 1.6, .5, 1); }
-:root :is(tr, .leaderboard-row):hover .model-dot { scale: 1.6; }
-:root .leaderboard-row:hover .leaderboard-bar > div {
-  background-image: linear-gradient(100deg, transparent 35%, rgb(255 255 255 / 45%) 50%, transparent 65%);
-  background-size: 250% 100%;
-  animation: delight-shimmer 1.1s ease-in-out;
-}
+:root tr:hover .model-dot { scale: 1.6; }
 :root :is(.segmented, .relay-toolbar) button { transition: scale 120ms, background 160ms, color 160ms; }
 :root :is(.segmented, .relay-toolbar) button:active { scale: .94; }
 :root .relay-app .lucide-check { animation: delight-pop 260ms cubic-bezier(.3, 1.6, .5, 1); }
@@ -163,7 +158,6 @@
 @keyframes delight-chat { 50% { transform: rotate(-8deg) translateY(-1px); } }
 @keyframes delight-float { from { opacity: 0; translate: 0 6px; } 25% { opacity: 1; } to { opacity: 0; translate: 0 -26px; } }
 @keyframes delight-bounce { 30% { transform: translateY(-11px) scale(.9, 1.1); } 55% { transform: translateY(0) scale(1.25, .75); } 72% { transform: translateY(-4px); } 88% { transform: translateY(0) scale(1.08, .92); } }
-@keyframes delight-shimmer { from { background-position: 120% 0; } to { background-position: -20% 0; } }
 @keyframes delight-pop { from { scale: 0; } }
 @keyframes delight-fall { to { transform: translate(var(--dx), 108vh) rotate(var(--r)); } }
 @keyframes delight-toast { from { opacity: 0; transform: translateY(10px); } 10%, 85% { opacity: 1; transform: none; } to { opacity: 0; } }

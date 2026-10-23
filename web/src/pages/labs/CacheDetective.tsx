@@ -7,7 +7,7 @@ import { formatInteger, formatUsd, formatUsdAxis, formatUsdDelta } from "../../l
 import { useTheme } from "../../lib/theme";
 import type { CacheEconomicsResponse, CacheEconomicsTotals } from "../../types";
 import { InvestigationState } from "./InvestigationState";
-import { TopList, Verdict, useLabsFilters, type TopRow } from "./shared";
+import { TopList, Verdict, periodPhrase, useLabsFilters, type TopRow } from "./shared";
 
 const SESSION_LIMIT = 100;
 
@@ -53,14 +53,14 @@ export function CacheResults({ data }: { data: CacheEconomicsResponse }) {
   [totals, chartTheme]);
   const info = <>
     Compares what your cached requests cost with the same requests priced as if nothing were cached: cache reads are cheaper than fresh input, cache writes cost a premium, and the saving is the difference. Dollars are API list-price equivalents, not a bill or a subscription saving.
-    {" "}{formatInteger(totals.eligibleRequests)} of {formatInteger(totals.totalRequests)} requests had the cache and price data needed; the rest are left out. Window: {data.scope.window.label}.
+    {" "}{formatInteger(totals.eligibleRequests)} of {formatInteger(totals.totalRequests)} requests had the cache and price data needed; the rest are left out. Window: {periodPhrase(data.scope.window)}.
   </>;
 
   if (finding.state === "empty") return <InvestigationState kind="empty" />;
   return <div className="space-y-3" data-investigation="cache-detective" data-finding={finding.state}>
     <Verdict
       found={ok}
-      headline={ok ? (totals.direction === "cost" ? `Caching cost ${formatUsd(Math.abs(totals.netUsd))} more than it saved` : `Caching saved ${formatUsd(totals.netUsd)} in ${data.scope.window.label.toLowerCase()}`) : finding.summary}
+      headline={ok ? (totals.direction === "cost" ? `Caching cost ${formatUsd(Math.abs(totals.netUsd))} more than it saved` : totals.direction === "even" ? `Caching roughly broke even in ${periodPhrase(data.scope.window)}` : `Caching saved ${formatUsd(totals.netUsd)} in ${periodPhrase(data.scope.window)}`) : finding.summary}
       detail={ok ? `${formatUsd(totals.readDiscountUsd)} saved on cache reads, ${formatUsd(totals.writePremiumUsd)} paid extra for cache writes.` : "Cache accounting and a price for the same requests are needed to compare."}
       big={ok ? formatUsd(totals.netUsd) : undefined}
       bigLabel={ok ? "net" : undefined}

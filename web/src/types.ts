@@ -254,6 +254,8 @@ export interface MetaResponse {
   totals: { requests: number; tokens: number; cost: number };
   providers: string[];
   models: string[];
+  /** Models most used first. */
+  modelsByUse: string[];
   modelsByProvider: Record<string, string[]>;
   efforts: string[];
   routeKinds: string[];

@@ -52,7 +52,7 @@ function CacheCard() {
   const ok = !!totals && totals.eligibleRequests > 0 && totals.direction !== "insufficient";
   return <CaseCard path="cache-detective" title="Cache savings" loading={query.isLoading} error={query.isError}
     big={ok ? formatUsd(totals.netUsd) : undefined}
-    headline={ok ? (totals.direction === "cost" ? "Caching cost more than it saved" : "Caching saved you money") : "Not enough cache data to compare"} />;
+    headline={ok ? (totals.direction === "cost" ? "Caching cost more than it saved" : totals.direction === "even" ? "Caching roughly broke even" : "Caching saved you money") : "Not enough cache data to compare"} />;
 }
 
 function GrowthCard() {

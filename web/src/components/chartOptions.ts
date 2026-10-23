@@ -28,6 +28,18 @@ export function axisCommon(theme: ThemeTokens) {
   };
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Axis text for a bucket label: "2026-09-23" reads "Sep 23". Anything else is left alone; tooltips keep the full label. */
+export function shortAxisLabel(label: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(label);
+  if (!match) return label;
+  const day = `${MONTHS[Number(match[2]) - 1] ?? match[2]} ${Number(match[3])}`;
+  return match[4] ? `${day} ${match[4]}` : day;
+}
+
+const dateAxisLabel = (theme: ThemeTokens) => ({ ...axisCommon(theme).axisLabel, formatter: shortAxisLabel });
+
 export function tooltipCommon(theme: ThemeTokens) {
   return {
     trigger: "axis" as const,
@@ -72,7 +84,7 @@ export function stackedAreaChart(
     grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
-    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
+    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
     yAxis: { type: "value", ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
@@ -96,7 +108,7 @@ export function stackedBarChart(
   options: { formatter?: (value: number) => string; showLegend?: boolean; horizontal?: boolean } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
-  const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme) };
+  const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) };
   const valueAxis = { type: "value" as const, ...axisCommon(theme) };
   return {
     grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
@@ -133,7 +145,7 @@ export function lineChart(
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => options.preserveGaps && (typeof value !== "number" || !Number.isFinite(value))
       ? "Unavailable" : formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
-    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
+    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
     yAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,

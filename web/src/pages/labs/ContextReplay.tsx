@@ -6,7 +6,7 @@ import { formatCompact, formatInteger, formatRatio, formatShortDate } from "../.
 import { useTheme } from "../../lib/theme";
 import type { ContextReplayResponse, ContextSession } from "../../types";
 import { InvestigationState } from "./InvestigationState";
-import { TopList, Verdict, useLabsFilters, type TopRow } from "./shared";
+import { TopList, Verdict, periodPhrase, useLabsFilters, type TopRow } from "./shared";
 import { contextEvidenceHref, contextTimelineOption } from "./contextReplayChart";
 
 export function ContextReplay() {
@@ -41,7 +41,7 @@ export function ContextReplayView({ data }: { data: ContextReplayResponse }) {
   }));
   const info = <>
     Growth compares the median input of a session's last three requests with its first three, for sessions with at least six measured requests. Input already includes cache reads and writes.
-    {" "}{formatInteger(data.coverage.eligibleRequests)} of {formatInteger(data.coverage.totalRequests)} requests had a measured input size; {formatInteger(data.unnamedRequests)} have no session. Window: {data.window.label}.
+    {" "}{formatInteger(data.coverage.eligibleRequests)} of {formatInteger(data.coverage.totalRequests)} requests had a measured input size; {formatInteger(data.unnamedRequests)} have no session. Window: {periodPhrase(data.window)}.
   </>;
 
   if (data.coverage.totalRequests === 0) return <InvestigationState kind="empty" />;

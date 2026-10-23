@@ -9,7 +9,7 @@ import { colorAt } from "../../lib/palette";
 import { useTheme } from "../../lib/theme";
 import type { SpendChangesResponse, SpendCut, SpendDay, SpendGroup } from "../../types";
 import { InvestigationState } from "./InvestigationState";
-import { TopList, Verdict, useLabsFilters, type TopRow } from "./shared";
+import { TopList, Verdict, periodPhrase, useLabsFilters, type TopRow } from "./shared";
 
 const CUTS: { id: SpendCut; label: string }[] = [
   { id: "model", label: "Model" }, { id: "project", label: "Project" }, { id: "session", label: "Session" }, { id: "tokenClass", label: "Token class" },
@@ -79,14 +79,14 @@ export function SpendChangesResult({ data, onPick }: { data: SpendChangesRespons
   const info = <>
     A day is unusual when its priced cost is over {rule.spikeMultiple}× the median of the {rule.baselineActiveDays} days before it. A day needs at least {rule.minBaselineActiveDays} earlier days of history, otherwise it is shown as "not enough history", never as normal. It is not a budget or an alarm.
     {" "}Dollars are API list-price equivalents for the {formatInteger(coverage.pricedRequests)} of {formatInteger(coverage.totalRequests)} requests that have a price, not a bill.
-    {" "}The breakdown compares the day with the average of its baseline days, group by group. Window: {data.window.label} ({data.window.tz}).
+    {" "}The breakdown compares the day with the average of its baseline days, group by group. Window: {periodPhrase(data.window)} ({data.window.tz}).
   </>;
 
   return <div className="space-y-3" data-spend-changes>
     {empty ? <InvestigationState kind="empty" detail="No requests were recorded for this selection in the window." /> : <>
       <Verdict
         found={!!top}
-        headline={top ? `${spikes.length} unusual ${spikes.length === 1 ? "day" : "days"} in ${data.window.label.toLowerCase()}` : "No unusually expensive days"}
+        headline={top ? `${spikes.length} unusual ${spikes.length === 1 ? "day" : "days"} in ${periodPhrase(data.window)}` : "No unusually expensive days"}
         detail={top ? `Biggest: ${formatShortDate(top.date)}, ${formatUsd(top.pricedCostUsd)}${top.baseline.medianUsd ? ` against a typical ${formatUsd(top.baseline.medianUsd)}` : ""}.`
           : `${coverage.activeDays} days with priced requests; none was far above its usual spend${coverage.insufficientDays ? `, and ${coverage.insufficientDays} had too little history to judge` : ""}.`}
         big={top ? formatUsd(top.pricedCostUsd) : undefined}

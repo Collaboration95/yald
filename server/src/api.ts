@@ -358,7 +358,9 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
   const routeKinds = new Set<string>();
   let tokens = 0;
   let cost = 0;
+  const modelRequests = new Map<string, number>();
   for (const row of dataset.rows) {
+    modelRequests.set(row.model, (modelRequests.get(row.model) ?? 0) + 1);
     providers.add(row.provider);
     models.add(row.model);
     efforts.add(row.effort ?? "unknown");
@@ -390,6 +392,8 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
     sourceCapabilities: SOURCE_CAPABILITIES,
     providers: [...providers].sort(),
     models: [...models].sort(),
+    // Most used first: charts colour the models people actually see before the long tail.
+    modelsByUse: [...modelRequests.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([model]) => model),
     modelsByProvider: Object.fromEntries([...modelsByProvider.entries()].map(([key, value]) => [key, value.sort()])),
     efforts: [...efforts].sort(),
     routeKinds: [...routeKinds].sort(),

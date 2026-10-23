@@ -58,7 +58,7 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
   });
   const info = <>
     <span className="block">{observation.summary}</span>
-    <span className="mt-1 block">Window: {data.scope.window.label} ({tz}). {formatInteger(population.eligibleRequests)} of {formatInteger(population.original.requests)} requests were usable for the comparison; {formatInteger(population.excludedRequests)} are left out of it but still listed.</span>
+    <span className="mt-1 block">Window: {new Date(data.scope.window.from).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz })} to {new Date(data.scope.window.to).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz })} ({tz}). {formatInteger(population.eligibleRequests)} of {formatInteger(population.original.requests)} requests were usable for the comparison; {formatInteger(population.excludedRequests)} are left out of it but still listed.</span>
     <span className="mt-1 block">{formatInteger(population.original.unpricedRequests)} requests have no price. Costs are API list-price equivalents, not a bill. This list keeps its own fixed scope; changing the toolbar affects your next investigation.</span>
     {observation.notes.map(note => <span key={note} className="mt-1 block">{note}</span>)}
   </>;

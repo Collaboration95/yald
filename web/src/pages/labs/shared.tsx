@@ -88,3 +88,9 @@ export function TopList({ rows, limit = 5, tone = "accent" }: { rows: TopRow[]; 
     </Expandable>
   );
 }
+
+/** "the last 7 days" for a resolved window, instead of two full timestamps. */
+export function periodPhrase(window: { from: number; to: number }): string {
+  const days = Math.round((window.to - window.from) / 86_400_000);
+  return days <= 1 ? "the last 24 hours" : `the last ${days} days`;
+}

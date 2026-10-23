@@ -9,7 +9,7 @@ import { colorAt } from "../../lib/palette";
 import { useTheme } from "../../lib/theme";
 import type { ProjectRadarResponse, RadarChange, RadarTotals } from "../../types";
 import { InvestigationState } from "./InvestigationState";
-import { Verdict, useLabsFilters } from "./shared";
+import { Verdict, periodPhrase, useLabsFilters } from "./shared";
 
 type Project = ProjectRadarResponse["projects"][number];
 
@@ -60,7 +60,7 @@ export function ProjectRadarResult({ data }: { data: ProjectRadarResponse }) {
 
   const absolute = mover?.comparison.pricedCostUsd.absoluteChange ?? 0;
   const info = <>
-    Compares {data.window.label.toLowerCase()} with the equally long period right before it ({data.priorWindow.label.toLowerCase()}). Dollars are API list-price equivalents for requests that have a price, at today's prices in both periods, not a bill. Requests with no known folder are shown as Unattributed.
+    Compares {periodPhrase(data.window)} with the equally long period right before it. Dollars are API list-price equivalents for requests that have a price, at today's prices in both periods, not a bill. Requests with no known folder are shown as Unattributed.
     {" "}{formatInteger(data.current.totals.requests)} requests now, {formatInteger(data.prior.totals.requests)} before; {formatInteger(data.current.totals.unpricedRequests)} have no price. {data.history.note}
   </>;
 

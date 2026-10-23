@@ -11,12 +11,11 @@ export function makeRelayStyle(dark: boolean, modelNames: string[] = []): ChartS
   const mapping = new Map(PALETTE.map((value, index) => [value, colors[index]!]));
   mapping.set("#dc2626", colors[1]!);
   const color = (value: string) => mapping.get(value.toLowerCase()) ?? value;
-  const preferredOrder = ["gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "deepseek-flash"];
-  const rank = (name: string) => preferredOrder.includes(name) ? preferredOrder.indexOf(name) : 10;
   // The last colour is the neutral grey: it belongs to "Other" and "not recorded", never to a model, so they cannot collide.
   const neutral = colors[colors.length - 1]!;
   const modelColors = colors.slice(0, -1);
-  const modelMap = new Map([...modelNames].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).map((name, index) => [name, modelColors[index % modelColors.length]!]));
+  // Colours depend on the set of names, never on the order they arrive in.
+  const modelMap = new Map([...modelNames].sort((a, b) => a.localeCompare(b)).map((name, index) => [name, modelColors[index % modelColors.length]!]));
   const modelColor = (name: string) => modelMap.get(name) ?? (neutralNames.has(name) ? neutral : modelColors[[...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % modelColors.length]!);
   const outcomes: Record<string, string> = { unobserved: dark ? "#9ca3af" : "#64748b", ok: colors[0]!, error: colors[1]!, cancelled: dark ? "#e0c087" : "#c49c45", Other: neutral, "Not recorded": neutral, unknown: neutral };
   const colorFor = (label: string, fallback: string) => outcomes[label] ?? modelMap.get(label) ?? color(fallback);

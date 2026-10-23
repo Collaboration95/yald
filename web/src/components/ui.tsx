@@ -153,14 +153,13 @@ export function Stat({
       <div className="flex items-start justify-between gap-2">
         <p className="stat-label flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
           {label}
-          {tag ? <Badge className="normal-case tracking-normal">{tag}</Badge> : null}
           {info ? <InfoTip label={`${label}: details`}>{info}</InfoTip> : null}
         </p>
         {icon ? <span className="text-muted">{icon}</span> : null}
       </div>
       <p className="stat-value num mt-2 text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">{value}</p>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="stat-hint min-w-0 truncate text-[11px] text-muted">{hint}</div>
+        <div className="stat-hint flex min-w-0 items-center gap-1.5 truncate text-[11px] text-muted">{tag ? <Badge className="normal-case tracking-normal">{tag}</Badge> : null}{hint}</div>
         {delta !== undefined ? (
           <span title="vs the previous period of the same length" className={clsx("num shrink-0 text-[11px] font-semibold", deltaColor)}>
             {delta === null ? "—" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(Math.abs(delta) >= 1 ? 0 : 1)}%`}
@@ -366,6 +365,7 @@ export function Th({ children, align = "left", className, onClick, active, asc }
     <th
       className={clsx(
         "whitespace-nowrap border-b border-line px-2 py-2 text-[10.5px] font-semibold uppercase tracking-[0.04em] text-muted",
+        align === "left" && "text-left",
         align === "right" && "text-right",
         align === "center" && "text-center",
         onClick && "cursor-pointer select-none hover:text-ink-soft",

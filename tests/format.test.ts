@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { makeRelayStyle } from "../web/src/lib/relayStyle";
 import { formatCompact, formatRatio, formatShortDate, formatUsd, formatUsdAxis, formatUsdDelta, shortPath } from "../web/src/lib/format";
 
 describe("one number format", () => {
@@ -23,5 +24,17 @@ describe("one number format", () => {
     expect(shortPath("/Users/me/work/app")).toBe("work/app");
     expect(shortPath("/solo")).toBe("solo");
     expect(formatShortDate("2026-10-13")).toBe("Oct 13");
+  });
+});
+
+describe("series colours", () => {
+  test("Other and not-recorded share one grey that no model can take", () => {
+    for (const dark of [false, true]) {
+      const models = Array.from({ length: 12 }, (_, index) => `model-${index}`);
+      const style = makeRelayStyle(dark, models);
+      const grey = style.modelColor("Other");
+      expect(style.modelColor("Not recorded")).toBe(grey);
+      expect(models.map(style.modelColor)).not.toContain(grey);
+    }
   });
 });

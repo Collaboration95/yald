@@ -7,7 +7,7 @@ import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, InfoTip, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { stackedAreaChart } from "../components/chartOptions";
-import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatUsd, quotaLabel, sessionLabel } from "../lib/format";
+import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatShortDate, formatUsd, quotaLabel, sessionLabel } from "../lib/format";
 import type { OverviewResponse } from "../types";
 
 const STALE_QUOTA_MS = 24 * 3_600_000;
@@ -198,7 +198,7 @@ export function OverviewPage() {
                 {data?.topConversations.slice(0, 5).map(session => (
                   <li key={JSON.stringify([session.source, session.id])} className="flex items-center justify-between gap-2">
                     <Link to={conversationLink(session, search)} className="min-w-0 truncate text-[11.5px] text-info hover:underline" title={`${session.project ?? session.id} · ${sourceLabel(session.source)}`}>
-                      {sessionLabel(session)}
+                      {sessionLabel(session)} <span className="text-[10.5px] text-muted">· {formatShortDate(session.startedAt)}</span>
                     </Link>
                     <span className="num shrink-0 text-[11px] text-muted">{formatCompact(session.tokens)}</span>
                   </li>

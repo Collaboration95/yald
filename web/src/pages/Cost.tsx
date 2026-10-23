@@ -7,7 +7,7 @@ import { useTheme } from "../lib/theme";
 import { Card, CardHeader, Expandable, InfoTip, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { lineChart, stackedBarChart } from "../components/chartOptions";
-import { formatCompact, formatInteger, formatPercent, formatUsd, formatUsdAxis, sessionLabel } from "../lib/format";
+import { formatCompact, formatInteger, formatPercent, formatShortDate, formatUsd, formatUsdAxis, sessionLabel } from "../lib/format";
 import { TokenClassCard, useInView } from "./CostStructure";
 import type { CostResponse, SpendStructureResponse } from "../types";
 
@@ -97,7 +97,7 @@ export function CostPage() {
                 <li key={JSON.stringify([session.source, session.id])}>
                   <div className="flex items-center justify-between gap-2">
                     <Link to={conversationLink(session, search)} className="min-w-0 truncate text-[11.5px] text-info hover:underline" title={`${session.project ?? session.id} · ${sourceLabel(session.source)}`}>
-                      {sessionLabel(session)}
+                      {sessionLabel(session)} <span className="text-[10.5px] text-muted">· {formatShortDate(session.startedAt)}</span>
                     </Link>
                     <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{session.pricedRequests > 0 ? formatUsd(session.cost) : "—"}</span>
                   </div>
