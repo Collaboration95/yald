@@ -155,3 +155,15 @@ export function shortPath(path: string | null | undefined): string {
   const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
   return parts.slice(-2).join("/") || path;
 }
+
+/** A readable name for a session: the project it ran in, else a short id. */
+export function sessionLabel(session: { id: string; project: string | null }): string {
+  return session.project ? shortPath(session.project) : `Session ${shortId(session.id, 6)}`;
+}
+
+/** "Weekly plan" for a stored quota window name such as "weekly" or "7d". */
+export function quotaLabel(window: string): string {
+  if (/week|7d/i.test(window)) return "Weekly plan";
+  if (/month|30d/i.test(window)) return "Monthly plan";
+  return `${titleCase(window)} limit`;
+}

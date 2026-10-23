@@ -54,6 +54,38 @@ export function PartialBadge({ children, label = "Partial" }: { children: ReactN
   return <Badge tone="warn" className="gap-0.5">{label}<InfoTip label={`${label}: details`}>{children}</InfoTip></Badge>;
 }
 
+/** Tags a section whose numbers only exist for opencodex requests, so Claude Code is never shown as rows of "—". */
+export function CodexOnly({ className }: { className?: string }) {
+  return (
+    <span className={clsx("inline-flex items-center gap-1", className)}>
+      <Badge className="normal-case tracking-normal">Codex only</Badge>
+      <InfoTip label="About Codex-only numbers">Timing and outcomes come from the opencodex proxy. Claude Code transcripts do not record them, so those requests are left out.</InfoTip>
+    </span>
+  );
+}
+
+/** Says nothing at 95% coverage or better; below that, a "Partial" badge with the counts one hover away. */
+export function CoverageBadge({ sample, what = "measured" }: { sample: { eligibleRequests: number; totalRequests: number } | undefined; what?: string }) {
+  if (!sample || sample.totalRequests === 0 || sample.eligibleRequests / sample.totalRequests >= 0.95) return null;
+  return <PartialBadge>{sample.eligibleRequests.toLocaleString("en-US")} of {sample.totalRequests.toLocaleString("en-US")} requests {what}. The rest are left out.</PartialBadge>;
+}
+
+/** The first `limit` rows, then a "Show all" button: no inner-scroll boxes with half-cut rows. */
+export function Expandable<T>({ items, limit = 8, children }: { items: T[]; limit?: number; children: (rows: T[]) => ReactNode }) {
+  const [all, setAll] = useState(false);
+  const rows = all ? items : items.slice(0, limit);
+  return (
+    <>
+      {children(rows)}
+      {items.length > limit ? (
+        <button type="button" onClick={() => setAll(current => !current)} className="mt-2 text-[11.5px] font-medium text-accent hover:underline">
+          {all ? "Show fewer" : `Show all ${items.length.toLocaleString("en-US")}`}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 type Tone = "neutral" | "good" | "bad" | "warn" | "info" | "violet";
 
 const TONE_CLASS: Record<Tone, string> = {

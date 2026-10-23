@@ -18,9 +18,6 @@ const UsagePage = lazy(() => import("./pages/Usage").then(m => ({ default: m.Usa
 const CostPage = lazy(() => import("./pages/Cost").then(m => ({ default: m.CostPage })));
 const ContextPage = lazy(() => import("./pages/Context").then(m => ({ default: m.ContextPage })));
 const PerformancePage = lazy(() => import("./pages/Performance").then(m => ({ default: m.PerformancePage })));
-const ReliabilityPage = lazy(() => import("./pages/Reliability").then(m => ({ default: m.ReliabilityPage })));
-const ModelsPage = lazy(() => import("./pages/Models").then(m => ({ default: m.ModelsPage })));
-const QuotaPage = lazy(() => import("./pages/Quota").then(m => ({ default: m.QuotaPage })));
 const ConversationsPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationsPage })));
 const ConversationDetailPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationDetailPage })));
 const LabsPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsPage })));
@@ -73,9 +70,9 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="cost" element={<CostPage />} />
                 <Route path="performance" element={<PerformancePage />} />
                 <Route path="context" element={<ContextPage />} />
-                <Route path="reliability" element={<ReliabilityPage />} />
-                <Route path="models" element={<ModelsPage />} />
-                <Route path="quota" element={<QuotaPage />} />
+                <Route path="reliability" element={<MovedTo to="/performance" />} />
+                <Route path="models" element={<MovedTo to="/cost" />} />
+                <Route path="quota" element={<MovedTo to="/" />} />
                 <Route path="sessions" element={<ConversationsPage />} />
                 <Route path="sessions/:id" element={<ConversationDetailPage />} />
                 <Route path="conversations" element={<MovedTo to="/sessions" />} />
