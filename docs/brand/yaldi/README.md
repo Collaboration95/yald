@@ -38,6 +38,7 @@ and are not part of the package.
 | `web/public/yaldi/state-<name>-dark.svg` | 160×160 | dark | Same artwork with a paper keyline. |
 | [`logo-concept.svg`](logo-concept.svg) | 128×128 | — | Reference: the original approved editable logo concept, unchanged. |
 | [`mascot-concept.png`](mascot-concept.png) | 2172×724 | — | Reference: the original four-pose **concept sheet**, unchanged. Not animation frames. |
+| [`readme-hero.png`](readme-hero.png) | 1600×613 | both | Reference: the concept sheet flattened onto paper `#fbf6eb` for the repository README banner (`magick mascot-concept.png -background '#fbf6eb' -gravity center -extent 2412x924 -flatten -resize 1600x`). Not shipped. |
 | [`generation-prompt.txt`](generation-prompt.txt) | — | — | Reference: exact image-generation prompt and provenance of the concept sheet. |
 | [`qa/sheet-light.png`](qa/sheet-light.png), [`qa/sheet-dark.png`](qa/sheet-dark.png) | 1460×520 | — | Reference: every shipped vector at real sizes on the app's surfaces. |
 | [`build-assets.mjs`](build-assets.mjs) | — | — | Source of truth that generates all shipped assets, the manifest and QA sheets. |

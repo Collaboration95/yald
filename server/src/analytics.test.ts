@@ -122,6 +122,21 @@ test("analytics exports cover bucketing, filters, summaries, and view aggregates
   expect(analytics.bucketStarts("day", now - 86_400_000, nextDay, tz).map(ts => analytics.bucketLabel(ts, "day", tz))).toEqual(["2026-03-07", "2026-03-08", "2026-03-09"]);
 });
 
+test("filterRows shares one frozen result per equivalent filter and never one across arrays or filters", () => {
+  const source = [...rows, row({ id: "r3", ts: now + 120_000, provider: "anthropic", protocol: "claude-code" })];
+  const scans = analytics.filterScans();
+  const first = analytics.filterRows(source, { from: now, to: now + 600_000, providers: ["openai", "anthropic"], search: " R " });
+  // Order, duplicates, case and blank values are the same filter; naming every source is no source filter.
+  expect(analytics.filterRows(source, { to: now + 600_000, from: now, providers: ["anthropic", "openai", "openai"], search: "r", sources: ["ocx", "claude-code"], conversationId: "" })).toBe(first);
+  expect(analytics.filterScans()).toBe(scans + 1);
+  expect(Object.isFrozen(first)).toBe(true);
+  expect(() => (first as RequestRow[]).sort((a, b) => b.ts - a.ts)).toThrow();
+  expect(first.map(r => r.id)).toEqual(["r1", "r2", "r3"]);
+  expect(analytics.filterRows(source, { from: now, to: now + 600_000, providers: ["openai"] }).map(r => r.id)).toEqual(["r1", "r2"]);
+  expect(analytics.filterRows(source, { sources: ["claude-code"] }).map(r => r.id)).toEqual(["r3"]);
+  expect(analytics.filterRows([...source], { from: now, to: now + 600_000, providers: ["openai", "anthropic"], search: "r" })).not.toBe(first);
+});
+
 test("heatmap date detail ranks actual local dates across range boundaries and DST", () => {
   // New York jumps over 02:00 in spring and repeats 01:00 in fall.
   const samples = [
@@ -196,13 +211,20 @@ test("API routes return their documented payloads and range-scoped quota and led
     expect(original.summary.requests).toBe(2);
     const rollingEtag = first.headers.get("etag")!;
     expect((await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } })).status).toBe(304);
+    // Rolling windows end on the clock rounded down to the 10 s quantum: within one
+    // quantum the window, the body and the ETag stay put.
     clock.mockReturnValue(now + 7 * 86_400_000 + 1);
+    const sameQuantum = await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } });
+    expect(sameQuantum.status).toBe(200);
+    expect((await sameQuantum.json() as typeof original).window.to).toBe(now + 7 * 86_400_000);
+    clock.mockReturnValue(now + 7 * 86_400_000 + 10_001);
     const expired = await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } });
     expect(expired.status).toBe(200);
     const current = await expired.json() as typeof original;
     expect(current.summary.requests).toBe(1);
     expect(current.window.to - current.window.from).toBe(168 * 3_600_000);
-    expect(current.window.to).toBe(Date.now());
+    expect(current.window.to).toBe(now + 7 * 86_400_000 + 10_000);
+    expect(Date.now() - current.window.to).toBeLessThan(10_000);
     // A pinned end time still permits a 304 while the clock advances.
     expect((await api.request(`/api/overview?range=7d&to=${now + 60_000}`, { headers: { "if-none-match": etag } })).status).toBe(304);
   } finally {
@@ -217,4 +239,37 @@ test("API routes return their documented payloads and range-scoped quota and led
   expect((await api.request("/api/conversations/missing")).status).toBe(404);
   const invalidHeatmapDate = await api.request("/api/usage/heatmap-dates?weekday=7&hour=24");
   expect(invalidHeatmapDate.status).toBe(400);
+});
+
+test("class costs use the engine split, or keep an explicit adjustment so they always add up to the row cost", () => {
+  // A long-context-tier row: the engine charged double the table rates.
+  const tokens = { inputTokens: 10_000_000, cacheReadTokens: 4_000_000, cacheWriteTokens: 1_000_000, outputTokens: 2_000_000 };
+  const tiered = row({ ...tokens, cost: 19.2, contextTier: "long" });
+  const withParts = row({ ...tiered, costParts: { input: 10, cacheRead: 0.8, cacheWrite: 0.4, output: 8 } });
+  const total = (list: RequestRow[]) => analytics.costComposition(list);
+  expect(total([withParts]).adjustment).toBe(0);
+  const exact = total([withParts]);
+  expect(exact.freshInput + exact.cacheRead + exact.cacheWrite + exact.output).toBeCloseTo(withParts.cost, 8);
+  // Without the split, the tier uplift is its own line, never folded into a class.
+  const fallback = total([tiered]);
+  expect(fallback.total).toBeCloseTo(tiered.cost, 8);
+  expect(fallback.adjustment).toBeCloseTo(9.6, 8);
+  expect(fallback.freshInput).toBeCloseTo(5, 8);
+  // Unpriced rows add no dollars to any class.
+  expect(total([row({ priced: false, cost: 0 })]).total).toBe(0);
+});
+
+test("blended price per model divides priced cost by priced tokens only", () => {
+  const mixed = [row({ id: "a", cost: 1, totalTokens: 1_000_000 }), row({ id: "b", priced: false, cost: 0, totalTokens: 9_000_000 })];
+  const [model] = analytics.breakdown(mixed, r => r.model);
+  expect(model).toMatchObject({ tokens: 10_000_000, pricedTokens: 1_000_000, costPer1MTokens: 1, costPer1kTokens: 0.001 });
+});
+
+test("conversations rank by the requested order across every session before the cut", () => {
+  const list = [
+    ...Array.from({ length: 5 }, (_, i) => row({ id: `t${i}`, conversationId: `t${i}`, totalTokens: 1000 + i, cost: 0.01 })),
+    row({ id: "c", conversationId: "costly", totalTokens: 5, cost: 9 }),
+  ];
+  expect(analytics.conversations(list, 2, "tokens").map(c => c.id)).toEqual(["t4", "t3"]);
+  expect(analytics.conversations(list, 2, "cost").map(c => c.id)).toEqual(["costly", "t4"]);
 });

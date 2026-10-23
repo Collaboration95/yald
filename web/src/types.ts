@@ -85,6 +85,8 @@ export interface Series {
 
 export interface BreakdownRow {
   key: string;
+  /** Tokens of priced requests only; the denominator of the blended prices. */
+  pricedTokens: number;
   requests: number;
   tokens: number;
   inputTokens: number;
@@ -153,6 +155,8 @@ export interface CostComposition {
   cacheRead: number;
   cacheWrite: number;
   output: number;
+  /** Tier or priority cost not placed in a class; 0 when rows carry the engine's own split. */
+  adjustment: number;
   total: number;
   cacheSavingsUsd: number;
   unpricedRequests: number;
@@ -488,6 +492,8 @@ export interface CostResponse {
   window: { from: number; to: number; bucket: "hour" | "day" | "week" };
   summary: Summary;
   composition: CostComposition;
+  /** Tokens of priced requests: the denominator of a blended price. */
+  pricedTokens: number;
   series: Series;
   cumulative: CumulativePoint[];
   cache: CachePoint[];
@@ -705,4 +711,210 @@ export interface CacheEconomicsResponse {
   sessionsTruncated: boolean;
   unnamed: CacheEconomicsTotals;
   notes: string[];
+}
+
+export interface ContextSpread {
+  n: number;
+  mean: number | null;
+  p10: number | null;
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  p90: number | null;
+  p99: number | null;
+  max: number | null;
+}
+
+export interface ContextModelRow extends ContextSpread {
+  /** Null on the folded "Other" row. */
+  source: Source | null;
+  model: string | null;
+  totalRequests: number;
+  pricedRequests: number;
+  bandCounts: number[];
+  bandShares: number[];
+}
+
+export interface ContextThresholdRow {
+  at: number | null;
+  label: string;
+  requests: number;
+  requestShare: number | null;
+  pricedRequests: number;
+  cost: number | null;
+  costShare: number | null;
+}
+
+export interface ContextTaxRow {
+  id: string;
+  label: string;
+  min: number;
+  max: number | null;
+  requests: number;
+  requestShare: number | null;
+  cost: number | null;
+  costShare: number | null;
+  pricedRequests: number;
+  costPerPricedRequest: number | null;
+  ttftP50: number | null;
+  ttftMeasured: number;
+  cancelRate: number | null;
+  outcomesObserved: number;
+  cancelled: number;
+  belowMinimum: boolean;
+  topModels: { source: Source; model: string; share: number }[];
+}
+
+export interface ContextResponse {
+  ok: boolean;
+  window: { from: number; to: number; bucket: "hour" | "day" | "week"; label: string };
+  coverage?: ProjectCoverage;
+  bands: { id: string; label: string; min: number; max: number | null }[];
+  minimums: { box: number; p90: number; p99: number; band: number };
+  eligibility: {
+    totalRequests: number;
+    eligibleRequests: number;
+    excludedRequests: number;
+    pricedEligibleRequests: number;
+    unpricedEligibleRequests: number;
+    unnamedRequests: number;
+  };
+  overall: ContextSpread;
+  bySource: (ContextSpread & { source: Source })[];
+  models: ContextModelRow[];
+  modelsOmitted: number;
+  box: ContextModelRow[];
+  modelBands: ContextModelRow[];
+  thresholds: ContextThresholdRow[];
+  tax: ContextTaxRow[];
+  sources: { source: Source; totalRequests: number; eligibleRequests: number; ttftMeasured: number; outcomesObserved: number }[];
+  timeline: {
+    bucket: "hour" | "day" | "week";
+    buckets: { ts: number; label: string }[];
+    series: { source: Source; n: number[]; p50: (number | null)[]; p90: (number | null)[] }[];
+  };
+  growth: {
+    sessions: number;
+    ranked: number;
+    unranked: number;
+    noRatio: number;
+    clippedRanked: number;
+    medianRatio: number | null;
+    histogram: { name: string; value: number }[];
+    minEligible: number;
+  };
+  histogram: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
+}
+
+export type PriceTierId = "economy" | "standard" | "premium";
+export type CostClassId = "freshInput" | "cacheRead" | "cacheWrite" | "output";
+export interface ClassCostTotals {
+  freshInput: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  /** Of which, inside output: an attribution in proportion to reasoning tokens. */
+  reasoning: number;
+  adjustment: number;
+}
+export interface SpendShare { sessions: number; cost: number; share: number }
+
+export interface SpendStructureResponse {
+  ok: boolean;
+  window: { from: number; to: number; bucket: "hour" | "day" | "week"; label: string };
+  coverage?: ProjectCoverage;
+  pricing: { totalRequests: number; pricedRequests: number; unpricedRequests: number; pricedTokens: number; unpricedTokens: number; cost: number };
+  concentration: {
+    sessions: number;
+    partlyPricedSessions: number;
+    unpricedSessions: number;
+    clippedSessions: number;
+    noSessionId: { requests: number; pricedRequests: number; cost: number | null };
+    totalCost: number | null;
+    minimums: { top1pct: number; top5pct: number; top10Sessions: number; gini: number };
+    top1pct: SpendShare | null;
+    top5pct: SpendShare | null;
+    top10Sessions: SpendShare | null;
+    gini: number | null;
+    curve: { x: number; y: number }[];
+  };
+  tiers: {
+    definitions: { id: PriceTierId; label: string; minRateIn: number; maxRateIn: number | null }[];
+    models: Record<PriceTierId, { model: string; requests: number }[]>;
+    unclassifiedRequests: number;
+  };
+  series: {
+    bucket: "hour" | "day" | "week";
+    buckets: {
+      ts: number;
+      label: string;
+      requests: number;
+      pricedRequests: number;
+      pricedTokens: number;
+      cost: number | null;
+      blendedPer1M: number | null;
+      tiers: Record<PriceTierId, { requests: number; tokens: number; blendedPer1M: number | null; requestShare: number | null; tokenShare: number | null }>;
+    }[];
+  };
+  classMix: {
+    source: Source;
+    pricedRequests: number;
+    tokens: { freshInput: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number };
+    cost: ClassCostTotals;
+    totalCost: number;
+    tokenShare: Record<CostClassId, number | null>;
+    costShare: Record<CostClassId | "adjustment", number | null>;
+    buckets: { ts: number; label: string; cost: ClassCostTotals; total: number; share: Record<CostClassId | "adjustment", number | null> }[];
+  }[];
+}
+
+/** Spend spikes (#106). Mirrors server/src/labs/spend.ts; the browser only renders what the server computed. */
+export type SpendDayState = "spike" | "normal" | "insufficient" | "partial" | "no-priced";
+export type SpendCut = "project" | "model" | "tokenClass" | "session";
+export interface SpendRule {
+  id: string; baselineActiveDays: number; minBaselineActiveDays: number; spikeMultiple: number;
+  activeDay: string; baseline: string; spike: string; insufficient: string; decomposition: string; order: readonly string[];
+}
+export interface SpendDay {
+  ts: number; date: string; dayStart: number; dayEnd: number; from: number; to: number; hours: number;
+  requests: number; pricedRequests: number; unpricedRequests: number; tokens: number; pricedCostUsd: number | null;
+  state: SpendDayState; partialReason: "in-progress" | "window-edge" | null; edge: boolean; insufficientReason: "baseline-days" | "zero-baseline" | null;
+  baseline: { activeDays: number; medianUsd: number | null; thresholdUsd: number | null; ratio: number | null; firstDate: string | null; lastDate: string | null; pricedRequests: number; totalRequests: number };
+}
+export interface SpendGroup {
+  key: string; label: string; dayCostUsd: number; baselineMeanUsd: number; changeUsd: number; isNew: boolean;
+  evidence?: { selector: unknown; priorSelector: unknown; href: string };
+}
+export interface SpendOther { groups: number; newGroups: number; dayCostUsd: number; baselineMeanUsd: number; changeUsd: number }
+export interface SpendCutData { groups: SpendGroup[]; new: SpendGroup[]; other: SpendOther | null }
+export interface SpendDecomposition {
+  order: readonly string[]; baselineDays: number; keptBaselineDays: number; excludedBaselineDates: string[];
+  dayCostUsd: number; baselineMedianUsd: number; baselineMeanUsd: number; changeUsd: number;
+  unpriced: { dayRequests: number; dayTokens: number; baselineMeanRequests: number; baselineMeanTokens: number; requestChange: number; tokenChange: number };
+  attribution: { dayRequests: number; attributedRequests: number; dayPricedCostUsd: number; attributedPricedCostUsd: number; baselineRequests: number; baselineAttributedRequests: number };
+  cuts: Record<SpendCut, SpendCutData>;
+  drilldown: {
+    order: readonly string[];
+    projects: (SpendGroup & { models: (SpendGroup & { tokenClasses: SpendGroup[] })[]; otherModels: SpendOther | null })[];
+    otherProjects: SpendOther | null;
+  };
+}
+export interface SpendChangesResponse {
+  ok: true; analysis: "spend-changes"; version: 1;
+  window: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
+  cohort: RadarCohort;
+  rule: SpendRule;
+  pricingBasis: "currently-loaded-api-list-price-equivalents";
+  history: { basis: "earliest-loaded-request"; firstLoadedAt: number | null; completeness: "unknown"; note: string };
+  coverage: {
+    windowDays: number; activeDays: number; spikeDays: number; normalDays: number; insufficientDays: number; partialDays: number;
+    totalRequests: number; pricedRequests: number; unpricedRequests: number; pricedCostUsd: number | null; spikeCostUsd: number | null; spikeCostShare: number | null;
+    attributedRequests: number; projectCoverage: unknown;
+  };
+  days: SpendDay[];
+  selected: null | {
+    day: SpendDay; decomposition: SpendDecomposition | null;
+    baselineDays: { date: string; pricedCostUsd: number; pricedRequests: number; requests: number }[];
+    evidence: { selector: unknown; priorSelector: unknown; href: string } | null; limitations: string[];
+  };
 }

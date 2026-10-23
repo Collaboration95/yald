@@ -280,6 +280,12 @@
   margin-bottom: 24px;
 }
 
+/* Another selection's numbers, kept on screen while this one loads: visibly not current. */
+:root .relay-content[data-updating="true"] > .space-y-3 {
+  opacity: .5;
+  transition: opacity .15s ease;
+}
+
 :root .relay-content .grid:has(> .widget-card) {
   gap: 24px;
   align-items: start;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { filtersKey, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
@@ -17,6 +18,7 @@ function formatLocalDate(timestamp: number, timeZone: string): string {
 }
 
 export function UsagePage() {
+  const { search } = useLocation();
   const { filters, set } = useFilters();
   const { chartTheme } = useTheme();
   const query = useEndpoint<UsageResponse>("/api/usage", filters, { metric: filters.metric, groupBy: filters.groupBy });
@@ -32,7 +34,7 @@ export function UsagePage() {
   const activeSelection = selection?.filterKey === filterKey && selection.metric === heatmapMetric ? selection : null;
   const detailQuery = useEndpoint<UsageHeatmapDatesResponse>("/api/usage/heatmap-dates", filters, {
     weekday: activeSelection?.weekday, hour: activeSelection?.hour, metric: heatmapMetric, limit: DETAIL_PAGE_SIZE, offset: detailOffset,
-  }, { enabled: Boolean(activeSelection), refetchInterval: false });
+  }, { enabled: Boolean(activeSelection), refetchInterval: false, keepPrevious: false });
   useEffect(() => {
     setSelection(current => current && current.filterKey === filterKey && current.metric === heatmapMetric ? current : null);
     setDetailOffset(0);
@@ -89,6 +91,8 @@ export function UsagePage() {
     });
   }, [heatmap, heatmapCells, heatmapMax, chartTheme, heatmapUnit, minimumActivity]);
   const chooseCell = (weekday: number, hour: number) => {
+    // Cells from the previous selection are not this selection's cells.
+    if (tokenHeatmapQuery.isPlaceholderData) return;
     setSelection({ weekday, hour, filterKey, metric: heatmapMetric });
     setDetailOffset(0);
     setDetailRows([]);
@@ -99,7 +103,7 @@ export function UsagePage() {
       const cell = typeof params.dataIndex === "number" ? heatmapCells[params.dataIndex] : undefined;
       if (cell) chooseCell(cell.weekday, cell.hour);
     },
-  }), [heatmapCells, filterKey, heatmapMetric]);
+  }), [heatmapCells, filterKey, heatmapMetric, tokenHeatmapQuery.isPlaceholderData]);
   const keyboardCell = activeSelection ? activeSelection.weekday * 24 + activeSelection.hour : 0;
 
   const contextOption = useMemo(() => {
@@ -243,7 +247,7 @@ export function UsagePage() {
           </section> : null}
         </Card>
         <Card>
-          <CardHeader title="Context pressure" subtitle={data ? `${formatCoverage(data.summary.measurementCoverage.context)} · logical input only` : "Logical input tokens per request"} />
+          <CardHeader title="Context pressure" subtitle={data ? `${formatCoverage(data.summary.measurementCoverage.context)} · logical input only` : "Logical input tokens per request"} action={<Link to={{ pathname: "/context", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
             {contextOption ? <Chart option={contextOption} height={180} /> : null}
             <div className="mt-2 grid grid-cols-3 gap-2 text-center">

@@ -1,11 +1,12 @@
 import { clsx } from "clsx";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BatteryCharging,
   Boxes,
   CircleDollarSign,
+  Layers,
   LayoutDashboard,
   FlaskConical,
   MessagesSquare,
@@ -16,15 +17,16 @@ import {
   Sun,
   Timer,
 } from "lucide-react";
-import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, useEndpoint } from "../api";
+import { activeFilterCount, fetchJson, hasCustomWindow, hasScope, RANGES, selectionFilters, useEndpoint, useMeta } from "../api";
+import { usePlaceholderShown, useSavedShown } from "../lib/staleness";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { CheckList, Popover, Segmented } from "./ui";
 import { Wordmark } from "./Wordmark";
 import { Delight } from "./Delight";
 import { NoScopeMatches, ProjectFilter, ScopeStatus, SourceFilter } from "./ScopeControls";
-import { formatCompact, formatRelative } from "../lib/format";
-import type { MetaResponse, ScopeResponse } from "../types";
+import { formatCompact, formatDateTime, formatRelative } from "../lib/format";
+import type { ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
 import { DEMO, displayNow } from "../lib/demo";
 import { YaldiDemoArtwork } from "./YaldiArtwork";
@@ -34,6 +36,7 @@ const NAV = [
   { to: "/usage", label: "Usage", icon: Activity },
   { to: "/cost", label: "Cost & spend", icon: CircleDollarSign },
   { to: "/performance", label: "Performance", icon: Timer },
+  { to: "/context", label: "Context", icon: Layers },
   { to: "/reliability", label: "Reliability", icon: ShieldAlert },
   { to: "/models", label: "Models", icon: Boxes },
   { to: "/quota", label: "Quota", icon: BatteryCharging },
@@ -45,6 +48,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   "/usage": { title: "Usage", subtitle: "Token volume, composition and context pressure" },
   "/cost": { title: "Cost & spend", subtitle: "API list-price equivalents for your selected sources" },
   "/performance": { title: "Performance", subtitle: "Latency, time-to-first-token and throughput" },
+  "/context": { title: "Context", subtitle: "How long your contexts are, per model, and what long ones coincide with" },
   "/reliability": { title: "Reliability", subtitle: "Outcomes, failures and metering coverage" },
   "/models": { title: "Models", subtitle: "Compare every model on volume, price and speed" },
   "/quota": { title: "Quota", subtitle: "Weekly and monthly plan burn with projections" },
@@ -58,13 +62,13 @@ export function Layout() {
   const location = useLocation();
   const queryClient = useQueryClient();
 
-  const meta = useQuery<MetaResponse>({
-    queryKey: ["/api/meta"],
-    queryFn: () => fetchJson<MetaResponse>("/api/meta"),
-    staleTime: 60_000,
-  });
+  const meta = useMeta();
 
-  const scope = useEndpoint<ScopeResponse>("/api/scope", filters);
+  const scope = useEndpoint<ScopeResponse>("/api/scope", selectionFilters(filters));
+  // The previous selection's summary is not this one's: never count it as a match or a zero.
+  const scopeData = scope.isPlaceholderData ? undefined : scope.data;
+  const updating = usePlaceholderShown();
+  const saved = useSavedShown();
   const activeFilters = activeFilterCount(filters);
   const isLabs = location.pathname === "/labs" || location.pathname.startsWith("/labs/");
   const heading = isLabs ? { title: "Labs", subtitle: "Follow patterns in your usage" }
@@ -145,7 +149,7 @@ export function Layout() {
                 onChange={range => set({ range })}
               />
               {hasCustomWindow(filters) ? <span className="px-1 text-[11px] text-accent">Custom window</span> : null}
-              <SourceFilter scope={scope.data} />
+              <SourceFilter scope={scopeData} />
               <ProjectFilter />
               <Popover
                 label={filters.providers.length ? `Provider · ${filters.providers.length}` : "Provider"}
@@ -206,15 +210,23 @@ export function Layout() {
             </div>
           </div>
         </header>
-        <main className="relay-content" data-page={page} id="main-content">
+        <main className="relay-content" data-page={page} id="main-content" data-updating={updating ? "true" : undefined} aria-busy={updating || undefined}>
           <div className="relay-heading">
             <span className="relay-eyebrow">{isLabs ? "09" : String(NAV.findIndex(item => item.to === location.pathname) + 1 || 8).padStart(2, "0")} / DASHBOARD</span>
             <h1>{heading.title}<span className="relay-title-stop">.</span></h1>
             <p>{heading.subtitle}</p>
           </div>
           {isLabs ? <p className="mb-1 text-[11.5px] font-medium text-ink-soft">Dashboard selection</p> : null}
-          <ScopeStatus data={scope.data} loading={scope.isLoading} error={scope.error} />
-          {hasScope(filters) && scope.data?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
+          <ScopeStatus data={scopeData} loading={scope.isLoading || scope.isPlaceholderData} error={scope.error} />
+          {updating ? <p role="status" data-updating-notice className="mb-3 rounded-xl border border-line bg-warn-soft px-3 py-2 text-[11.5px] leading-5 text-warn">
+            Updating: the numbers below are from the previous selection and are not this selection's result yet.
+          </p> : null}
+          {saved ? <p role="status" data-saved-notice className="mb-3 rounded-xl border border-line bg-info-soft px-3 py-2 text-[11.5px] leading-5 text-info">
+            {saved.failed
+              ? `Could not refresh. Showing saved results as of ${formatDateTime(saved.savedAt)}.`
+              : `Showing saved results as of ${formatDateTime(saved.savedAt)} while they refresh.`}
+          </p> : null}
+          {hasScope(filters) && scopeData?.matched.requests === 0 && page !== "quota" && page !== "conversation" && !isLabs
             ? <NoScopeMatches /> : <Outlet />}
           <footer className="relay-footer"><span>{new Date(displayNow()).getHours() < 5 ? "It's late. The tokens will keep till morning." : "Every request leaves a trace."}</span><span>On your machine · Read-only analytics</span></footer>
         </main>

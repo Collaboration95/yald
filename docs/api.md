@@ -1,6 +1,12 @@
 # API reference
 
-All endpoints return JSON except `/api/export` and `/api/report?format=html`. Responses include an ETag derived from the dataset revision and full request URL. Analytics queries whose window can move with the clock (no `to`, or a relative time such as `now`, `today` or `-8h`) also include the current request time, so rolling windows continue advancing when source files are unchanged. Queries pinned to exact instants, metadata, health, and conversation detail without a window can return `304 Not Modified` for an unchanged query and dataset. Windowed conversation detail follows the analytics clock rules. Each response uses one dataset snapshot and one time for its window boundaries. Analytics endpoints rebuild the dataset if a ledger file's size or modification time changed. The browser polls visible views every 30 seconds; hidden tabs pause polling. Refresh forces a dataset rebuild. Query parameters are URL encoded.
+All endpoints return JSON except `/api/export` and `/api/report?format=html`. Each response uses one dataset snapshot and one time for its window boundaries. Analytics endpoints rebuild the dataset if a ledger file's size or modification time changed. The server checks the files at most once per second (set `YALD_FRESHNESS_MS` to change the interval), so a newly appended line can take up to a second to appear. When `usage.jsonl` or a Claude transcript has grown, only the appended bytes are read and parsed. A replaced, shrunk or rewritten file, or a price change, is read whole ([architecture](architecture.md#incremental-ingestion)), and either way the result is the same as a whole-file parse. The browser polls visible views every 30 seconds; hidden tabs pause polling. Refresh (`GET /api/dataset/refresh`) skips the interval, re-reads the files whole and forces a dataset rebuild. Query parameters are URL encoded.
+
+**Request clock.** Analytics routes read `now`, `today`, relative times such as `-8h`, and rolling ranges against the request time rounded down to a **10-second quantum** (set `YALD_CLOCK_QUANTUM_MS` to change it; a demo with a fixed clock uses that clock instead). A rolling window's `window.to`, and the `label` and `toIso` derived from it, therefore lag the real time by up to one quantum (under 10 seconds), and a request recorded during that lag appears in rolling windows from the next quantum on: `to` is not stretched to cover the newest row. Every request within one quantum resolves the same window. Quota exhaustion projections are dated at the same clock. `GET /api/report` is the exception: like `yald report`, it uses the exact request time.
+
+**ETags and the response memo.** Responses include an ETag derived from the dataset revision, the pricing generation and the full request URL. Analytics queries whose window can move with the clock (no `to`, or a relative time such as `now`, `today` or `-8h`) also include the request clock, so a repeat within one quantum can answer `304 Not Modified` while rolling windows still advance quantum by quantum when source files are unchanged. Queries pinned to exact instants, metadata, health, and conversation detail without a window can return `304 Not Modified` for an unchanged query and dataset. Windowed conversation detail follows the analytics clock rules. The server also keeps recent response bodies in memory (at most 64, or 32 M characters of JSON), keyed by route, query parameters in any order, request clock, dataset and pricing generation. A repeat is answered from it byte for byte; any rebuild (an appended line, Refresh, a price change) empties it. Project views (`/api/projects`, `/api/labs/projects`), Labs evidence, reports and CSV exports are always computed, because they resolve git roots on disk, carry their request time or are too large to keep.
+
+Every `/api/*` response, `304 Not Modified` included, carries `Server-Timing: build;dur=<ms>, compute;dur=<ms>`. `build` is the time spent getting the dataset (checking the files and rebuilding when they changed); `compute` is the time in the route itself. A body served from the memo adds `memo;desc="hit"`. The header holds durations only, never data.
 
 Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
 
@@ -26,7 +32,7 @@ Every analytics route takes the same window parameters. Windows are half-open, `
 | `2026-10-11T09:00`, `2026-10-11 09:00`, `2026-10-11 09:00:30` | Naive local time, read in `tz` |
 | `2026-10-11` | 00:00 on that date in `tz`, so `from=2026-10-11&to=2026-10-12` is exactly one local day |
 | `1791680400000` | Epoch milliseconds (12 or 13 digits) |
-| `now` | The request time |
+| `now` | The request clock: the request time rounded down to the 10 s quantum (see above) |
 | `today`, `yesterday` | 00:00 in `tz` on that local date |
 | `now-8h`, `today+9h`, `yesterday+18h30m` | Anchor plus or minus a duration |
 | `-8h` | Same as `now-8h` |
@@ -135,12 +141,14 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/models` | Shared | Model/provider/effort breakdowns, scatter points, effort matrix |
 | `GET /api/usage` | Shared | Summary, token composition, cache timeline, series, heatmap, context, breakdowns |
 | `GET /api/usage/heatmap-dates` | Shared; `weekday` (0–6, Monday first), `hour` (0–23), `limit`, `offset` | Ranked local dates for one heatmap cell in `tz` |
-| `GET /api/cost` | Shared | Summary, cost composition, cost series/cumulative totals, cache savings, breakdowns |
+| `GET /api/context` | Shared | Context length per `(source, model)`, over time, by band, above thresholds and as session growth, each with eligible coverage; see [`GET /api/context`](#get-apicontext) |
+| `GET /api/cost` | Shared | Summary, cost composition (with `adjustment`), `pricedTokens`, cost series/cumulative totals, cache savings, breakdowns, the ten costliest sessions across all sessions |
+| `GET /api/cost/structure` | Shared; `bucket` | Session cost concentration, blended price by price tier over time and token-class cost mix per source, priced rows only; see [`GET /api/cost/structure`](#get-apicoststructure) |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
 | `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
 | `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |
 | `GET /api/ledger` | Window parameters, `sources`; other shared filters are declared ignored | Account-wide spend-ledger counts and selected-range buckets, send/token totals, account `scope` |
-| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Ranked conversations and aggregate totals |
+| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Conversations ranked by `sort` across every session in the selection, then cut to `limit`; aggregate totals |
 | `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |
@@ -150,6 +158,38 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
 
 `GET /api/dataset/refresh` is an operational endpoint used by local tooling. It rebuilds immediately and returns `{ok, rows, parseMs, builtAt}`. The application server serves the built web app at `/` and its client routes.
+
+### `GET /api/cost/structure`
+
+Spend structure over the priced requests of the selection. Every dollar is an API list-price equivalent; unpriced requests are counted in `pricing` and left out of every figure, never treated as $0. Takes the shared parameters and `bucket`. See [Spend structure](metrics.md#spend-structure).
+
+| Field | Meaning |
+| --- | --- |
+| `pricing` | `totalRequests`, `pricedRequests`, `unpricedRequests`, `pricedTokens`, `unpricedTokens`, `cost` |
+| `concentration` | Over sessions `(source, conversationId)` with at least one priced request: `sessions`, `partlyPricedSessions` (cost is a lower bound), `unpricedSessions`, `clippedSessions`, `noSessionId`, `totalCost`, `top1pct`, `top5pct`, `top10Sessions` (`{ sessions, cost, share }`), `gini`, and `curve` (`{ x, y }`: cumulative share of sessions against cumulative share of cost, log-spaced, at most about 100 points). A figure below its minimum sample (`minimums`: 100, 20, 10 and 10 sessions) is `null` |
+| `tiers` | `definitions` (the fixed price-tier bands), `models` per tier, and `unclassifiedRequests` (priced, no input rate) |
+| `series` | Per bucket: `pricedRequests`, `pricedTokens`, `cost`, `blendedPer1M` and per tier `blendedPer1M`, `requestShare`, `tokenShare`; empty buckets are `null`, never 0 |
+| `classMix` | Per source: priced `tokens` and `cost` by class (`freshInput`, `cacheRead`, `cacheWrite`, `output`, with `reasoning` as an `of which` inside output, and `adjustment`), `tokenShare` and `costShare`, and the same per bucket |
+
+### `GET /api/context`
+
+Context length of a request is its `inputTokens`, which already include cache reads and writes. Only requests whose input was measured as one logical request count (`contextEligible`); the rest are reported in `eligibility`. Takes the shared parameters and `bucket`. Counts and token totals only. See [Context length](metrics.md#context-length).
+
+| Field | Meaning |
+| --- | --- |
+| `eligibility` | `totalRequests`, `eligibleRequests`, `excludedRequests`, `pricedEligibleRequests`, `unpricedEligibleRequests`, `unnamedRequests` |
+| `bands`, `minimums` | The fixed band edges (`Under 50k`, `50-150k`, `150-300k`, `300k+`) and the minimum samples: `box` 10, `p90` 10, `p99` 100, `band` 10 |
+| `overall`, `bySource` | `{ n, mean, p10, p25, p50, p75, p90, p99, max }`; a statistic below its minimum sample is `null`, never 0 |
+| `models` | Up to 30 rows by eligible requests: the spread above plus `source`, `model`, `totalRequests`, `pricedRequests`, `bandCounts`, `bandShares`; `modelsOmitted` counts the rest |
+| `box` | The top 12 rows of `models`, for the box plot |
+| `modelBands` | The top 12 plus an `Other` row (`source` and `model` `null`); `bandShares` are row-normalised |
+| `thresholds` | Requests and priced cost at or above 50k, 150k and 300k, and for the engine long-context tier (`at: null`): `requests`, `requestShare`, `pricedRequests`, `cost`, `costShare`; cost is `null` when no priced request is above |
+| `tax` | Per band: requests and share, priced cost and share, `costPerPricedRequest`, `ttftP50` with `ttftMeasured`, `cancelRate` with `outcomesObserved`, `belowMinimum`, `topModels`. TTFT and outcomes are opencodex only; with none observed the count is 0 and the value `null` |
+| `timeline` | `buckets` and, per source, aligned `n`, `p50` and `p90` arrays; an empty bucket is `null` |
+| `growth` | Session growth through the helper Context Replay uses: `sessions`, `ranked`, `unranked`, `noRatio`, `clippedRanked`, `medianRatio`, a ratio `histogram` |
+| `histogram` | The `contextPressure` buckets, kept for continuity |
+
+Rows also carry `contextTier` in `publicRow` (`"long"` or `null`).
 
 ### Dashboard scope and navigation
 
@@ -318,6 +358,24 @@ Like `/api/projects`, Radar validates before a conditional response and hashes
 its resolved payload, so changes in on-disk git roots invalidate a pinned ETag
 without a ledger edit.
 
+### `GET /api/labs/spend` — Spend spikes
+
+Shared window and filters, plus optional `day=YYYY-MM-DD` (a local date inside
+the window in its time zone; otherwise 400 `invalid_day`) selecting which day to
+decompose; by default the costliest spike. Response: `{ ok, analysis:
+"spend-changes", version, window, cohort, rule, pricingBasis, history,
+coverage, days, selected }`. `rule` echoes the detection rule and parameters
+(`baselineActiveDays`, `minBaselineActiveDays`, `spikeMultiple`). Each of `days`
+has `state` (`spike`, `normal`, `insufficient`, `partial`, `no-priced`), `pricedCostUsd`
+(null without a priced request), request counts, and a `baseline` with
+`medianUsd`, `thresholdUsd` and `ratio` (null when unavailable). `selected` has
+the day, its `decomposition` (null unless the day is a spike with a baseline:
+`cuts` for project/model/tokenClass/session with `groups`, `new` and `other`,
+a `drilldown`, `unpriced` and `attribution` coverage), `baselineDays`, an
+`evidence` link to a fixed case and `limitations`. Like Radar, it resolves
+repository roots on disk, so the body is hashed after validation. See
+[metrics](metrics.md#labs-spend-spikes).
+
 ### Labs Context Replay
 
 `GET /api/labs/context` returns fixed window/cohort, request and eligibility
@@ -417,7 +475,7 @@ exported `cacheEligibility` from `server/src/labs/cache.ts`.
 ### `GET /api/labs/evidence` — fixed case evidence
 
 The sibling `/labs/evidence` page is inside the existing Labs preference gate.
-The API takes `investigation=project-radar|cache-detective|context-replay` and a
+The API takes `investigation=project-radar|cache-detective|context-replay|spend-changes` and a
 complete `selector` JSON from a finding. The selector's `version:1`, fixed
 `window:{from,to,tz,label}`, typed `cohort` arrays, exact `selection`, and
 `eligibility` are authoritative. `selectorVersion=1`, readable `from`/`to`/`tz`,
@@ -431,7 +489,11 @@ must have equal elapsed length, touch at current `from`, use the same timezone,
 cohort, exact selection and `eligibility:all`. Prior inspection never rebases the
 comparison. Radar supports scope or exact project key. Cache supports scope,
 source-qualified session, or actual null-ID unnamed selection with
-`eligibility:cache`. Context uses the same selections with `eligibility:all` so
+`eligibility:cache`. Spend spikes uses `spend-changes` with the same paired-selector
+rule as Radar: `selector` is the one local day and `priorSelector` the baseline
+window just before it, each with `eligibility:all` and a scope, project or
+session selection. The case recomputes detection and decomposition from only those
+two windows, so it matches the finding it was opened from. Context uses the same selections with `eligibility:all` so
 excluded rows remain inspectable. An unnamed selection can carry an exact source.
 An unavailable exact group remains empty; it never falls back to another group.
 

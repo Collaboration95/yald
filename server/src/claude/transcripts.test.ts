@@ -108,6 +108,12 @@ test("readClaudeEntries reuses unchanged transcripts and re-parses appended ones
   const again = await readClaudeEntries(dir, archive);
   expect(again.entries[0]).toBe(first.entries[0]!);
   expect(again.signature).toBe(first.signature);
+  // No input changed, so no merge pass ran: the previous result and its array come back as is.
+  expect(again).toBe(first);
+  expect(again.entries).toBe(first.entries);
+  // A different archive is a different input.
+  const other = join(await mkdtemp(join(tmpdir(), "yald-archive-")), "claude.jsonl");
+  expect((await readClaudeEntries(dir, other)).entries).not.toBe(first.entries);
 
   await appendFile(file, block("text").replace(/req_1/g, "req_2") + "\n");
   const appended = await readClaudeEntries(dir, archive);

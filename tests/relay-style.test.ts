@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { makeRelayStyle } from "../web/src/lib/relayStyle";
 import type { ChartOption } from "../web/src/components/Chart";
 import {
-  barChart, donutChart, heatmapChart, lineChart, scatterChart,
+  barChart, boxplotChart, paretoChart, pairedBarChart, donutChart, heatmapChart, lineChart, scatterChart,
   stackedAreaChart, stackedBarChart, type ThemeTokens,
 } from "../web/src/components/chartOptions";
 import { formatCompact, formatInteger, formatUsdPrecise } from "../web/src/lib/format";
@@ -67,6 +67,26 @@ function fixtures(tokens: ThemeTokens): [string, ChartOption][] {
       { weekday: 0, hour: 0, value: 10, requests: 2 },
       { weekday: 2, hour: 17, value: 25000, requests: 9 },
     ], 25000, { minimum: 10, formatter: formatCompact, unit: "tokens" })],
+    ["context / box plot per model", boxplotChart(tokens, [
+      { label: "gpt-6-sol", box: [800, 4_000, 20_000, 90_000, 240_000], p99: 410_000, max: 520_000, n: 400 },
+      { label: "tiny", box: null, p99: null, max: 3_000, n: 4 },
+      { label: "zero-floor", box: [0, 0, 10, 50, 90], p99: null, max: 120, n: 12 },
+    ], { formatter: formatCompact })],
+    ["cost / pareto curve of sessions", paretoChart(tokens, [{ x: 0.005, y: 0.3 }, { x: 0.05, y: 0.9 }, { x: 1, y: 1 }], [{ label: "top 5% · 90%", x: 0.05, y: 0.9 }])],
+    ["cost / tokens beside cost by class", pairedBarChart(tokens, ["Fresh input", "Cache read"], [
+      { name: "Share of tokens", data: [0.02, null] }, { name: "Share of cost", data: [0.25, 0.5] },
+    ], { formatter: value => `${(value * 100).toFixed(1)}%` })],
+    ["cost / class mix share area", stackedAreaChart(tokens, dates, [
+      { name: "Fresh input", data: [0.2, null, 0.1] }, { name: "Output", data: [0.8, null, 0.9] },
+    ], { formatter: value => `${Math.round(value * 100)}%`, colors: COMPOSITION_COLORS, max: 1 })],
+    ["context / model by band heatmap", heatmapChart(tokens, [
+      { weekday: 0, hour: 0, value: 0.75, requests: 3 }, { weekday: 0, hour: 1, value: 0.25, requests: 1 },
+      { weekday: 1, hour: 0, value: 0, requests: 0 }, { weekday: 1, hour: 1, value: 1, requests: 9 },
+    ], 1, { columns: ["Under 50k", "50-150k"], rows: ["gpt-6-sol", "Other"], describe: (cell, column, row) => `${row} · ${column}: ${cell.requests}`, cellLabel: value => `${Math.round(value * 100)}%` })],
+    ["context / p50 and p90 by source", lineChart(tokens, dates, [
+      { name: "Claude Code p50", data: [1000, null, 5000], color: "#16a34a" },
+      { name: "Claude Code p90", data: [4000, null, 9000], color: "#16a34a", dashed: true },
+    ], { formatter: formatCompact, preserveGaps: true })],
     ["models / price versus speed bubbles", scatterChart(tokens, [{
       name: "Models", points: [[0, 0.0025, 0], [1500, 2.5, 160000], [3000, 0.125]],
     }], { xName: "TTFT p50 (s)", yName: "$ per 1M tokens", xFormatter: value => `${(value / 1000).toFixed(1)}s`, yFormatter: formatUsdPrecise, scaleSize: 40 })],
@@ -173,6 +193,57 @@ describe("Relay production chart contracts", () => {
         expect(allZero.series[0].data[0].value).toEqual([23, 6, 0]);
         expect(allZero.visualMap.max).toBe(1);
         for (const stop of filtered.visualMap.inRange.color) expect(style.heatmapGradient).toContain(stop);
+      });
+
+      test("box plot keeps only measurable rows, floors zero for the log axis and names unavailable percentiles", () => {
+        const rows = [
+          { label: "a", box: [0, 10, 100, 1000, 5000] as [number, number, number, number, number], p99: null, max: 9000, n: 50 },
+          { label: "few", box: null, p99: null, max: 20, n: 3 },
+          { label: "b", box: [5, 6, 7, 8, 9] as [number, number, number, number, number], p99: 12, max: 15, n: 700 },
+        ];
+        const result = inspect(makeRelayStyle(dark, models).chart(freeze(boxplotChart(tokens, rows, { formatter: formatCompact }))));
+        expect(result.xAxis.type).toBe("log");
+        expect(result.yAxis.data).toEqual(["a", "b"]);
+        expect(result.series[0].data).toEqual([[1, 10, 100, 1000, 5000], [5, 6, 7, 8, 9]]);
+        // p99 is withheld for "a", so only "b" gets a diamond; both rows get a max ring.
+        expect(result.series[1].data).toEqual([[12, 1]]);
+        expect(result.series[2].data).toEqual([[9000, 0], [15, 1]]);
+        expect(result.tooltip.formatter({ seriesType: "boxplot", dataIndex: 0 })).toContain("p99 too few requests");
+        expect(result.tooltip.formatter({ seriesType: "scatter", value: [12, 1] })).toContain("p99 12");
+        expect(result.legend?.show ?? false).toBe(false);
+      });
+
+      test("pareto curve is log-x with percent labels, marks the chosen points and has no legend", () => {
+        const result = inspect(makeRelayStyle(dark, models).chart(freeze(paretoChart(tokens, [{ x: 0.01, y: 0.4 }, { x: 1, y: 1 }], [{ label: "top 1%", x: 0.01, y: 0.4 }]))));
+        expect(result.xAxis.type).toBe("log");
+        expect(result.xAxis.min).toBe(0.01);
+        expect(result.xAxis.axisLabel.formatter(0.01)).toBe("1%");
+        expect(result.xAxis.axisLabel.formatter(0.5)).toBe("50%");
+        expect(result.series[1].data).toEqual([[0.01, 0.4], [1, 1]]);
+        expect(result.series[2].data).toEqual([[0.01, 0.4]]);
+        expect(result.series[2].label.formatter({ dataIndex: 0 })).toBe("top 1%");
+        expect(result.tooltip.formatter({ seriesName: "Cumulative cost share", value: [0.01, 0.4] })).toContain("top 1% of sessions hold <b>40%</b>");
+        expect(result.legend).toBeUndefined();
+      });
+
+      test("paired bars keep an unavailable value as a gap, not zero", () => {
+        const result = inspect(makeRelayStyle(dark, models).chart(freeze(pairedBarChart(tokens, ["a", "b"], [{ name: "x", data: [0.1, null] }], { formatter: value => `${value}` }))));
+        expect(result.series[0].data).toEqual([0.1, null]);
+        expect(result.tooltip.valueFormatter(null)).toBe("Unavailable");
+      });
+
+      test("labelled heatmaps index their own rows and columns and leave the default grid alone", () => {
+        const cells = [{ weekday: 1, hour: 0, value: 0.5, requests: 4 }, { weekday: 0, hour: 1, value: 0, requests: 0 }];
+        const result = inspect(makeRelayStyle(dark, models).chart(freeze(heatmapChart(tokens, cells, 1, {
+          columns: ["Under 50k", "50-150k"], rows: ["a", "Other"], describe: (cell, column, row) => `${row}|${column}|${cell.requests}`,
+          cellLabel: value => `${Math.round(value * 100)}%`,
+        }))));
+        expect(result.xAxis.data).toEqual(["Under 50k", "50-150k"]);
+        expect(result.yAxis.data).toEqual(["a", "Other"]);
+        expect(result.series[0].data.map((cell: any) => cell.value)).toEqual([[0, 1, 0.5], [1, 0, 0]]);
+        expect(result.tooltip.formatter({ dataIndex: 0 })).toBe("Other|Under 50k|4");
+        expect(result.series[0].label.formatter({ dataIndex: 0 })).toBe("50%");
+        expect(inspect(heatmapChart(tokens, cells, 1)).series[0].label).toBeUndefined();
       });
 
       test("scatter tooltip and bubble area retain all three coordinates, including zero and absent volume", () => {

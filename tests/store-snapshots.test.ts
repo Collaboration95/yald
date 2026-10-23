@@ -24,8 +24,8 @@ class Probe {
   lines: string[] = [];
   waiters: { resolve: (line: string) => void; reject: (error: Error) => void }[] = [];
   stderr = "";
-  constructor(checkout: string, home: string, pricing: string, syntheticGeneration = false) {
-    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), CODEX_HOME: join(home, "codex"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC" }, stdio: "pipe" });
+  constructor(checkout: string, home: string, pricing: string, syntheticGeneration = false, env: Record<string, string> = {}) {
+    this.child = spawn(process.execPath, [helper, checkout], { cwd: root, env: { ...process.env, OCX_HOME: home, CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), CODEX_HOME: join(home, "codex"), OCX_PACKAGE_DIR: pricing, YALD_TEST_PRICING_GENERATION: syntheticGeneration ? "synthetic" : "", TZ: "UTC", YALD_TZ: "UTC", ...env }, stdio: "pipe" });
     createInterface({ input: this.child.stdout }).on("line", line => {
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(line); else this.lines.push(line);
@@ -283,7 +283,7 @@ test("invalid registry version is unknown safety, not permission to reuse priced
   expect(comparable(changed)).toEqual(comparable(await fresh.ask({ op: "get", force: true })));
 }, 30_000);
 
-test("pricing-only changes retain the documented file-driven fast path and existing force ETag limitation", async () => {
+test("pricing-only changes retain the documented file-driven fast path, and a forced re-price changes the ETag", async () => {
   const f = await fixture();
   const before: View = await f.probe.ask({ op: "get" });
   const path = `/api/overview?from=${epoch - 3_600_000}&to=${epoch}`;
@@ -298,11 +298,12 @@ test("pricing-only changes retain the documented file-driven fast path and exist
   expect(comparable(forced)).toEqual(comparable(await fresh.ask({ op: "get", force: true })));
   const updated = (await f.probe.ask({ op: "api", paths: [path] }))[0];
   expect(updated.body.summary.cost).toBeGreaterThan(original.body.summary.cost);
-  // Explicitly expose the pre-existing issue: file signatures did not change,
-  // so price-only force rebuilds still share an ETag. This test is not a claim
-  // that the limitation is correct or fixed by per-file reuse.
-  expect(updated.etag).toBe(original.etag);
-  expect((await f.probe.ask({ op: "api", paths: [path], etag: original.etag }))[0].status).toBe(304);
+  // File signatures did not change, but the pricing generation did: the ETag (and the
+  // response memo) are keyed on it, so the re-priced body is never answered with a 304.
+  expect(updated.etag).not.toBe(original.etag);
+  const revalidated = (await f.probe.ask({ op: "api", paths: [path], etag: original.etag }))[0];
+  expect(revalidated.status).toBe(200);
+  expect(revalidated.body).toEqual(updated.body);
 }, 30_000);
 
 test("unavailable pricing preserves unpriced/null conventions through quota rebuild", async () => {
@@ -651,3 +652,220 @@ test("external Claude archive cwd rewrites refresh dataset rows and project ETag
   expect(afterApi.etag).not.toBe(beforeApi.etag);
   expect(afterApi.body.summary.requests).toBe(0);
 }, 30_000);
+
+/** Every memoized route (#99), with rolling and pinned windows. */
+const MEMOIZED = [
+  "/api/health", "/api/meta", "/api/overview?range=30d&groupBy=model&metric=tokens", "/api/overview", "/api/timeseries?range=30d",
+  "/api/models?range=30d", "/api/usage?range=30d&groupBy=model&metric=tokens", "/api/usage/heatmap-dates?range=30d&weekday=0&hour=0",
+  "/api/cost?range=30d&groupBy=model&metric=tokens", "/api/performance?range=30d", "/api/reliability?range=30d", "/api/quota?range=30d",
+  "/api/ledger?range=30d", "/api/conversations?range=30d", "/api/conversations/c1", "/api/conversations/c1?range=7d", "/api/filters?range=30d",
+  "/api/window?range=24h", "/api/scope?range=30d", "/api/labs/context?range=30d", "/api/labs/cache?range=30d",
+  `/api/cost?from=${epoch - 7 * 86_400_000}&to=${epoch}&bucket=hour`,
+];
+const withoutTiming = (responses: any[]) => apiComparable(responses.map(({ timing: _timing, ...response }) => response));
+
+test("a repeat within one clock quantum is served from the memo, and the default view answers 304", async () => {
+  const f = await fixture();
+  const first = await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true });
+  expect(first.every((response: any) => response.status === 200 && !response.timing.includes("memo"))).toBe(true);
+  const again = await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true });
+  expect(again.map((response: any) => response.timing.includes('memo;desc="hit"'))).toEqual(MEMOIZED.map(() => true));
+  // A hit is the stored body byte for byte, under the same ETag.
+  expect(again.map((response: any) => [response.body, response.etag])).toEqual(first.map((response: any) => [response.body, response.etag]));
+  // Parameter order does not split entries.
+  const [reordered] = await f.probe.ask({ op: "api", paths: ["/api/cost?metric=tokens&groupBy=model&range=30d"], timing: true });
+  expect(reordered.timing).toContain('memo;desc="hit"');
+  expect(reordered.body).toEqual(first[MEMOIZED.indexOf("/api/cost?range=30d&groupBy=model&metric=tokens")].body);
+  // The default view (no window parameters, rolling 30d) can now be revalidated.
+  const overview = first[MEMOIZED.indexOf("/api/overview")];
+  expect((await f.probe.ask({ op: "api", paths: ["/api/overview"], etag: overview.etag }))[0]).toMatchObject({ status: 304, body: "" });
+}, 30_000);
+
+test("an append, a Refresh and a price change each miss the memo and return the body of a cold compute", async () => {
+  const f = await fixture();
+  await f.probe.ask({ op: "api", paths: MEMOIZED });
+  expect((await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true })).every((response: any) => response.timing.includes("memo"))).toBe(true);
+  let priceEpoch = 0;
+  for (const change of [
+    async () => appendFile(f.usage, JSON.stringify(entry("memo-append", epoch - 30_000)) + "\n"),
+    async () => f.probe.ask({ op: "get", force: true }),
+    async () => { priceEpoch = 1; await f.probe.ask({ op: "price", epoch: 1 }); await f.probe.ask({ op: "get", force: true }); },
+  ]) {
+    await change();
+    const actual = await f.probe.ask({ op: "api", paths: MEMOIZED, timing: true });
+    expect(actual.filter((response: any) => response.timing.includes("memo")).map((response: any) => response.path)).toEqual([]);
+    // A new process has no memo: its answer is the cold compute for the same data, prices and clock.
+    const cold = await new Probe(root, f.home, f.pricing, true).ready();
+    if (priceEpoch) await cold.ask({ op: "price", epoch: priceEpoch });
+    expect(withoutTiming(actual)).toEqual(withoutTiming(await cold.ask({ op: "api", paths: MEMOIZED })));
+    cold.stop();
+  }
+}, 60_000);
+
+test("the toolbar's and the page's requests for one open share one row scan, and meta is built once", async () => {
+  const f = await fixture();
+  const before = await f.probe.ask({ op: "scans" });
+  await f.probe.ask({ op: "api", paths: ["/api/meta", "/api/scope?range=30d", "/api/projects?range=30d", "/api/cost?range=30d&groupBy=model&metric=tokens", "/api/usage?range=30d&groupBy=model&metric=tokens"] });
+  expect(await f.probe.ask({ op: "scans" })).toBe(before + 1);
+  // Another selection is another scan; the same one again is none.
+  await f.probe.ask({ op: "api", paths: ["/api/scope?range=7d", "/api/models?range=7d", "/api/models?range=30d"] });
+  expect(await f.probe.ask({ op: "scans" })).toBe(before + 2);
+  const [meta] = await f.probe.ask({ op: "api", paths: ["/api/meta"], timing: true });
+  expect(meta.timing).toContain('memo;desc="hit"');
+}, 30_000);
+
+test("the disk is checked at most once per freshness interval, Refresh always rebuilds, and Server-Timing reports both phases", async () => {
+  const f = await fixture();
+  const probe = await new Probe(root, f.home, f.pricing, true, { YALD_FRESHNESS_MS: "60000" }).ready();
+  const first: View = await probe.ask({ op: "get" });
+  const lookups = await probe.ask({ op: "lookups" });
+  expect(lookups.stat).toBeGreaterThan(0);
+  await appendFile(f.usage, JSON.stringify(entry("inside-interval")) + "\n");
+  // Within the interval: the published dataset, without a readdir or a stat.
+  const within: View = await probe.ask({ op: "get" });
+  expect(within.ids.dataset).toBe(first.ids.dataset);
+  const [health] = await probe.ask({ op: "api", paths: ["/api/health"], timing: true });
+  expect(health.body.rows).toBe(first.dataset.rows.length);
+  expect(health.timing).toMatch(/^build;dur=\d+\.\d, compute;dur=\d+\.\d$/);
+  const [notModified] = await probe.ask({ op: "api", paths: ["/api/health"], etag: health.etag, timing: true });
+  expect(notModified.status).toBe(304);
+  expect(notModified.timing).toMatch(/^build;dur=\d+\.\d, compute;dur=\d+\.\d$/);
+  expect(await probe.ask({ op: "lookups" })).toEqual(lookups);
+  // Refresh forces the check and the rebuild.
+  const forced: View = await probe.ask({ op: "get", force: true });
+  expect(forced.dataset.rows.map(row => row.id)).toContain("inside-interval");
+  expect((await probe.ask({ op: "lookups" })).stat).toBeGreaterThan(lookups.stat);
+}, 30_000);
+
+// Incremental ingestion (#100): every step is compared with a cold, forced full parse in a
+// fresh process (`oracle`: rows and their order, line and malformed counts), and every
+// published array is frozen, so an incremental build that mutated one would throw.
+const bulk = (prefix: string, count: number, at = epoch - 400_000) =>
+  Array.from({ length: count }, (_, i) => JSON.stringify(entry(`${prefix}-${i}`, at + i * 1_000, { note: "x".repeat(150) }))).join("\n") + "\n";
+/** opencodex rows first at equal times, each source in its own order: concatenation stably sorted by time. */
+function expectMergedOrder(rows: Dataset["rows"]) {
+  const ocx = rows.filter(row => row.protocol !== "claude-code");
+  const claude = rows.filter(row => row.protocol === "claude-code");
+  expect(rows.map(row => row.id)).toEqual([...ocx, ...claude].sort((a, b) => a.ts - b.ts).map(row => row.id));
+}
+
+test("appended usage lines are parsed alone and equal a full parse: chunks, torn and unterminated lines, out-of-order and equal times", async () => {
+  const f = await fixture();
+  // Larger than the checked window, so a resumed read really skips most of the file.
+  await appendFile(f.usage, bulk("bulk", 40));
+  let view: View = await f.probe.ask({ op: "get", freeze: true });
+  await oracle(f, view);
+  const step = async (text: string) => {
+    await appendFile(f.usage, text);
+    view = await f.probe.ask({ op: "get", freeze: true });
+    const ingest = await f.probe.ask({ op: "ingest" });
+    expect(ingest.usage.mode).toBe("append");
+    // The checked 4 KB before the cursor, any unterminated line before it, and the new bytes.
+    expect(ingest.usage.bytesRead).toBeLessThan(4096 + 1024 + Buffer.byteLength(text));
+    await oracle(f, view);
+    return view;
+  };
+  const late = JSON.stringify(entry("late", epoch - 5_000));
+  await step(late.slice(0, 20));
+  await step(late.slice(20, 60));
+  expect((await step(late.slice(60) + "\n")).dataset.rows.at(-1)!.id).toBe("late");
+  // An unterminated final line that is valid JSON counts, as the full parser counts it.
+  const unterminated = await step(JSON.stringify(entry("out-of-order", epoch - 500_000)));
+  expect(unterminated.dataset.rows[0]!.id).toBe("out-of-order");
+  // Equal times keep file order, the appended row after the earlier ones.
+  const ties = await step("\n" + JSON.stringify(entry("tie-c")) + "\n{oops}\n\n");
+  expect(ties.dataset.rows.filter(row => row.ts === epoch - 60_000).map(row => row.id)).toEqual(["tie-a", "tie-b", "零-🙂", "tie-c"]);
+}, 60_000);
+
+test("a rewrite inside the checked window, a replaced file and a truncated file fall back to a full parse", async () => {
+  const f = await fixture();
+  await appendFile(f.usage, bulk("bulk", 40));
+  await f.probe.ask({ op: "get", freeze: true });
+  const full = async () => {
+    const view: View = await f.probe.ask({ op: "get", freeze: true });
+    expect((await f.probe.ask({ op: "ingest" })).usage.mode).toBe("full");
+    await oracle(f, view);
+    return view;
+  };
+  // Same inode, grown, but a byte before the cursor changed: the checksum mismatch forces a full parse.
+  const text = await readFile(f.usage, "utf8");
+  const at = text.lastIndexOf('"inputTokens":100');
+  await writeFile(f.usage, text.slice(0, at) + '"inputTokens":700' + text.slice(at + 17) + JSON.stringify(entry("after-rewrite")) + "\n");
+  expect((await full()).dataset.rows.find(row => row.id === "bulk-39")!.inputTokens).toBe(700);
+  // Changed without growing: a rewrite, never an append.
+  const same = await readFile(f.usage, "utf8");
+  await writeFile(f.usage, same.replace('"inputTokens":700', '"inputTokens":800'));
+  expect((await full()).dataset.rows.find(row => row.id === "bulk-39")!.inputTokens).toBe(800);
+  // A new file at the path (rotation), larger than the old one.
+  const replacement = join(f.home, "replacement");
+  await writeFile(replacement, same + bulk("rotated", 5));
+  await rename(replacement, f.usage);
+  await full();
+  // Truncated.
+  await writeFile(f.usage, JSON.stringify(entry("only")) + "\n");
+  expect((await full()).dataset.rows.map(row => row.id)).toEqual(["only"]);
+  // And appends resume from the new file.
+  await appendFile(f.usage, JSON.stringify(entry("next")) + "\n");
+  const resumed: View = await f.probe.ask({ op: "get", freeze: true });
+  expect((await f.probe.ask({ op: "ingest" })).usage.mode).toBe("append");
+  await oracle(f, resumed);
+}, 60_000);
+
+test("Claude transcripts: appends, a replaced snapshot, duplicates across files and the archive, and equal times across sources equal a full parse", async () => {
+  const f = await fixture();
+  const dir = join(f.home, "claude-projects");
+  await mkdir(dir);
+  const at = new Date(epoch - 60_000).toISOString(); // the fixture's tie-a/tie-b time: equal times across sources
+  const line = (id: string, output: number, extra: Record<string, unknown> = {}) => JSON.stringify({
+    type: "assistant", requestId: id, sessionId: "s1", cwd: "/work/app-a", timestamp: at,
+    message: { id, model: "priced", stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: output } }, ...extra,
+  }) + "\n";
+  const a = join(dir, "a.jsonl"), b = join(dir, "b.jsonl");
+  await writeFile(a, Array.from({ length: 30 }, (_, i) => line(`claude-${i}`, 1, { padding: "x".repeat(150) })).join(""));
+  await writeFile(b, line("dup", 5));
+  // A resumed copy in the archive with fewer tokens: the live copy must win, wherever it lives.
+  // (Written literally, in toUsageEntry's shape: importing server modules here would pin env.ts
+  // for the other test files sharing this runtime.)
+  await writeFile(join(f.home, "yald-claude-usage.jsonl"), JSON.stringify({
+    requestId: "dup", timestamp: epoch - 60_000, provider: "anthropic", model: "priced", conversationId: "s1", cwd: "/work/app-a",
+    inboundProtocol: "claude-code", status: 200, usageStatus: "reported", cacheProvenance: "observed", spend: { sends: 1, settled: 1, unresolved: 0 },
+    usagePresence: { input: true, output: true, cacheRead: false, cacheWrite: false },
+    usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, reasoningOutputTokens: 0 },
+    totalTokens: 12, closeReason: "end_turn",
+  }) + "\n");
+  const check = async () => {
+    const view: View = await f.probe.ask({ op: "get", freeze: true });
+    await oracle(f, view);
+    expectMergedOrder(view.dataset.rows);
+    // Labs evidence identities use row positions: Context Replay ordinals must match a full parse.
+    const path = "/api/labs/context?range=all";
+    const cold = await new Probe(root, f.home, f.pricing, true).ready();
+    expect((await f.probe.ask({ op: "api", paths: [path] }))[0].body).toEqual((await cold.ask({ op: "api", paths: [path] }))[0].body);
+    cold.stop();
+    return view;
+  };
+  await check();
+  const before = (await f.probe.ask({ op: "ingest" })).transcripts;
+  // The same request again in another file, more complete: the winner moves across files.
+  await appendFile(a, line("dup", 9));
+  let view = await check();
+  expect(view.dataset.rows.find(row => row.id === "dup")!.outputTokens).toBe(9);
+  // Read from the last line: bytes proportional to the append, not to the 6 KB transcript.
+  expect((await f.probe.ask({ op: "ingest" })).transcripts.bytesRead).toBeLessThan(4096 + 1024);
+  expect(before.bytesRead).toBeGreaterThan(0);
+  // A later, more complete snapshot of a request from file a, appended to file b, replaces it.
+  await appendFile(b, line("claude-3", 4));
+  view = await check();
+  expect(view.dataset.rows.find(row => row.id === "claude-3")!.outputTokens).toBe(4);
+  // A torn line, then its completion.
+  const next = line("claude-new", 1);
+  await appendFile(a, next.slice(0, 30));
+  await check();
+  await appendFile(a, next.slice(30));
+  view = await check();
+  expect(view.dataset.rows.some(row => row.id === "claude-new")).toBe(true);
+  // Refresh re-reads changed transcripts whole and still matches.
+  await appendFile(b, line("claude-after", 1));
+  const forced: View = await f.probe.ask({ op: "get", force: true, freeze: true });
+  await oracle(f, forced);
+}, 90_000);

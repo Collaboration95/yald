@@ -8,7 +8,7 @@ import type { RadarPeriod, RadarWindow } from "../../types";
 import { InvestigationScope } from "./InvestigationScope";
 import { InvestigationState } from "./InvestigationState";
 
-const titles = { "project-radar": "Project Radar", "cache-detective": "Cache Detective", "context-replay": "Context Replay" };
+const titles = { "project-radar": "Project Radar", "cache-detective": "Cache Detective", "context-replay": "Context Replay", "spend-changes": "Spend spikes" };
 const count = (value: number | null) => value === null ? "Unavailable" : value.toLocaleString("en-US");
 export const evidenceMoney = (value: number | null) => value === null ? "Unavailable" : `$${value.toFixed(6)}`;
 const control = "rounded-lg border border-line bg-surface px-3 py-2 text-[12px] font-medium text-ink disabled:opacity-40";
@@ -137,6 +137,21 @@ function ObservationValues({ observation: o }: { observation: CaseObservation })
     <p>Earliest loaded request: {o.history.firstLoadedAt === null ? "Unavailable" : new Date(o.history.firstLoadedAt).toISOString()}. {o.history.current.startsBeforeLoadedHistory ? "Current starts before loaded history. " : ""}{o.history.prior.startsBeforeLoadedHistory ? "Prior starts before loaded history. " : ""}Loaded history completeness is unknown.</p>
     {o.project && !o.project.present ? <p>This exact project group is absent from the currently loaded data.</p> : null}
   </div>;
+  if (o.investigation === "spend-changes") {
+    const { day, decomposition: d } = o;
+    return <div className="space-y-2" data-spend-case>
+      <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">
+        <Definition label="Day state" value={day.state} />
+        <Definition label="Priced cost that day" value={evidenceMoney(day.pricedCostUsd)} />
+        <Definition label="Baseline median / threshold" value={`${evidenceMoney(day.baseline.medianUsd)} / ${evidenceMoney(day.baseline.thresholdUsd)}`} />
+        <Definition label="Priced requests" value={`${count(day.pricedRequests)} of ${count(day.requests)}`} />
+        <Definition label="Baseline active days" value={`${day.baseline.activeDays}${day.baseline.firstDate ? ` (${day.baseline.firstDate} to ${day.baseline.lastDate})` : ""}`} />
+        {d ? <Definition label="Change vs baseline mean" value={`${evidenceMoney(d.changeUsd)} (${evidenceMoney(d.dayCostUsd)} against a ${evidenceMoney(d.baselineMeanUsd)} mean over ${d.keptBaselineDays} days)`} /> : null}
+      </dl>
+      <p>Rule: {o.rule.spike}, against {o.rule.baseline}. Recomputed from only the two fixed windows of this case.</p>
+      {d && d.excludedBaselineDates.length ? <p>Baseline days left out of the mean as earlier spikes: {d.excludedBaselineDates.join(", ")}.</p> : null}
+    </div>;
+  }
   if (o.investigation === "cache-detective") {
     const t = o.totals, available = t.eligibleRequests > 0;
     return <div className="space-y-2"><dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[auto_1fr]">

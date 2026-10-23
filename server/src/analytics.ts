@@ -1,9 +1,9 @@
 import { attributionCoverage, type AttributionCoverage } from "./attribution";
 import type { Dataset, RequestRow } from "./ocx/store";
 import { projectMatcher } from "./projects";
-import { cacheEligible, contextEligible, sourceOf, throughputEligible } from "./report/source";
+import { ALL_SOURCES, cacheEligible, contextEligible, sourceOf, throughputEligible } from "./report/source";
 import type { Source } from "./report/types";
-import { isoInZone, nextBucketStart, zonedBucketStart } from "./time/window";
+import { isoInZone, makeBucketer, nextBucketStart, zonedBucketStart } from "./time/window";
 
 export type Bucket = "hour" | "day" | "week";
 export type Metric = "tokens" | "cost" | "requests" | "outputTokens" | "inputTokens" | "cacheReadTokens" | "reasoningTokens";
@@ -30,6 +30,11 @@ export function bucketStart(ts: number, bucket: Bucket, tz: string): number {
   return zonedBucketStart(ts, bucket, tz);
 }
 
+/** `bucketStart` for a loop over many rows: exact, but the zone is consulted about once per bucket. */
+export function bucketer(bucket: Bucket, tz: string): (ts: number) => number {
+  return makeBucketer(bucket, tz);
+}
+
 /** Chart tick label in `tz`; the response's `window.label` states the offset. */
 export function bucketLabel(ts: number, bucket: Bucket, tz: string): string {
   const iso = isoInZone(ts, tz);
@@ -50,7 +55,55 @@ export function pickBucket(spanMs: number): Bucket {
   return "week";
 }
 
+/** Recent filterRows results for each rows array, so header and page requests for one selection share a scan. */
+const filtered = new WeakMap<readonly RequestRow[], Map<string, RequestRow[]>>();
+const FILTER_MEMO_SIZE = 24;
+let scans = 0;
+
+/** Row scans performed by filterRows (memo hits excluded); for tests. */
+export const filterScans = (): number => scans;
+
+/**
+ * The filter as filterRows reads it: list order, duplicates and blank values do not change the
+ * result, and every row has one of ALL_SOURCES, so naming all of them is the same as naming none.
+ */
+function filterKey(filter: RowFilter): string {
+  const set = (values: readonly string[] | undefined) => (values?.length ? [...new Set(values)].sort() : null);
+  const sources = set(filter.sources);
+  const everySource = sources !== null && ALL_SOURCES.every(source => sources.includes(source));
+  return JSON.stringify([
+    filter.from ?? null, filter.to ?? null, set(filter.providers), everySource ? null : sources, set(filter.models), set(filter.efforts),
+    set(filter.statuses), set(filter.routeKinds), filter.conversationId || null, filter.search?.toLowerCase().trim() || null, set(filter.projects),
+  ]);
+}
+
+/**
+ * The rows matching `filter`, in their original order. Results are memoized per rows array
+ * (a small LRU per array, released with it) and shared between callers, so they must never
+ * be mutated; under test they are frozen to catch any caller that tries.
+ */
 export function filterRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
+  let memo = filtered.get(rows);
+  if (!memo) {
+    memo = new Map();
+    filtered.set(rows, memo);
+  }
+  const key = filterKey(filter);
+  const known = memo.get(key);
+  if (known) {
+    memo.delete(key);
+    memo.set(key, known);
+    return known;
+  }
+  const result = scanRows(rows, filter);
+  scans++;
+  if (process.env.NODE_ENV === "test") Object.freeze(result);
+  memo.set(key, result);
+  if (memo.size > FILTER_MEMO_SIZE) memo.delete(memo.keys().next().value!);
+  return result;
+}
+
+function scanRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
   const search = filter.search?.toLowerCase().trim();
   const providerSet = filter.providers?.length ? new Set(filter.providers) : null;
   const sourceSet = filter.sources?.length ? new Set(filter.sources) : null;
@@ -107,14 +160,46 @@ export function outcome(row: RequestRow): Outcome {
   return "error";
 }
 
-export function percentile(values: number[], p: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
+/** An ascending copy, so one sort serves every percentile read from the same values. */
+export function sortedSample(values: readonly number[]): Float64Array {
+  return Float64Array.from(values).sort();
+}
+
+/** Linear interpolation between the closest ranks of an ascending sample; null when it is empty. */
+export function percentileOfSorted(sorted: ArrayLike<number>, p: number): number | null {
+  if (sorted.length === 0) return null;
   const index = (sorted.length - 1) * p;
   const lower = Math.floor(index);
   const upper = Math.ceil(index);
   if (lower === upper) return sorted[lower]!;
   return sorted[lower]! + (sorted[upper]! - sorted[lower]!) * (index - lower);
+}
+
+export function percentile(values: number[], p: number): number | null {
+  return values.length === 0 ? null : percentileOfSorted(sortedSample(values), p);
+}
+
+/**
+ * The first `limit` items a stable sort by `compare` would give, without sorting them all:
+ * the same items in the same order as `[...items].sort(compare).slice(0, limit)`, ties included.
+ */
+export function topN<T>(items: Iterable<T>, limit: number, compare: (a: T, b: T) => number): T[] {
+  const top: T[] = [];
+  if (!(limit > 0)) return top;
+  for (const item of items) {
+    if (top.length >= limit && compare(top[top.length - 1]!, item) <= 0) continue;
+    // Insert after every kept item that sorts before it or ties with it.
+    let low = 0;
+    let high = top.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (compare(top[middle]!, item) <= 0) low = middle + 1;
+      else high = middle;
+    }
+    top.splice(low, 0, item);
+    if (top.length > limit) top.pop();
+  }
+  return top;
 }
 
 function round(value: number, digits = 2): number {
@@ -291,6 +376,8 @@ export function summarize(rows: RequestRow[]): Summary {
   }
 
   const requests = rows.length;
+  const durationSample = sortedSample(durations);
+  const ttftSample = sortedSample(ttfts);
   return {
     requests,
     ok,
@@ -305,14 +392,14 @@ export function summarize(rows: RequestRow[]): Summary {
     unpricedRequests: requests - priced,
     estimatedCostShare: cost > 0 ? round(estimatedCost / cost, 4) : 0,
     latency: {
-      p50: percentile(durations, 0.5),
-      p95: percentile(durations, 0.95),
-      p99: percentile(durations, 0.99),
+      p50: percentileOfSorted(durationSample, 0.5),
+      p95: percentileOfSorted(durationSample, 0.95),
+      p99: percentileOfSorted(durationSample, 0.99),
       mean: durations.length ? round(durations.reduce((a, b) => a + b, 0) / durations.length, 1) : null,
     },
     ttft: {
-      p50: percentile(ttfts, 0.5),
-      p95: percentile(ttfts, 0.95),
+      p50: percentileOfSorted(ttftSample, 0.5),
+      p95: percentileOfSorted(ttftSample, 0.95),
       coverage: requests > 0 ? round(ttfts.length / requests, 4) : 0,
     },
     throughput: {
@@ -393,8 +480,9 @@ export function buildSeries(rows: RequestRow[], options: { bucket: Bucket; metri
     }
   }
 
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     let entry = buckets.get(key);
     if (!entry) {
       entry = { ts: key, label: bucketLabel(key, bucket, tz), total: 0, groups: {}, requests: 0 };
@@ -448,6 +536,8 @@ export interface BreakdownRow {
   successRate: number | null;
   cacheHitRate: number | null;
   outputTokensPerSecond: number | null;
+  /** Tokens of priced requests only: the denominator of the blended prices below. */
+  pricedTokens: number;
   costPer1kTokens: number | null;
   costPer1MTokens: number | null;
   firstSeen: number;
@@ -470,9 +560,8 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
   const result: BreakdownRow[] = [];
   for (const [key, list] of map) {
     const summary = summarize(list);
-    const throughputs = list
-      .filter(throughputEligible)
-      .map(row => row.outputTokens / (row.durationMs / 1000));
+    let pricedTokens = 0;
+    for (const row of list) if (row.priced) pricedTokens += row.totalTokens;
     result.push({
       key,
       requests: summary.requests,
@@ -489,9 +578,11 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
       ttftP50: summary.ttft.p50,
       successRate: summary.successRate,
       cacheHitRate: summary.cache.hitRate,
-      outputTokensPerSecond: percentile(throughputs, 0.5),
-      costPer1kTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1000, 4) : null,
-      costPer1MTokens: summary.pricedRequests > 0 && summary.tokens.total > 0 ? round((summary.cost / summary.tokens.total) * 1_000_000, 2) : null,
+      // summarize reads the same throughput-eligible rows with the same formula.
+      outputTokensPerSecond: summary.throughput.p50,
+      pricedTokens,
+      costPer1kTokens: pricedTokens > 0 ? round((summary.cost / pricedTokens) * 1000, 4) : null,
+      costPer1MTokens: pricedTokens > 0 ? round((summary.cost / pricedTokens) * 1_000_000, 2) : null,
       firstSeen: summary.firstRequestAt ?? 0,
       lastSeen: summary.lastRequestAt ?? 0,
       unpricedRequests: summary.unpricedRequests,
@@ -502,11 +593,39 @@ export function breakdown(rows: RequestRow[], dimension: (row: RequestRow) => st
   return result.sort((a, b) => b.tokens - a.tokens);
 }
 
+export interface ClassCost {
+  freshInput: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  /** Row cost not explained by the four classes; 0 whenever the engine's own split is on the row. */
+  adjustment: number;
+}
+
+/**
+ * The four token-class costs of one priced row. They are the engine's own split when the row carries
+ * it, so they add up to `row.cost` on long-context-tier and priority rows too. Without it (rows from
+ * before the split was kept) they are tokens times the table rates, and `adjustment` holds whatever
+ * the tier or priority multiplier added on top, so the parts still add up to `row.cost`.
+ */
+export function classCost(row: RequestRow): ClassCost {
+  const parts = row.costParts;
+  if (parts) return { freshInput: parts.input, cacheRead: parts.cacheRead, cacheWrite: parts.cacheWrite, output: parts.output, adjustment: 0 };
+  const fresh = Math.max(0, row.inputTokens - row.cacheReadTokens - row.cacheWriteTokens);
+  const freshInput = row.rateIn !== null ? (fresh * row.rateIn) / 1e6 : 0;
+  const cacheRead = row.rateCacheRead !== null ? (row.cacheReadTokens * row.rateCacheRead) / 1e6 : 0;
+  const cacheWrite = row.rateCacheWrite !== null ? (row.cacheWriteTokens * row.rateCacheWrite) / 1e6 : 0;
+  const output = row.rateOut !== null ? (row.outputTokens * row.rateOut) / 1e6 : 0;
+  return { freshInput, cacheRead, cacheWrite, output, adjustment: row.cost - (freshInput + cacheRead + cacheWrite + output) };
+}
+
 export function costComposition(rows: RequestRow[]): {
   freshInput: number;
   cacheRead: number;
   cacheWrite: number;
   output: number;
+  /** Tier or priority cost the class split could not place; 0 when every row carries the engine's split. */
+  adjustment: number;
   total: number;
   cacheSavingsUsd: number;
   unpricedRequests: number;
@@ -516,6 +635,7 @@ export function costComposition(rows: RequestRow[]): {
   let cacheRead = 0;
   let cacheWrite = 0;
   let output = 0;
+  let adjustment = 0;
   let savings = 0;
   let unpriced = 0;
   let unmetered = 0;
@@ -525,21 +645,21 @@ export function costComposition(rows: RequestRow[]): {
       if (row.totalTokens === 0) unmetered++;
       continue;
     }
-    if (row.rateIn !== null) {
-      const freshTokens = Math.max(0, row.inputTokens - row.cacheReadTokens - row.cacheWriteTokens);
-      freshInput += (freshTokens * row.rateIn) / 1e6;
-    }
-    if (row.rateCacheRead !== null) cacheRead += (row.cacheReadTokens * row.rateCacheRead) / 1e6;
-    if (row.rateCacheWrite !== null) cacheWrite += (row.cacheWriteTokens * row.rateCacheWrite) / 1e6;
-    if (row.rateOut !== null) output += (row.outputTokens * row.rateOut) / 1e6;
+    const parts = classCost(row);
+    freshInput += parts.freshInput;
+    cacheRead += parts.cacheRead;
+    cacheWrite += parts.cacheWrite;
+    output += parts.output;
+    adjustment += parts.adjustment;
     if (row.priced && row.rateIn !== null && row.rateCacheRead !== null) savings += (row.cacheReadTokens * (row.rateIn - row.rateCacheRead)) / 1e6;
   }
-  const total = freshInput + cacheRead + cacheWrite + output;
+  const total = freshInput + cacheRead + cacheWrite + output + adjustment;
   return {
     freshInput: round(freshInput, 4),
     cacheRead: round(cacheRead, 4),
     cacheWrite: round(cacheWrite, 4),
     output: round(output, 4),
+    adjustment: round(adjustment, 4),
     total: round(total, 4),
     cacheSavingsUsd: round(savings, 4),
     unpricedRequests: unpriced,
@@ -549,7 +669,9 @@ export function costComposition(rows: RequestRow[]): {
 
 const calendarFormatters = new Map<string, Intl.DateTimeFormat>();
 
-function calendarParts(ts: number, timeZone: string): { date: string; weekday: number; hour: number } {
+interface CalendarParts { date: string; weekday: number; hour: number }
+
+function calendarParts(ts: number, timeZone: string): CalendarParts {
   let formatter = calendarFormatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-US", {
@@ -563,10 +685,29 @@ function calendarParts(ts: number, timeZone: string): { date: string; weekday: n
   return { date: `${get("year")}-${get("month")}-${get("day")}`, weekday: weekdays[get("weekday")] ?? 0, hour: Number(get("hour")) };
 }
 
+/**
+ * `calendarParts` for a loop over many rows. A local-hour bucket ends at every offset change,
+ * so the local date, weekday and hour are fixed inside one and are read once per bucket.
+ */
+function calendarReader(timeZone: string): (ts: number) => CalendarParts {
+  const hourOf = bucketer("hour", timeZone);
+  let hour = Number.NaN;
+  let parts: CalendarParts | null = null;
+  return ts => {
+    const start = hourOf(ts);
+    if (start !== hour || !parts) {
+      hour = start;
+      parts = calendarParts(ts, timeZone);
+    }
+    return parts;
+  };
+}
+
 export function heatmap(rows: RequestRow[], metric: Metric = "tokens", timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone): { cells: { weekday: number; hour: number; value: number; requests: number }[]; max: number } {
   const grid = new Map<string, { value: number; requests: number }>();
+  const partsOf = calendarReader(timeZone);
   for (const row of rows) {
-    const { weekday, hour } = calendarParts(row.ts, timeZone);
+    const { weekday, hour } = partsOf(row.ts);
     const key = `${weekday}:${hour}`;
     const cell = grid.get(key) ?? { value: 0, requests: 0 };
     cell.value += metricValue(row, metric);
@@ -605,8 +746,9 @@ export function heatmapDateBreakdown(
   const offset = Math.max(0, Math.floor(options.offset ?? 0));
   const byDate = new Map<string, { value: number; requests: number }>();
   let total = 0;
+  const partsOf = calendarReader(options.timeZone);
   for (const row of rows) {
-    const local = calendarParts(row.ts, options.timeZone);
+    const local = partsOf(row.ts);
     if (local.weekday !== options.weekday || local.hour !== options.hour) continue;
     const value = metricValue(row, options.metric);
     total += value;
@@ -627,8 +769,9 @@ export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number
 } {
   const groups = new Map<number, RequestRow[]>();
   for (const ts of bucketStarts(bucket, from, to, tz)) groups.set(ts, []);
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     const list = groups.get(key);
     if (list) list.push(row);
     else groups.set(key, [row]);
@@ -636,18 +779,18 @@ export function latencyTimeline(rows: RequestRow[], bucket: Bucket, from: number
   const points = [...groups.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([ts, list]) => {
-      const durations = list.filter(row => row.measurements.duration).map(row => row.durationMs);
-      const ttfts = list.filter(row => row.measurements.ttft).map(row => row.ttftMs as number);
+      const durations = sortedSample(list.filter(row => row.measurements.duration).map(row => row.durationMs));
+      const ttfts = sortedSample(list.filter(row => row.measurements.ttft).map(row => row.ttftMs as number));
       const throughputs = list.filter(throughputEligible).map(row => row.outputTokens / (row.durationMs / 1000));
       return {
         ts,
         label: bucketLabel(ts, bucket, tz),
         requests: list.length,
-        p50: percentile(durations, 0.5),
-        p90: percentile(durations, 0.9),
-        p95: percentile(durations, 0.95),
-        ttftP50: percentile(ttfts, 0.5),
-        ttftP95: percentile(ttfts, 0.95),
+        p50: percentileOfSorted(durations, 0.5),
+        p90: percentileOfSorted(durations, 0.9),
+        p95: percentileOfSorted(durations, 0.95),
+        ttftP50: percentileOfSorted(ttfts, 0.5),
+        ttftP95: percentileOfSorted(ttfts, 0.95),
         throughputP50: percentile(throughputs, 0.5),
       };
     });
@@ -668,12 +811,13 @@ export function reliability(rows: RequestRow[], tz: string): {
   const timeline = new Map<number, { ok: number; error: number; cancelled: number; unobserved: number }>();
   const attempts = new Map<string, number>();
   const byModel = new Map<string, { failures: number; requests: number }>();
+  const dayOf = bucketer("day", tz);
 
   for (const row of rows) {
     const kind = outcome(row);
     outcomes.set(kind, (outcomes.get(kind) ?? 0) + 1);
     if (row.measurements.outcome && row.status > 0) statuses.set(String(row.status), (statuses.get(String(row.status)) ?? 0) + 1);
-    const day = bucketStart(row.ts, "day", tz);
+    const day = dayOf(row.ts);
     const slot = timeline.get(day) ?? { ok: 0, error: 0, cancelled: 0, unobserved: 0 };
     slot[kind] += 1;
     timeline.set(day, slot);
@@ -735,7 +879,19 @@ export interface ConversationRow {
   intensity: number;
 }
 
-export function conversations(rows: RequestRow[], limit = 200): ConversationRow[] {
+export type ConversationSort = "tokens" | "cost" | "requests" | "recent" | "errors";
+
+const tieBreak = (a: ConversationRow, b: ConversationRow) => b.tokens - a.tokens || a.source.localeCompare(b.source) || a.id.localeCompare(b.id);
+const CONVERSATION_ORDER: Record<ConversationSort, (a: ConversationRow, b: ConversationRow) => number> = {
+  tokens: tieBreak,
+  cost: (a, b) => b.cost - a.cost || tieBreak(a, b),
+  requests: (a, b) => b.requests - a.requests || tieBreak(a, b),
+  recent: (a, b) => b.endedAt - a.endedAt || tieBreak(a, b),
+  errors: (a, b) => b.errors - a.errors || tieBreak(a, b),
+};
+
+/** Sessions ranked by `order` across every session in `rows`, then cut to `limit`: the cut never decides the ranking. */
+export function conversations(rows: RequestRow[], limit = 200, order: ConversationSort = "tokens"): ConversationRow[] {
   const map = new Map<string, RequestRow[]>();
   for (const row of rows) {
     if (!row.conversationId) continue;
@@ -792,7 +948,7 @@ export function conversations(rows: RequestRow[], limit = 200): ConversationRow[
       intensity: round(tokens / (spanMs / 3_600_000), 1),
     });
   }
-  return result.sort((a, b) => b.tokens - a.tokens || a.source.localeCompare(b.source) || a.id.localeCompare(b.id)).slice(0, limit);
+  return result.sort(CONVERSATION_ORDER[order]).slice(0, limit);
 }
 
 export function conversationTimeline(rows: RequestRow[], id: string): {
@@ -957,8 +1113,9 @@ export function compositionSeries(rows: RequestRow[], bucket: Bucket, from: numb
   for (const ts of bucketStarts(bucket, from, to, tz)) {
     buckets.set(ts, { ts, label: bucketLabel(ts, bucket, tz), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 });
   }
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     let point = buckets.get(key);
     if (!point) {
       point = { ts: key, label: bucketLabel(key, bucket, tz), freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0, requests: 0 };
@@ -986,8 +1143,9 @@ export interface CumulativePoint {
 export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: number, to: number, metric: Metric, tz: string): CumulativePoint[] {
   const buckets = new Map<number, { value: number; requests: number }>();
   for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { value: 0, requests: 0 });
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     const entry = buckets.get(key);
     if (!entry) continue;
     entry.value += metricValue(row, metric);
@@ -1011,8 +1169,9 @@ export function cumulativeSeries(rows: RequestRow[], bucket: Bucket, from: numbe
 export function cacheTimeline(rows: RequestRow[], bucket: Bucket, from: number, to: number, tz: string): { ts: number; label: string; hitRate: number | null; savingsUsd: number; cacheRead: number; input: number; eligibleRequests: number; totalRequests: number }[] {
   const buckets = new Map<number, { read: number; input: number; savings: number; eligible: number; total: number }>();
   for (const ts of bucketStarts(bucket, from, to, tz)) buckets.set(ts, { read: 0, input: 0, savings: 0, eligible: 0, total: 0 });
+  const bucketOf = bucketer(bucket, tz);
   for (const row of rows) {
-    const key = bucketStart(row.ts, bucket, tz);
+    const key = bucketOf(row.ts);
     const entry = buckets.get(key);
     if (!entry) continue;
     entry.total++;
@@ -1054,13 +1213,14 @@ export function contextPressure(rows: RequestRow[]): { buckets: { name: string; 
       }
     }
   }
+  const sorted = sortedSample(inputs);
   return {
     buckets: labels.map((name, index) => ({ name, value: counts[index]! })),
     eligibleRequests: inputs.length,
     totalRequests: rows.length,
-    maxInput: inputs.length ? Math.max(...inputs) : 0,
-    p50Input: percentile(inputs, 0.5),
-    p95Input: percentile(inputs, 0.95),
+    maxInput: inputs.length ? sorted[sorted.length - 1]! : 0,
+    p50Input: percentileOfSorted(sorted, 0.5),
+    p95Input: percentileOfSorted(sorted, 0.95),
   };
 }
 

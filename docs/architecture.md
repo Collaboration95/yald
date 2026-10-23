@@ -29,6 +29,31 @@ or an empty transcript directory do not remove archived usage, and source
 filters neither delete archives nor disable ingestion. A fresh isolated run
 needs a fresh `OCX_HOME` as well as empty transcript and Codex directories.
 
+### Incremental ingestion
+
+`usage.jsonl` and Claude transcripts are append-only logs, so a rebuild reads
+only what was appended (`server/src/ingest/tail.ts`). For each file the store
+keeps a cursor: the device and inode, the byte offset after the last complete
+line, a checksum of the 4 KB before it, and the size it read to. When the file
+changes and has **grown**, the same file is read from the cursor up to the size
+`stat` reported, and the checksum is verified first. The new complete lines are
+parsed, priced and merged in time order into new arrays. Published arrays are
+never modified, because in-flight requests hold them. An unterminated last line is
+parsed for that build, as a whole-file parse would, but never consumed: the next
+read starts before it. A transcript's appended lines go through the same
+most-complete-snapshot rule as a whole-file pass, so a later snapshot replaces an
+earlier one. Only new or changed Claude entries are normalized again. The two
+sources are merged in one pass, opencodex rows first at equal times. That is the
+order a full rebuild gives, and Labs evidence identities depend on it.
+
+The whole file is read instead when the device or inode changed (rotation or
+replacement), the file did not grow (a same-size or shorter rewrite), the bytes
+before the cursor no longer match the checksum, or the pricing generation
+changed (rows are priced when parsed). Refresh and process start always parse
+`usage.jsonl` whole and re-read changed transcripts whole. One limit remains: a
+file that grew *and* was rewritten earlier than the checked 4 KB is not
+detected. Refresh is the remedy.
+
 Source follows ingestion protocol: `claude-code` for transcripts, `ocx` otherwise.
 It never follows provider; an Anthropic request through opencodex is still `ocx`.
 Sessions use `(source, conversationId)`. Source capability and per-request
@@ -41,7 +66,13 @@ unavailable for context, including attempt-summed usage; measured zero is valid.
 The analytics layer uses half-open windows and shared source/project/cohort
 filters. The dashboard polls visible views every 30 seconds; hidden tabs pause
 polling. ETags and parsed snapshots avoid repeated work when inputs are unchanged.
-Refresh forces a re-read. Account quota/send data declare their account scope
+The server checks the source files at most once per second, and time-bucketed
+series resolve each local bucket once rather than once per row; `Server-Timing`
+headers report build and compute time. Rolling windows resolve on a clock
+rounded down to 10 seconds, so `window.to` can lag real time by up to that
+quantum; within it, repeats share one window, one ETag and one memoized body,
+and one selection's filtered rows are shared by the toolbar and page requests.
+Any rebuild empties these memos. Refresh forces a re-read. Account quota/send data declare their account scope
 rather than claiming project attribution. See [metrics](metrics.md) and the
 [API reference](api.md).
 

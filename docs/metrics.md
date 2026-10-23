@@ -162,7 +162,7 @@ They must never be read as a selected project's quota or spend allowance.
 
 Calendar buckets use the request's `tz` (default: the configured local timezone), never the server process's zone. Weeks begin Monday. Quota burn is measured from observed samples inside the selected time range; current utilization remains the latest point-in-time value. The history chart may include the sample immediately before the range as a visual baseline, but it does not count toward the two in-range samples required for a burn estimate. With insufficient samples, the dashboard reports that state instead of extrapolating. Projections compare the measured burn against the provider's reset time and may be null when a reset or a positive burn rate is unavailable.
 
-Range presets are rolling elapsed-time windows ending at the current time: `24h` is 24 hours and `7d` is exactly 168 hours, including across daylight-saving changes. Calendar chart buckets do not expand or truncate the selected window. Explicit `from`, `to` and `last` parameters override its boundaries (see the [API reference](api.md#time-windows)). Every window is half-open, `[from, to)`: a request exactly at `to` is counted in the next window, and the prior-period comparison is `[from − span, from)`. Future-dated source rows do not move the default end time.
+Range presets are rolling elapsed-time windows ending at the current time, rounded down to the API's 10-second clock quantum (see [request clock](api.md)): `24h` is 24 hours and `7d` is exactly 168 hours, including across daylight-saving changes. Calendar chart buckets do not expand or truncate the selected window. Explicit `from`, `to` and `last` parameters override its boundaries (see the [API reference](api.md#time-windows)). Every window is half-open, `[from, to)`: a request exactly at `to` is counted in the next window, and the prior-period comparison is `[from − span, from)`. Future-dated source rows do not move the default end time.
 
 ### Claude Code quota
 
@@ -280,6 +280,29 @@ when tokens or prices are zero; missing days are not evidence of known zero use.
 Model mix is source/provider qualified. The API reference documents sorting,
 units and the exact fixed-window selectors for both periods and each group.
 
+## Context length
+
+The Context page reads `inputTokens` of requests that pass `contextEligible` (input measured, logical usage, not attempt-summed); every other request is counted in the coverage line and never enters a distribution or a share. Yald has no per-model context-window table, so nothing is shown as a percent of a window.
+
+- **Minimum samples.** p10, p25, p75 and p90 need at least 10 eligible requests, p99 needs 100, and a band's cost per request, median TTFT and cancel rate each need 10 values of their own. Below that the value is `null` and shown as "too few requests". The median and mean need one request.
+- **Bands.** Fixed edges, not quintiles, so they do not move with the selection: under 50k, 50-150k, 150-300k and 300k+ (lower edge inclusive).
+- **At or above a threshold.** Share of eligible requests and of priced list-price cost at or above 50k, 150k and 300k, and with `contextTier === "long"`. The tier cutoff varies by model, so the two differ. Cost shares use priced eligible requests only; unpriced requests count as requests but carry no dollars, and a band or threshold with no priced request has no cost (`null`), not $0.
+- **Context tax.** Per band: requests, cost, cost per priced request, median TTFT and cancel rate (`cancelled / (ok + error + cancelled)` over observed outcomes). TTFT and outcomes exist for opencodex requests only; Claude rows read "not recorded". Cancel rate covers requests with a measured context length, so a request cancelled before any usage was recorded is not in it, and a request cancelled before its first token has no TTFT.
+- **Session growth.** The median input of a session's first 3 eligible requests versus its last 3, ranked from 6 eligible, through the same helper as Context Replay. Sessions with requests outside the window (loaded history only) are counted as clipped.
+- **Interpretation.** These are associations in loaded data. Cost per request mixes models and is partly a model effect. Claude Code subagent requests are not labelled, so Claude per-model numbers can mix a main conversation with its subagents' smaller contexts.
+
+## Spend structure
+
+The Cost page's structure sections read priced requests only. Cost is the sum of `row.cost` over priced rows and every token denominator uses the same rows, so shares compare like with like. Unpriced requests are counted and disclosed, never treated as $0.
+
+- **Session cost** is the priced cost per `(source, conversationId)`. A partly priced session shows its priced subtotal, which is a lower bound. Requests with no conversation id are reported separately and sit outside the curve. A session cut by the window counts only its in-window part and is flagged.
+- **Concentration** is the share of cost held by the top 1% of sessions, the top 5%, and the top 10 sessions, plus the Gini coefficient over priced sessions (`2 * sum(i * x_i) / (n * sum(x)) - (n + 1) / n`, with costs ascending and `i` from 1). Each needs a minimum number of priced sessions (100, 20, 10 and 10) and is `null` below it. The Pareto curve ranks sessions by cost: x is the cumulative share of sessions, y the cumulative share of cost.
+- **Ranking.** "Most expensive sessions" and `/api/conversations?sort=cost` rank every session in the selection, then cut. Earlier versions cut to the 50 largest sessions by tokens first, so a costly low-token session could be missing.
+- **Blended price per million tokens** is priced cost over priced tokens, per bucket and per model. Earlier versions divided a model's priced cost by all its tokens, including those of unpriced requests, so a model with mixed pricing read low.
+- **Price tier** is a fixed band of a row's list input rate (`rateIn`, USD per million tokens): Economy under $1, Standard from $1 to under $5, Premium $5 and up. The thresholds are constants, not fitted to any dataset, and a tier says nothing about quality or whether it was the right choice. Priced rows with no input rate are outside the tiers. Tier share is the share of priced requests (and of tokens) in each tier per bucket, and the per-tier blended price is priced cost over priced tokens within the tier. Flat tier lines under a moving blended line mean the mix moved.
+- **Token-class cost mix** splits cost into fresh input, cache read, cache write and output, per bucket and source, beside each class's share of priced tokens. Each row carries the engine's own per-class cost (`costParts`), so the classes add up to `row.cost` exactly, including long-context-tier and priority rows. A row without the split falls back to tokens times table rates and the difference is shown as a separate "tier adjustment", never folded into a class. Reasoning tokens are a subset of output; reasoning cost is the output cost in proportion to reasoning tokens (an attribution, not a measurement) and is never added twice.
+- **Interpretation.** These are arithmetic on tokens and today's price table: rows are priced at load with the current engine and overlays, so a series shows mix and the current table, not what was paid at the time. Until Claude's 5m and 1h cache-write split is read, the 1h write premium is understated. A large cache-write share is not waste; the net comparison is Cache Detective's.
+
 ## Labs context growth
 
 Context Replay compares median input of the first three eligible requests with
@@ -290,6 +313,19 @@ remain viewable without ranked growth. Sessions are source-qualified; window and
 cohort limits and all excluded requests are disclosed. See the
 [Context Replay contract](labs-context.md) for denominators and history coverage.
 These request observations do not infer turns, compaction, waste or answer quality.
+
+## Labs spend spikes
+
+`GET /api/labs/spend` judges each local day of the window (in the window's time
+zone) against a trailing baseline. Parameters, echoed in every response as
+`rule`: `baselineActiveDays` 14, `minBaselineActiveDays` 7, `spikeMultiple` 2.5.
+
+- **Cost** is the sum of `cost` over priced rows (API list-price equivalents at the loaded prices). Unpriced rows add requests and tokens, never dollars; a day with no priced row has `pricedCostUsd: null`.
+- **Baseline** is the median daily priced cost over the previous 14 active days (a day with at least one priced request) before that day in the same cohort, read from loaded history even before the window. A day is a **spike** when it is complete and its cost is above 2.5 times that median.
+- **Insufficient** is fewer than 7 baseline days or a $0 median; it is never reported as normal. **Partial** is a day still in progress or cut by the window edge. A day with no priced request is `no-priced`.
+- **Decomposition** compares the day with the mean daily cost over the baseline days, leaving out baseline days above 2.5 times their own median (earlier spikes) so they do not mask the change. Each cut (project, model, token class, session) sums exactly to day minus baseline mean. Groups with no baseline cost are "new". Token-class parts use the engine's cost parts, as on the Cost page.
+- **Coverage** is shown beside it: priced over total requests, the unpriced change in requests and tokens, and the share of requests with a known project folder.
+- **Interpretation.** Unusual is relative to loaded history, which is not necessarily history that happened (`history.completeness` is `unknown`). It is not a budget, a judgement or a cause.
 
 ## Fixed case evidence
 

@@ -4,11 +4,12 @@ import { publicRow } from "./publicRow";
 import { EvidenceIntentError, parseCaseIntent } from "./labs/evidence-intent";
 import { buildEvidenceCase } from "./labs/evidence";
 import { buildProjectRadar } from "./labs/projects";
+import { buildSpendChanges } from "./labs/spend";
 import { createHash } from "node:crypto";
 import {
   breakdown,
+  bucketer,
   bucketLabel,
-  bucketStart,
   bucketStarts,
   buildSeries,
   cacheTimeline,
@@ -25,22 +26,28 @@ import {
   measurementCoverage,
   outcome,
   percentile,
+  percentileOfSorted,
   projectCoverage,
   pickBucket,
   quotaView,
   reliability,
   round,
+  sortedSample,
   sparkline,
   summarize,
+  topN,
   type Bucket,
+  type ConversationSort,
   type Metric,
   type RowFilter,
 } from "./analytics";
 import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
+import { contextBreakdown } from "./contextView";
+import { spendStructure } from "./spendStructure";
 import { buildCacheEconomics } from "./labs/cache";
-import { pricingStatus } from "./ocx/pricing";
+import { pricingGeneration, pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
 import { accountScope, EMPTY_QUOTA, lookupSession, scopeSummary } from "./dashboardScope";
@@ -155,8 +162,102 @@ function delta(current: number, prior: number): number | null {
 }
 
 function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
-  return rows.filter(row => row.measurements.duration).sort((a, b) => b.durationMs - a.durationMs).slice(0, limit);
+  return topN(rows.filter(row => row.measurements.duration), limit, (a, b) => b.durationMs - a.durationMs);
 }
+
+const newestFirst = (a: RequestRow, b: RequestRow) => b.ts - a.ts;
+
+/** `Server-Timing` durations in milliseconds, and whether the body came from the memo; never data. */
+function serverTiming(build: number, compute: number, memoHit = false): string {
+  return `build;dur=${build.toFixed(1)}, compute;dur=${compute.toFixed(1)}${memoHit ? ', memo;desc="hit"' : ""}`;
+}
+
+/** Rolling windows end on a clock rounded down to this quantum (docs/api.md). */
+export const CLOCK_QUANTUM_MS = 10_000;
+
+function clockQuantum(): number {
+  const configured = Number(process.env.YALD_CLOCK_QUANTUM_MS);
+  return process.env.YALD_CLOCK_QUANTUM_MS?.trim() && Number.isSafeInteger(configured) && configured >= 1 ? configured : CLOCK_QUANTUM_MS;
+}
+
+/**
+ * The time analytics windows are resolved against: the demo's fixed clock, else the wall
+ * clock rounded down to the quantum. Requests within one quantum therefore share one window,
+ * one body and one ETag, at the cost of `window.to` lagging the wall clock by under a quantum.
+ */
+function windowClock(): number {
+  if (DEMO?.now != null) return DEMO.now;
+  const quantum = clockQuantum();
+  const wall = requestNow();
+  return wall - (((wall % quantum) + quantum) % quantum);
+}
+
+/** The query as parsed: parameters sorted by name (repeats keep their order), so order does not split memo entries. */
+function canonicalQuery(url: string): string {
+  const params = [...new URL(url).searchParams];
+  params.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return new URLSearchParams(params).toString();
+}
+
+/**
+ * Routes whose body is not a function of (dataset, pricing, canonical query, clock): project
+ * views, Labs findings and reports resolve git roots on disk, the report stamps its request
+ * time, export bodies are too large to keep, and refresh rebuilds.
+ */
+const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/spend", "/api/labs/evidence", "/api/export"]);
+
+/**
+ * Serialized response bodies for one dataset and pricing generation, bounded by entry count
+ * and total size; the least recently used go first. A new dataset (any rebuild: append,
+ * Refresh, price change) or pricing generation drops every entry.
+ */
+class ResponseMemo {
+  private dataset: Dataset | null = null;
+  private generation: string | null = null;
+  private readonly entries = new Map<string, { body: string; type: string }>();
+  private size = 0;
+
+  constructor(private readonly maxEntries: number, private readonly maxSize: number) {}
+
+  private own(dataset: Dataset): void {
+    const generation = pricingGeneration();
+    if (this.dataset === dataset && this.generation === generation) return;
+    this.dataset = dataset;
+    this.generation = generation;
+    this.entries.clear();
+    this.size = 0;
+  }
+
+  get(dataset: Dataset, key: string): { body: string; type: string } | undefined {
+    this.own(dataset);
+    const hit = this.entries.get(key);
+    if (hit) {
+      this.entries.delete(key);
+      this.entries.set(key, hit);
+    }
+    return hit;
+  }
+
+  set(dataset: Dataset, key: string, body: string, type: string): void {
+    // Computed from an older dataset than the current owner: not this memo's to keep.
+    if (this.dataset !== dataset || this.generation !== pricingGeneration() || body.length > this.maxSize / 4) return;
+    const previous = this.entries.get(key);
+    if (previous) {
+      this.entries.delete(key);
+      this.size -= previous.body.length;
+    }
+    this.entries.set(key, { body, type });
+    this.size += body.length;
+    for (const [oldest, entry] of this.entries) {
+      if (this.entries.size <= this.maxEntries && this.size <= this.maxSize) break;
+      this.entries.delete(oldest);
+      this.size -= entry.body.length;
+    }
+  }
+}
+
+/** 64 bodies or 32 M characters of JSON, whichever comes first. */
+const responses = new ResponseMemo(64, 32_000_000);
 
 
 function toCsv(rows: Record<string, unknown>[]): string {
@@ -181,27 +282,48 @@ api.onError((error, c) => {
 });
 
 api.use("/api/*", async (c, next) => {
+  const started = performance.now();
   if (c.req.path === "/api/dataset/refresh") {
+    // The forced rebuild is the whole of this route's work.
     await next();
+    c.header("Server-Timing", serverTiming(performance.now() - started, 0));
     return;
   }
   const dataset = await getDataset();
-  const now = requestNow();
+  const built = performance.now();
+  const timing = (memoHit = false) => serverTiming(built - started, performance.now() - built, memoHit);
+  const now = windowClock();
   c.set("dataset", dataset);
   c.set("now", now);
   // A conversation detail without window parameters is all-history, so only its dataset revision matters.
   const unwindowed = !["from", "to", "last", "range"].some(key => c.req.query(key)?.trim());
   const pointInTime = c.req.path === "/api/health" || c.req.path === "/api/meta"
     || (c.req.path.startsWith("/api/conversations/") && unwindowed);
-  // An unchanged ledger does not mean an unchanged rolling time window.
+  // An unchanged ledger does not mean an unchanged rolling time window. Prices can change
+  // without a new revision (a forced rebuild re-prices the same rows), so they are keyed too.
   const clockKey = pointInTime || clockFree(c.req.query()) ? "" : now;
-  const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
+  const etag = `W/"${createHash("sha256").update(`${dataset.revision}:${pricingGeneration()}:${c.req.url}:${clockKey}`).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   c.header("Cache-Control", "no-cache");
   // Project views and reports contain derived roots, which can change without
   // a ledger revision. These routes hash the resolved payload after validation.
-  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) return c.body(null, 304);
+  if (c.req.path !== "/api/report" && c.req.path !== "/api/projects" && c.req.path !== "/api/labs/projects" && c.req.path !== "/api/labs/spend" && c.req.path !== "/api/labs/evidence" && c.req.header("if-none-match") === etag) {
+    c.header("Server-Timing", timing());
+    return c.body(null, 304);
+  }
+  // The memo key holds everything a memoized body depends on besides the dataset and pricing it
+  // is bound to. The clock is always part of it: even a pinned window can read it (range=all on an empty dataset).
+  const memoKey = UNMEMOIZED.has(c.req.path) ? null : `${c.req.path}?${canonicalQuery(c.req.url)}|${now}`;
+  const hit = memoKey ? responses.get(dataset, memoKey) : undefined;
+  if (hit) {
+    c.header("Content-Type", hit.type);
+    c.header("Server-Timing", timing(true));
+    return c.body(hit.body, 200);
+  }
   await next();
+  const type = c.res.headers.get("content-type") ?? "";
+  if (memoKey && c.res.status === 200 && type.startsWith("application/json")) responses.set(dataset, memoKey, await c.res.clone().text(), type);
+  c.header("Server-Timing", timing());
 });
 
 api.get("/api/health", async c => {
@@ -217,8 +339,20 @@ api.get("/api/health", async c => {
   });
 });
 
+/** The /api/meta payload walks every row; it is built once per dataset and pricing generation. */
+const metaPayloads = new WeakMap<Dataset, { generation: string | null; payload: Record<string, unknown> }>();
+
 api.get("/api/meta", async c => {
   const dataset = c.get("dataset");
+  const generation = pricingGeneration();
+  const known = metaPayloads.get(dataset);
+  if (known?.generation === generation) return c.json(known.payload);
+  const payload = metaPayload(dataset);
+  metaPayloads.set(dataset, { generation, payload });
+  return c.json(payload);
+});
+
+function metaPayload(dataset: Dataset): Record<string, unknown> {
   const providers = new Set<string>();
   const models = new Set<string>();
   const efforts = new Set<string>();
@@ -239,7 +373,7 @@ api.get("/api/meta", async c => {
     if (!list.includes(row.model)) list.push(row.model);
     modelsByProvider.set(row.provider, list);
   }
-  return c.json({
+  return {
     ok: true,
     ocxHome: OCX_HOME,
     ...(DEMO ? { demo: DEMO } : {}),
@@ -263,8 +397,8 @@ api.get("/api/meta", async c => {
     ledger: { byKind: dataset.ledger.byKind, settledTokens: dataset.ledger.settledTokens, updatedAt: dataset.ledger.updatedAt },
     quota: { windows: dataset.quota.windows, updatedAt: dataset.quota.updatedAt },
     paths: PATHS,
-  });
-});
+  };
+}
 
 api.get("/api/labs/evidence", c => {
   const intent = parseCaseIntent(new URL(c.req.url).searchParams);
@@ -321,9 +455,10 @@ api.get("/api/overview", async c => {
     heatmap: heatmap(rows, "tokens", query.tz),
     context: contextPressure(rows),
     // Quota is an opencodex account observation: never narrowed by, or attributed to, the selection.
-    quota: quotaView(quotaScope.available ? dataset : { quota: EMPTY_QUOTA }, { from: query.from, to: query.to }),
+    // Projections are dated at the request clock, like the window, so one quantum gives one body.
+    quota: quotaView(quotaScope.available ? dataset : { quota: EMPTY_QUOTA }, { from: query.from, to: query.to }, c.get("now")),
     quotaScope,
-    recent: [...rows].sort((a, b) => b.ts - a.ts).slice(0, 25).map(publicRow),
+    recent: topN(rows, 25, newestFirst).map(publicRow),
   });
 });
 
@@ -435,14 +570,32 @@ api.get("/api/cost", async c => {
     window: { ...query.window, bucket: query.bucket },
     summary: summarize(rows),
     composition: costComposition(rows),
+    /** Tokens of priced requests: the denominator for a blended price (unpriced tokens carry no dollars). */
+    pricedTokens: rows.reduce((sum, row) => (row.priced ? sum + row.totalTokens : sum), 0),
     series: buildSeries(rows, { bucket: query.bucket, metric: "cost", groupBy: query.groupBy, from: query.from, to: query.to, tz: query.tz, limit: 8 }),
     cumulative: cumulativeSeries(rows, query.bucket, query.from, query.to, "cost", query.tz),
     cache: cacheTimeline(rows, query.bucket, query.from, query.to, query.tz),
     byModel: breakdown(rows, row => row.model),
     byProvider: breakdown(rows, row => row.provider),
     byEffort: breakdown(rows, row => row.effort ?? "unknown"),
-    topConversations: conversations(rows, 50).sort((a, b) => b.cost - a.cost).slice(0, 10),
+    topConversations: conversations(rows, 10, "cost"),
     daily: cumulativeSeries(rows, "day", query.from, query.to, "cost", query.tz),
+  });
+});
+
+/**
+ * Spend structure (#103): session concentration, blended price by price tier over time, and the
+ * token-class cost mix per source. A separate route so /api/cost stays fast; priced rows only.
+ */
+api.get("/api/cost/structure", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { ...query.window, bucket: query.bucket },
+    ...spendStructure(rows, { bucket: query.bucket, from: query.from, to: query.to, tz: query.tz, datasetRows: dataset.rows }),
   });
 });
 
@@ -454,6 +607,7 @@ api.get("/api/performance", async c => {
   const durations = rows.filter(row => row.measurements.duration).map(row => row.durationMs);
   const ttfts = rows.filter(row => row.measurements.ttft).map(row => row.ttftMs as number);
   const throughputs = rows.filter(throughputEligible).map(row => row.outputTokens / (row.durationMs / 1000));
+  const [durationSample, ttftSample, throughputSample] = [sortedSample(durations), sortedSample(ttfts), sortedSample(throughputs)];
   const byModel = breakdown(rows, row => row.model);
 
   return c.json({
@@ -468,9 +622,9 @@ api.get("/api/performance", async c => {
       throughput: histogram(throughputs, [0, 5, 10, 20, 40, 80, 160, Number.POSITIVE_INFINITY], ["<5", "5-10", "10-20", "20-40", "40-80", "80-160", "160+"]),
     },
     percentiles: {
-      duration: { p50: percentile(durations, 0.5), p90: percentile(durations, 0.9), p95: percentile(durations, 0.95), p99: percentile(durations, 0.99) },
-      ttft: { p50: percentile(ttfts, 0.5), p90: percentile(ttfts, 0.9), p95: percentile(ttfts, 0.95), p99: percentile(ttfts, 0.99), coverage: rows.length ? round(ttfts.length / rows.length, 4) : 0 },
-      throughput: { p50: percentile(throughputs, 0.5), p10: percentile(throughputs, 0.1), mean: throughputs.length ? round(throughputs.reduce((a, b) => a + b, 0) / throughputs.length, 2) : null },
+      duration: { p50: percentileOfSorted(durationSample, 0.5), p90: percentileOfSorted(durationSample, 0.9), p95: percentileOfSorted(durationSample, 0.95), p99: percentileOfSorted(durationSample, 0.99) },
+      ttft: { p50: percentileOfSorted(ttftSample, 0.5), p90: percentileOfSorted(ttftSample, 0.9), p95: percentileOfSorted(ttftSample, 0.95), p99: percentileOfSorted(ttftSample, 0.99), coverage: rows.length ? round(ttfts.length / rows.length, 4) : 0 },
+      throughput: { p50: percentileOfSorted(throughputSample, 0.5), p10: percentileOfSorted(throughputSample, 0.1), mean: throughputs.length ? round(throughputs.reduce((a, b) => a + b, 0) / throughputs.length, 2) : null },
     },
     byModel,
     ttftVsOutput: rows
@@ -479,6 +633,20 @@ api.get("/api/performance", async c => {
       .map(row => ({ ttftMs: row.ttftMs, outputTokens: row.outputTokens, model: row.model, ts: row.ts })),
     slowest: slowest(rows, 15).map(publicRow),
     context: contextPressure(rows),
+  });
+});
+
+/** The Context page (#102): context length per model, over time, by band, and what long contexts coincide with. */
+api.get("/api/context", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { ...query.window, bucket: query.bucket },
+    ...contextBreakdown(rows, { bucket: query.bucket, from: query.from, to: query.to, tz: query.tz, datasetRows: dataset.rows }),
+    histogram: contextPressure(rows),
   });
 });
 
@@ -496,7 +664,7 @@ api.get("/api/reliability", async c => {
     ...report,
     successRate: summary.successRate,
     measurementCoverage: summary.measurementCoverage,
-    recentFailures: [...failureRows].sort((a, b) => b.ts - a.ts).slice(0, 40).map(publicRow),
+    recentFailures: topN(failureRows, 40, newestFirst).map(publicRow),
     waste: summary.waste,
     metering: summary.metering,
     retryOverhead: summary.retryOverhead,
@@ -511,7 +679,7 @@ api.get("/api/quota", async c => {
   return c.json({
     ok: true,
     range: c.req.query("range") ?? "30d",
-    ...quotaView(scope.available ? dataset : { quota: EMPTY_QUOTA }, { from: window.from, to: window.to }),
+    ...quotaView(scope.available ? dataset : { quota: EMPTY_QUOTA }, { from: window.from, to: window.to }, c.get("now")),
     scope,
     window: windowEcho(window),
   });
@@ -530,9 +698,10 @@ api.get("/api/ledger", async c => {
     buckets.set(ts, { ts, label: bucketLabel(ts, bucket, tz), settled: 0, sends: 0, tokens: 0 });
   }
   const sendTokens = new Map<string, number>();
+  const bucketOf = bucketer(bucket, tz);
   for (const event of events) {
     if (event.at < from || event.at >= to) continue;
-    const key = bucketStart(event.at, bucket, tz);
+    const key = bucketOf(event.at);
     const entry = buckets.get(key);
     if (!entry) continue;
     if (event.kind === "settle") {
@@ -562,17 +731,10 @@ api.get("/api/conversations", async c => {
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const rows = filterRows(dataset.rows, query.filter);
   const limit = numberParam(c.req.query("limit")) ?? 100;
-  const list = conversations(rows, limit);
-  const sort = c.req.query("sort") ?? "tokens";
-  const sorted = [...list].sort((a, b) => {
-    switch (sort) {
-      case "cost": return b.cost - a.cost;
-      case "requests": return b.requests - a.requests;
-      case "recent": return b.endedAt - a.endedAt;
-      case "errors": return b.errors - a.errors;
-      default: return b.tokens - a.tokens;
-    }
-  });
+  const requested = c.req.query("sort");
+  const sort: ConversationSort = requested === "cost" || requested === "requests" || requested === "recent" || requested === "errors" ? requested : "tokens";
+  // Ranked across every session, then cut: a costly low-token session is never lost to the cut.
+  const sorted = conversations(rows, limit, sort);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
@@ -632,6 +794,27 @@ api.get("/api/labs/projects", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
   const payload = buildProjectRadar(dataset.rows, query.filter, query.window);
+  const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
+  c.header("ETag", etag);
+  if (c.req.header("if-none-match") === etag) return c.body(null, 304);
+  return c.json(payload);
+});
+
+/**
+ * Spend spikes (#106): unusually expensive local days against the trailing baseline, and what changed on one
+ * of them. Project folders resolve git roots on disk, so the body is hashed after validation like Radar's.
+ */
+api.get("/api/labs/spend", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const day = c.req.query("day")?.trim() || null;
+  if (day !== null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    throw new ReportSpecError("invalid_day", "day", `Could not read "${day}" as a local date. Use YYYY-MM-DD in the window's time zone.`);
+  }
+  const payload = buildSpendChanges(dataset.rows, query.filter, query.window, c.get("now"), day);
+  if ("error" in payload) {
+    throw new ReportSpecError("invalid_day", "day", `The day ${day} is not in the selected window. Pick a local date inside it.`);
+  }
   const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   if (c.req.header("if-none-match") === etag) return c.body(null, 304);
@@ -734,7 +917,8 @@ export const REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-sr
  */
 api.get("/api/report", async c => {
   const dataset = c.get("dataset");
-  const now = c.get("now");
+  // Not memoized and stamped with its request time, like `yald report`: the exact clock, not the quantized one.
+  const now = requestNow();
   const query = c.req.query();
   const format = query.format?.trim() || "json";
   if (format !== "json" && format !== "html") {

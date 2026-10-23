@@ -345,7 +345,7 @@ export function OverviewPage() {
             </StateBlock>
           </Card>
           <Card>
-            <CardHeader title="Context pressure" subtitle={summary ? `${formatCoverage(summary.measurementCoverage.context)} · logical input only` : "Logical input size distribution"} />
+            <CardHeader title="Context pressure" subtitle={summary ? `${formatCoverage(summary.measurementCoverage.context)} · logical input only` : "Logical input size distribution"} action={<Link to={{ pathname: "/context", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
             <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
               {contextOption ? <Chart option={contextOption} height={148} /> : null}
               <div className="mt-2 flex justify-between text-[10.5px] text-muted">

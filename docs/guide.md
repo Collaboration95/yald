@@ -13,7 +13,14 @@ explains what Yald reads and writes.
 
 The desktop dashboard supports light and dark themes. Visible views poll every
 30 seconds, unchanged responses use ETags, and hidden tabs pause polling.
-Refresh forces a re-read. Recorded usage is available with the proxy stopped;
+Refresh forces a re-read. After a filter or range change, the previous numbers
+stay on screen, dimmed under an "Updating" notice, until the new selection's
+numbers arrive. The project list in the toolbar is not polled; Refresh reloads it.
+After a reload, each view first shows the results it last received for the same
+selection, under a "Showing saved results as of …" notice with the time they were
+saved, while fresh numbers load; if that refresh fails, the notice stays and says
+so. Unavailable values stay unavailable in saved results. See
+[data locations](install.md#data-locations-and-local-archive) for what the browser keeps. Recorded usage is available with the proxy stopped;
 quota then remains the last captured account observation.
 
 - **Overview:** period comparisons, usage by model/provider/effort, token-class
@@ -23,9 +30,20 @@ quota then remains the last captured account observation.
   eligible cache-read ratio, grouped volume, activity heatmap, context-size
   distribution and breakdown tables. Reasoning is already within output.
 - **Cost & spend:** priced cost by model/provider/effort and token class,
-  cumulative cost, gross cache-read discount, blended price per million tokens,
-  expensive sessions and unpriced coverage. Gross read discount excludes write
+  cumulative cost, gross cache-read discount, blended price per million tokens
+  (priced tokens only), the most expensive sessions across all sessions and
+  unpriced coverage. Structure sections show how concentrated spend is (top 1%
+  and 5% of sessions, top 10 sessions, Gini and a Pareto curve), blended price
+  over time by fixed price tier, and each token class's cost beside its token
+  share per source. Gross read discount excludes write
   premiums; use Cache Detective for net fixed-workload economics.
+- **Context:** how long contexts are (`inputTokens`, including cached tokens):
+  median, p90, p99 and maximum per model, a box plot, a model-by-band grid, the
+  share of requests and list-price cost at or above 50k, 150k and 300k, a
+  by-band table of cost, time to first token and cancel rate, and session
+  growth. Statistics below their minimum sample read "too few requests";
+  opencodex-only columns read "not recorded" for Claude Code. The context
+  histograms on Overview, Usage and Performance link here.
 - **Performance:** measured duration and time-to-first-token (TTFT) percentiles,
   throughput, distributions, TTFT/output scatter, slow requests and model
   timings. Claude transcripts are ineligible for timing and throughput.
@@ -82,6 +100,21 @@ ratio. Missing input and attempt sums remain gaps, while measured zero remains
 valid. Shorter sequences stay inspectable without ranked growth. An input drop
 or adjacent model change establishes no compaction, cause or answer quality.
 See [context metrics](labs-context.md).
+
+**Spend spikes** marks local days whose priced cost is unusually high against
+your own recent loaded history, then shows what changed on one of them. The rule
+is stated on the page: a day is a spike when its priced cost is above 2.5 times
+the median daily priced cost over the previous 14 active days (days with at
+least one priced request). With fewer than 7 baseline days, or a $0 median, the
+day is "insufficient", never "normal"; partial days (today, or cut by the window
+edge) get a hollow bar with the reason. Pick a spike day to see its change
+against the baseline mean as a waterfall by project, model, token class or
+session, with new contributors marked, an exact-values table, a drill-down from
+project to model to token class, and the day's coverage (priced requests,
+unpriced requests, known project folders). Dollars are API list-price
+equivalents of priced requests at today's prices. A spike is not a budget
+breach, and a share of dollars says where they landed, not why. "Open this
+day's requests as a fixed case" shows the exact day and baseline rows.
 
 Each finding's evidence action opens a **fixed case**. It retains the exact
 original half-open window, timezone, full cohort and source-qualified selection

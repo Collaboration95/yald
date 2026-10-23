@@ -4,6 +4,35 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-23 — Faster pages, Context and spend insights
+
+### Changed
+
+- **Pages open in a fraction of the time** ([#95](https://github.com/Collaboration95/yald/issues/95)). On a real history of about 157k requests, the 30-day Cost page went from 4.5 s to under 0.2 s and Usage from 3.5 s to under 0.2 s; a repeat open answers in about 10 ms. Time buckets are now worked out once per bucket instead of once per request, and samples are sorted once per series. Every number is unchanged: API responses were compared byte for byte against the previous version on real data ([#98](https://github.com/Collaboration95/yald/issues/98), [#113](https://github.com/Collaboration95/yald/pull/113)).
+- **Your numbers stay on screen while new ones load.** Changing a range or filter keeps the previous numbers visible, dimmed under an "Updating" notice, instead of blanking the page. After a reload, each view first shows its last results under "Showing saved results as of …" while fresh numbers load. They are kept in this browser's IndexedDB (at most 40 responses, none older than 7 days or from another Yald build). Errors and demo data are never saved, and unavailable values stay unavailable ([#99](https://github.com/Collaboration95/yald/issues/99), [#115](https://github.com/Collaboration95/yald/pull/115)).
+- **New log lines are read on their own.** When `usage.jsonl` or a Claude Code transcript grows, only the appended bytes are read. One new line now costs about 20 ms instead of re-reading a 250 MB file. A replaced, shrunk or rewritten file, or a price change, is still read whole, with the same result as before ([#100](https://github.com/Collaboration95/yald/issues/100), [#116](https://github.com/Collaboration95/yald/pull/116)).
+- **The request clock for rolling windows is rounded down to 10 seconds** (`YALD_CLOCK_QUANTUM_MS`). A rolling window's `to` can lag the real time by up to one quantum, and repeat requests within it are answered from memory or with `304 Not Modified`. ETags now also include the pricing generation. See [API reference](docs/api.md).
+- Source files are checked for changes at most once a second (`YALD_FRESHNESS_MS`); Refresh still re-reads at once.
+- The project list in the toolbar is refreshed every 5 minutes or on Refresh, instead of on every 30-second poll.
+- The README opens with Yaldi and reads more plainly ([#92](https://github.com/Collaboration95/yald/pull/92)).
+
+### Added
+
+- **A Context page** ([#102](https://github.com/Collaboration95/yald/issues/102)). See how long your contexts are, per model: median, p90, p99 and maximum, a box plot, how each model's requests spread across context bands, how much of your requests and list-price cost sits at or above 50k, 150k and 300k, and how cost per request, time to first token and cancel rate look by band. Session growth shows how much a session's context grew between its first and last requests. Figures that need more requests than you have read "too few requests", and opencodex-only columns read "not recorded" for Claude Code. The context cards on Overview, Usage and Performance now link to it.
+- **Spend structure on the Cost page** ([#103](https://github.com/Collaboration95/yald/issues/103)). See how concentrated your spend is (the share held by the top 1% and 5% of sessions and by your 10 costliest sessions, the Gini coefficient and a Pareto curve), how your blended price per million tokens moves over time and whether that is a shift between Economy, Standard and Premium price tiers, and what each token class costs per source next to its share of tokens. Figures that need more sessions than you have read "too few", partly priced sessions are marked as lower bounds, and unpriced requests are counted rather than treated as $0.
+- **Spend spikes in Labs** ([#106](https://github.com/Collaboration95/yald/issues/106)). Find the days your spend ran well above your own recent pattern: a day is flagged when its cost is above 2.5 times the median of the previous 14 active days, and the rule is printed on the page. Pick a day to see what changed against its baseline by project, model, token class or session, with new contributors marked, a drill-down from project to model to token class, and a fixed case of that day's requests. Days without enough history read "insufficient baseline" rather than normal, partial days are marked, costs are API list-price equivalents of priced requests, and unpriced and unattributed requests are counted beside the figures.
+- A `Server-Timing` header on every `/api/*` response, splitting dataset build and route compute time and marking memo hits. It carries durations only, never data.
+- `scripts/bench-endpoints.ts` and `scripts/compare-endpoints.ts`, which time page loads and compare API responses between two checkouts on a copy of your data. Both refuse to run against the live `~/.opencodex`.
+
+### Fixed
+
+- **"Most expensive sessions" ranks by cost across every session.** It used to rank only the 50 largest sessions by tokens, so a costly session with few tokens could be missing. The same fix applies to sorting sessions by cost, requests, recency or errors in the conversation list.
+- **Token-class costs add up to the total on long-context and priority requests.** They now use the cost engine's own split per class, so the Cost page's "Where the dollars go" matches the estimated cost. Rows without it show the difference as a separate tier adjustment.
+- **A model's blended price per million tokens uses priced tokens only.** A model with some unpriced requests no longer reads low.
+- The default dashboard view (a rolling window) never got a `304`, because its ETag included the request time to the millisecond, so every 30-second poll recomputed the whole page.
+- A health check, or the header's metadata and project requests, no longer waits several seconds behind a heavy page query.
+- The test suite can no longer touch your real data. Every `bun test` run uses a throwaway data home, and server code refuses to load under `bun test` without one.
+
 ### Removed
 
 - Hosted Ubuntu/macOS test CI and its required branch checks. Verification runs locally.

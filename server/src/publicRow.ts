@@ -10,6 +10,7 @@ export function publicRow(row: RequestRow) {
     usageFromAttempts: row.usageFromAttempts,
     usageStatus: row.usageStatus,
     cacheProvenance: row.cacheProvenance,
+    contextTier: row.contextTier,
     cacheWriteTokens: row.cacheWriteTokens,
     rateIn: row.rateIn,
     rateOut: row.rateOut,

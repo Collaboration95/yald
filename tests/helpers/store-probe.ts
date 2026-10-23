@@ -21,28 +21,43 @@ if (!process.env.OCX_HOME || !process.env.OCX_PACKAGE_DIR) throw new Error("isol
 const frozenNow = Number(process.env.YALD_TEST_NOW) || 1_791_000_000_000;
 Date.now = () => frozenNow;
 const actualReadFile = fs.readFile;
+const actualOpen = fs.open;
+const actualStat = fs.stat;
+const actualReaddir = fs.readdir;
 const reads: Record<string, number> = {};
+/** Directory listings and stats, as the freshness check performs them. */
+const lookups = { stat: 0, readdir: 0 };
 let barrier: { file: string; entered: () => void; arrived: Promise<void>; wait: Promise<void>; release: () => void; fail: boolean } | null = null;
 let readFailures: { file: string; code: string; remaining: number } | null = null;
+/** One read of `path` (whole-file or opened for a tail read): counted, then any injected failure or held barrier. */
+async function beforeRead(path: unknown) {
+  const name = basename(String(path));
+  reads[name] = (reads[name] ?? 0) + 1;
+  if (readFailures?.file === name && readFailures.remaining > 0) {
+    readFailures.remaining--;
+    throw Object.assign(new Error(`injected ${readFailures.code} read failure`), { code: readFailures.code });
+  }
+  const gate = barrier;
+  if (gate && name === gate.file) {
+    barrier = null;
+    gate.entered();
+    await gate.wait;
+    if (gate.fail) throw Object.assign(new Error("injected read failure"), { code: "EIO" });
+  }
+}
 // Intercept only reads, before dynamically importing either revision. All real
 // parsing, normalization, pricing and stat/fingerprint logic remains untouched.
 mock.module("node:fs/promises", () => ({
   ...fs,
+  stat: ((...args: Parameters<typeof fs.stat>) => { lookups.stat++; return actualStat(...args); }) as typeof fs.stat,
+  readdir: ((...args: Parameters<typeof fs.readdir>) => { lookups.readdir++; return actualReaddir(...args); }) as typeof fs.readdir,
   readFile: async (...args: Parameters<typeof fs.readFile>) => {
-    const name = basename(String(args[0]));
-    reads[name] = (reads[name] ?? 0) + 1;
-    if (readFailures?.file === name && readFailures.remaining > 0) {
-      readFailures.remaining--;
-      throw Object.assign(new Error(`injected ${readFailures.code} read failure`), { code: readFailures.code });
-    }
-    const gate = barrier;
-    if (gate && name === gate.file) {
-      barrier = null;
-      gate.entered();
-      await gate.wait;
-      if (gate.fail) throw Object.assign(new Error("injected read failure"), { code: "EIO" });
-    }
+    await beforeRead(args[0]);
     return actualReadFile(...args);
+  },
+  open: async (...args: Parameters<typeof fs.open>) => {
+    await beforeRead(args[0]);
+    return actualOpen(...args);
   },
 }));
 
@@ -63,7 +78,9 @@ if (syntheticGeneration) {
   }));
 }
 
-const { getDataset } = await import(pathToFileURL(join(root, "server/src/ocx/store.ts")).href);
+// Every command checks the disk: probes append and read back at once, so no freshness throttle.
+process.env.YALD_FRESHNESS_MS ??= "0";
+const { getDataset, ingestReport } = await import(pathToFileURL(join(root, "server/src/ocx/store.ts")).href);
 let last: Dataset | null = null;
 let pending: Promise<Dataset>[] = [];
 let releaseRead: (() => void) | null = null;
@@ -96,6 +113,9 @@ async function command(input: Record<string, any>) {
       return view(dataset);
     }
     case "last": return last ? view(last) : null;
+    case "lookups": return { ...lookups };
+    case "ingest": return ingestReport?.() ?? null;
+    case "scans": return (await import(pathToFileURL(join(root, "server/src/analytics.ts")).href)).filterScans?.() ?? null;
     case "fault": {
       readFailures = { file: input.file, code: input.code, remaining: input.count };
       return { armed: true };
@@ -164,7 +184,9 @@ async function command(input: Record<string, any>) {
       for (const path of input.paths) {
         const response = await api.request(path, input.etag ? { headers: { "if-none-match": input.etag } } : undefined);
         const text = await response.text();
-        responses.push({ path, status: response.status, etag: response.headers.get("etag"), type: response.headers.get("content-type"), disposition: response.headers.get("content-disposition"), csp: response.headers.get("content-security-policy"), body: text && response.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text });
+        responses.push({ path, status: response.status, etag: response.headers.get("etag"), type: response.headers.get("content-type"), disposition: response.headers.get("content-disposition"), csp: response.headers.get("content-security-policy"), body: text && response.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text,
+          // Durations differ run to run, so they are only returned on request.
+          ...(input.timing ? { timing: response.headers.get("server-timing") } : {}) });
       }
       return responses;
     }
