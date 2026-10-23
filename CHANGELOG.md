@@ -4,6 +4,8 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-23 — Faster pages, Context and spend insights
+
 ### Changed
 
 - **Pages open in a fraction of the time** ([#95](https://github.com/Collaboration95/yald/issues/95)). On a real history of about 157k requests, the 30-day Cost page went from 4.5 s to under 0.2 s and Usage from 3.5 s to under 0.2 s; a repeat open answers in about 10 ms. Time buckets are now worked out once per bucket instead of once per request, and samples are sorted once per series. Every number is unchanged: API responses were compared byte for byte against the previous version on real data ([#98](https://github.com/Collaboration95/yald/issues/98), [#113](https://github.com/Collaboration95/yald/pull/113)).
