@@ -1,22 +1,18 @@
 import type { ReactNode } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useEndpoint } from "../../api";
 import { formatInteger, formatRatio, formatShortDate, formatUsd, formatUsdDelta } from "../../lib/format";
 import type { CacheEconomicsResponse, ContextResponse, ProjectRadarResponse, SpendChangesResponse } from "../../types";
 import { LABS_INVESTIGATIONS } from "./investigations";
 import { InvestigationState } from "./InvestigationState";
 import { projectLabel, projectMover } from "./ProjectRadar";
-import { LAB_TABS, useLabsFilters, type LabPath } from "./shared";
+import { LAB_TABS, useLabsFilters, useLabsNavigationSearch, type LabPath } from "./shared";
 
 /** One case on the board: the finding and one number first; the investigation behind it is one click away. */
 function CaseCard({ path, title, loading, error, headline, big, detail }: {
   path: LabPath; title: string; loading: boolean; error: boolean; headline: ReactNode; big?: string; detail?: ReactNode;
 }) {
-  const { search } = useLocation();
-  const filters = useLabsFilters();
-  const params = new URLSearchParams(search);
-  // Opening a board case must retain the board's displayed window, even before a range is picked.
-  if (!["range", "from", "to", "last"].some(key => params.has(key))) params.set("range", filters.range);
+  const search = useLabsNavigationSearch();
   return <article className="card flex flex-col p-4">
     <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-muted">{title}</p>
     {loading ? <p className="mt-2 text-[12px] text-muted">Looking…</p> : error ? <p className="mt-2 text-[12px] text-muted">Unavailable right now.</p> : <>
@@ -24,7 +20,7 @@ function CaseCard({ path, title, loading, error, headline, big, detail }: {
       <h2 className="mt-2 text-[13.5px] font-semibold leading-5 text-ink">{headline}</h2>
       {detail ? <p className="mt-1 text-[12px] leading-5 text-ink-soft">{detail}</p> : null}
     </>}
-    <Link to={{ pathname: `/labs/${path}`, search: `?${params}` }} className="mt-auto inline-block pt-3 text-[12px] font-medium text-accent hover:underline">Investigate</Link>
+    <Link to={{ pathname: `/labs/${path}`, search }} className="mt-auto inline-block pt-3 text-[12px] font-medium text-accent hover:underline">Investigate</Link>
   </article>;
 }
 

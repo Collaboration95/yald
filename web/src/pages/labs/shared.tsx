@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ProgressBar, InfoTip } from "../../components/ui";
 import { YaldiFindingArtwork } from "../../components/YaldiArtwork";
 import { Expandable } from "../../components/ui";
@@ -12,6 +12,16 @@ export { LAB_TABS, type LabPath } from "../../lib/labsFilters";
 export function useLabsFilters(): Filters {
   const { filters } = useFilters();
   return filters;
+}
+
+/** Board tabs and cards retain the displayed window; direct investigations keep their defaults. */
+export function useLabsNavigationSearch(): string {
+  const { pathname, search } = useLocation();
+  const filters = useLabsFilters();
+  const params = new URLSearchParams(search);
+  if (pathname.replace(/\/+$/, "") !== "/labs" || ["range", "from", "to", "last"].some(key => params.has(key))) return search;
+  params.set("range", filters.range);
+  return `?${params}`;
 }
 
 /** One template for every investigation: a one-line verdict with a big number, and the method behind an (i). */
