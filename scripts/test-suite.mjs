@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, execFileSync } from "node:child_process";
-import { closeSync, createReadStream, mkdtempSync, openSync, readdirSync, rmSync } from "node:fs";
+import { closeSync, copyFileSync, createReadStream, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,9 +43,10 @@ export function createPlan(files, { fast = false, serial = false, workers = "3",
   return { mode: fast ? "fast" : "full", workers: Math.min(serial ? 1 : Number(workers), 3, Math.max(1, capacity), nonempty.length), groups: nonempty, excluded };
 }
 
-// Each worker has its own process group. A detached demo server can leave that
-// group, so also retain observed descendant identities until the worker settles.
-// Check the start time again before signalling a previously observed PID.
+// Each worker has its own process group. Retain both observed ancestry and
+// private startup registrations: ancestry alone loses a detached grandchild when
+// its intermediate parent exits between samples. Recheck recorded start identity
+// before signalling a previously observed PID.
 function processTable() {
   return execFileSync("ps", ["-axo", "pid=,ppid=,pgid=,lstart="], { encoding: "utf8", timeout: 2000 })
     .trim().split("\n").filter(Boolean).map(line => {
@@ -86,12 +87,21 @@ export function stopDescendantsSync() {
 export async function runPlan(plan, directory = root) {
   if (process.platform === "win32") throw new Error("The test runner requires POSIX process groups (macOS/Linux); use scripts/bun test on Windows");
   processTable(); // Fail before spawning workers if the required ps is unavailable.
-  const logs = mkdtempSync(join(os.tmpdir(), "yald-test-suite-"));
+  // Bun 1.4 does not support quoted/escaped whitespace in BUN_OPTIONS. Copy the
+  // registration preload under POSIX /tmp, independent of checkout/TMPDIR names.
+  const logs = mkdtempSync("/tmp/yald-test-suite-");
   const active = new Set(), results = [];
   let next = 0, stopped = 0, cleanupError;
   function observe() {
     const table = processTable();
     for (const worker of active) {
+      for (const file of readdirSync(worker.registry)) {
+        if (!/^\d+\.json$/.test(file)) continue;
+        const receipt = JSON.parse(readFileSync(join(worker.registry, file), "utf8"));
+        if (file === `${receipt.pid}.json` && Number.isSafeInteger(receipt.pid) && receipt.pid > 0 && typeof receipt.started === "string") {
+          worker.owned.set(receipt.pid, receipt.started);
+        }
+      }
       const owned = new Set(table.filter(row => worker.owned.get(row.pid) === row.started).map(row => row.pid));
       if (!worker.closed && worker.child.pid) owned.add(worker.child.pid);
       let added;
@@ -104,8 +114,11 @@ export async function runPlan(plan, directory = root) {
     return table;
   }
   function terminate(worker, name, table) {
-    // The group remains owned until cleanup completes, including after exit.
-    if (worker.child.pid) signal(-worker.child.pid, name);
+    // A live leader, or a verified survivor, keeps the group owned. Do not signal
+    // a possibly reused group ID after its last known member has disappeared.
+    if (worker.child.pid && (!worker.closed || table.some(row => row.group === worker.child.pid && worker.owned.get(row.pid) === row.started))) {
+      signal(-worker.child.pid, name);
+    }
     for (const row of table) {
       if (worker.owned.get(row.pid) === row.started) signal(row.pid, name);
     }
@@ -113,6 +126,7 @@ export async function runPlan(plan, directory = root) {
   function stop(code) {
     if (stopped) return;
     stopped = code;
+    for (const worker of active) rmSync(join(worker.registry, "open"), { force: true });
     let table = [];
     try { table = observe(); } catch (error) { cleanupError = error; }
     for (const worker of active) {
@@ -131,11 +145,19 @@ export async function runPlan(plan, directory = root) {
     let worker, completion, fd;
     try {
       fd = openSync(file, "w");
+      const registry = join(logs, `${index}.processes`);
+      mkdirSync(registry, { mode: 0o700 });
+      writeFileSync(join(registry, "open"), "open\n", { mode: 0o600 });
+      const register = join(registry, "register.cjs");
+      copyFileSync(join(directory, "scripts/test-process-register.cjs"), register);
       // Bun --bail skips afterAll, including the worker's descendant cleanup.
       const child = spawn(join(directory, "scripts/bun"), ["test", "--preload", "./scripts/test-worker-preload.mjs", ...group.files.map(path => `./${path}`)], {
-        cwd: directory, env: process.env, detached: true, stdio: ["ignore", fd, fd],
+        cwd: directory, env: { ...process.env,
+          NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require=${register}`.trim(),
+          BUN_OPTIONS: `${process.env.BUN_OPTIONS ?? ""} --preload=${register}`.trim(),
+        }, detached: true, stdio: ["ignore", fd, fd],
       });
-      worker = { child, owned: new Map(), closed: false };
+      worker = { child, registry, owned: new Map(), closed: false };
       active.add(worker);
       completion = new Promise(done => {
         child.on("error", error => { worker.error = error; stop(1); });
@@ -151,6 +173,7 @@ export async function runPlan(plan, directory = root) {
         await delay(25);
       }
       const result = await completion;
+      rmSync(join(registry, "open"), { force: true });
       if (result.code !== 0 || result.signal || worker.error) stop(1);
       // Reap surviving descendants before releasing this capacity slot. This also
       // covers children that closed their stdio or started a separate session.

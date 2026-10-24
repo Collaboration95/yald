@@ -13,6 +13,7 @@ function fixture() {
   mkdirSync(join(directory, "scripts"));
   copyFileSync(join(repository, "scripts/test-suite.mjs"), join(directory, "scripts/test-suite.mjs"));
   copyFileSync(join(repository, "scripts/test-worker-preload.mjs"), join(directory, "scripts/test-worker-preload.mjs"));
+  copyFileSync(join(repository, "scripts/test-process-register.cjs"), join(directory, "scripts/test-process-register.cjs"));
   symlinkSync(process.execPath, join(directory, "scripts/bun"));
   return directory;
 }
@@ -23,8 +24,8 @@ function list(directory: string, args: string[] = [], workers = "999") {
   const result = spawnSync(node, ["scripts/test-suite.mjs", "--list", ...args], { cwd: directory, env: { ...process.env, YALD_TEST_WORKERS: workers }, encoding: "utf8" });
   expect(result.status).toBe(0); return JSON.parse(result.stdout);
 }
-function launch(directory: string, args: string[] = [], workers = "3") {
-  const child = spawn(node, ["scripts/test-suite.mjs", ...args], { cwd: directory, env: { ...process.env, YALD_TEST_WORKERS: workers }, stdio: "pipe" });
+function launch(directory: string, args: string[] = [], workers = "3", env: Record<string, string> = {}) {
+  const child = spawn(node, ["scripts/test-suite.mjs", ...args], { cwd: directory, env: { ...process.env, YALD_TEST_WORKERS: workers, ...env }, stdio: "pipe" });
   let output = "";
   child.stdout.on("data", data => output += data); child.stderr.on("data", data => output += data);
   const done = new Promise<{ code: number | null; signal: string | null; output: string }>(resolve => child.on("close", (code, signal) => resolve({ code, signal, output })));
@@ -115,7 +116,78 @@ test("an immediate failure after spawning a detached child leaves no orphan", as
   } finally { if (pid && alive(pid)) process.kill(pid, "SIGKILL"); }
 });
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
+test("ownership survives immediate intermediate exit for ordinary and detached Node/Bun grandchildren", async () => {
+  const directory = fixture(), sleeper = join(directory, "sleeper.cjs");
+  write(directory, "user-preload.cjs", "globalThis.runnerUserPreload=true;");
+  write(directory, "sleeper.cjs", `const {writeFileSync}=require('node:fs');
+    writeFileSync(process.argv[2],JSON.stringify({pid:process.pid,preloaded:globalThis.runnerUserPreload,handlers:process.listenerCount('SIGTERM')}));
+    setTimeout(()=>process.exit(0),15000);setInterval(()=>{},1000);`);
+  write(directory, "middle.cjs", `const {spawn}=require('node:child_process');
+    const child=spawn(process.argv[2],[${JSON.stringify(sleeper)},process.argv[3]],{detached:process.argv[4]==='true',stdio:'ignore'});
+    child.unref();process.exit(0);`);
+  write(directory, "tests/fail.test.ts", `import {test,expect} from 'bun:test';import {spawn} from 'node:child_process';import {existsSync,readFileSync} from 'node:fs';
+    test('orphaned ancestry',async()=>{
+      let index=0;const jobs=[];
+      for(const middle of ${JSON.stringify([node, process.execPath])})for(const runtime of ${JSON.stringify([node, process.execPath])})for(const detached of [false,true]){
+        const marker=String(index++)+'.json';const child=spawn(middle,['middle.cjs',runtime,marker,String(detached)],{stdio:'ignore'});
+        jobs.push(new Promise((done,reject)=>child.once('close',code=>code===0?done(marker):reject(new Error('middle failed')))));
+      }
+      const markers=await Promise.all(jobs);
+      while(!markers.every(marker=>existsSync(marker)))await Bun.sleep(2);
+      for(const marker of markers){const receipt=JSON.parse(readFileSync(marker,'utf8'));expect(receipt.preloaded).toBe(true);expect(receipt.handlers).toBe(0);}
+      expect(0).toBe(1);
+    });`);
+  const running = launch(directory, [], "3", {
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require=${join(directory, "user-preload.cjs")}`,
+    BUN_OPTIONS: `${process.env.BUN_OPTIONS ?? ""} --preload=${join(directory, "user-preload.cjs")}`,
+  });
+  try {
+    const result = await running.done;
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("Expected: 1"); // Reach the intended failure, not an earlier setup error.
+    for (let index = 0; index < 8; index++) {
+      const receipt = JSON.parse(readFileSync(join(directory, `${index}.json`), "utf8"));
+      expect(receipt.preloaded).toBe(true); expect(receipt.handlers).toBe(0);
+      expect(alive(receipt.pid)).toBe(false);
+    }
+  } finally {
+    running.child.kill("SIGKILL"); await running.done;
+    for (let index = 0; index < 8; index++) {
+      const marker = join(directory, `${index}.json`);
+      if (!existsSync(marker)) continue;
+      const { pid } = JSON.parse(readFileSync(marker, "utf8"));
+      const identity = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" }).stdout;
+      if (identity.includes(sleeper)) process.kill(pid, "SIGKILL");
+    }
+  }
+}, 10000);
+
+test("closed registration refuses user code and stale registered identities never authorize a sibling kill", async () => {
+  const directory = fixture();
+  write(directory, "sibling.cjs", "setTimeout(()=>process.exit(0),15000);setInterval(()=>{},1000);");
+  const sibling = spawn(node, [join(directory, "sibling.cjs")], { stdio: "ignore" });
+  const closed = new Promise(done => sibling.once("close", done));
+  // This sibling is deliberately outside the runner's ancestry and registry.
+  // A stale PID receipt must not confer ownership even within its private directory.
+  write(directory, "tests/stale.test.ts", `import {test,expect} from 'bun:test';import {writeFileSync,statSync} from 'node:fs';import {dirname,join} from 'node:path';
+    test('stale receipt',()=>{
+      const preload=process.env.BUN_OPTIONS.trim().split(/\\s+/).at(-1).split('=')[1];const registry=dirname(preload);
+      expect(statSync(registry).mode & 0o777).toBe(0o700);
+      writeFileSync(join(registry,${JSON.stringify(`${sibling.pid}.json`)}),JSON.stringify({pid:${sibling.pid},started:'stale lifetime'}));
+    });`);
+  try {
+    const result = await launch(directory).done;
+    expect(result.code).toBe(0); expect(alive(sibling.pid!)).toBe(true);
+    const registry = join(directory, "closed"); mkdirSync(registry, { mode: 0o700 });
+    copyFileSync(join(repository, "scripts/test-process-register.cjs"), join(registry, "register.cjs"));
+    for (const runtime of [node, process.execPath]) {
+      const child = spawnSync(runtime, ["--require", join(registry, "register.cjs"), "-e", "console.log('USER_CODE_RAN')"], { encoding: "utf8" });
+      expect(child.status).not.toBe(0); expect(child.stdout).not.toContain("USER_CODE_RAN");
+    }
+  } finally { sibling.kill("SIGKILL"); await closed; }
+});
+
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   test(`${signal} returns nonzero, waits for workers, and removes ordinary and detached stubborn descendants`, async () => {
     const directory = fixture();
     write(directory, "tests/hang.test.ts", `import {test} from 'bun:test'; import {spawn} from 'node:child_process'; import {writeFileSync} from 'node:fs';
@@ -131,7 +203,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       await until(() => existsSync(marker)); pids = JSON.parse(readFileSync(marker, "utf8"));
       running.child.kill(signal);
       const result = await running.done;
-      expect(result.code).toBe(signal === "SIGINT" ? 130 : 143);
+      expect(result.code).toBe({ SIGINT: 130, SIGTERM: 143, SIGHUP: 129 }[signal]);
       for (const pid of pids) expect(alive(pid)).toBe(false);
     } finally {
       running.child.kill("SIGKILL");

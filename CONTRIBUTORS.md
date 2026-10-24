@@ -60,10 +60,19 @@ each worker remain sequential; each worker loads `bunfig.toml` and gets its own
 module cache and isolated fixture home. Whole worker logs print in group order
 after execution, with file counts, timing, exit status and signal diagnostics.
 A supplemental worker preload cleans descendants before Bun exits, including
-an immediate failing test that launched a detached child. Cancellation stops
-owned workers and their descendants, including detached demo servers, waits for
-exit, and returns a failure. This runner uses POSIX process groups and `ps` on
-macOS/Linux; uncatchable termination (SIGKILL) cannot run cleanup hooks.
+an immediate failing test that launched a detached child. Inherited Node/Bun
+startup preloads also register each process's PID and start identity in a private
+per-worker directory, so an ordinary intermediate parent can exit without losing
+ownership of a detached grandchild. Existing runtime options and preloads remain
+in place; the registration hook does not install signal/exit handlers or change
+`detached`. Cleanup closes registration before reading receipts, checks live
+start identities before signalling, and refuses late startup before user code.
+Cancellation stops owned workers and descendants, waits for exit, and returns a
+failure. This runner uses POSIX process groups and `ps` on macOS/Linux, with a
+private directory under `/tmp` (Bun 1.4 cannot quote whitespace in `BUN_OPTIONS`).
+SIGKILL cannot run cleanup hooks. Processes that deliberately remove runtime
+options, or opaque non-Node/Bun runtimes, have only process-group/observed-ancestry
+coverage; arbitrary detached double-forks from those processes are not covered.
 
 ```bash
 YALD_TEST_WORKERS=1 make test        # run one worker at a time, including cleanup
