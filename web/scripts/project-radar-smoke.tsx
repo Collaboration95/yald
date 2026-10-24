@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { DEFAULT_FILTERS, filtersFromParams, filtersToParams } from "../src/api";
 import { YaldiSmokeProviders } from "./yaldi-smoke";
 import { FiltersProvider } from "../src/lib/useFilters";
+import { labsFilters } from "../src/lib/labsFilters";
 import { ProjectRadar, ProjectRadarResult, projectLabel, projectRadarEvidenceHref } from "../src/pages/labs/ProjectRadar";
 import type { ProjectRadarResponse } from "../src/types";
 import { RADAR_DAY, RADAR_FROM, RADAR_TO, RADAR_WINDOW, projectRadarFixture } from "./project-radar-fixture";
@@ -106,10 +107,14 @@ try {
   }
 
   // Exercise the production hook/query key, not only the result renderer.
-  for (const { data, params } of [full, combined]) {
+  for (const { params } of [full, combined]) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-    const filters = filtersFromParams(params);
-    client.setQueryData(["/api/labs/projects", filtersToParams(filters)], data);
+    const query = filtersToParams(labsFilters(filtersFromParams(params)));
+    const response = await api.request(`/api/labs/projects?${query}`);
+    assert.equal(response.status, 200);
+    const data = await response.json() as ProjectRadarResponse;
+    for (const key of ["providers", "efforts", "statuses", "routeKinds"] as const) assert.deepEqual(data.cohort[key], []);
+    client.setQueryData(["/api/labs/projects", query], data);
     const html = decode(renderToStaticMarkup(<QueryClientProvider client={client}><YaldiSmokeProviders><MemoryRouter initialEntries={[`/labs/project-radar?${params}`]}><FiltersProvider><ProjectRadar /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>));
     check(html.includes(projectLabel(data.projects[0]!.project)) && html.includes("Top projects by cost"), "Hook consumes the full response for its complete filter key");
     client.clear();

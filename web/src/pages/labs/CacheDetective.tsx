@@ -27,7 +27,7 @@ export function cacheFinding(totals: CacheEconomicsTotals) {
 const evidenceHref = (evidence: CacheEconomicsTotals["evidence"]) => `${evidence.href}${evidence.href.includes("?") ? "&" : "?"}investigation=cache-detective`;
 
 export function CacheDetective() {
-  const filters = useLabsFilters("cache-detective");
+  const filters = useLabsFilters();
   // A finding belongs to one exact cohort and dataset: never show a previous selection's or page load's response.
   const query = useEndpoint<CacheEconomicsResponse>("/api/labs/cache", filters, { limit: SESSION_LIMIT }, { keepPrevious: false, persist: false });
   if (!query.data) {

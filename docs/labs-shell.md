@@ -26,9 +26,30 @@ Independent views live under `web/src/pages/labs`. Register each view's `Compone
 
 Route links preserve `location.search`, including the complete authoritative `selector` and paired `priorSelector` JSON. Global filter edits preserve unrelated query keys; Reset filters removes only dashboard filter keys. Neither can replace the case's embedded fixed bounds or split comma-bearing arrays. The sibling `/labs/evidence` route validates case intent inside the same gate, before the generic investigation route. See [case evidence](labs-evidence.md) for the fixed selector/API contract.
 
+The board and four investigations normalize their shared filter context to window,
+timezone, source, project and model. Inherited provider, effort, outcome, route,
+search, conversation and chart settings do not enter their requests or filter chips.
+They remain in the URL for return navigation; Reset removes dashboard filters as
+usual. The evidence route does not normalize its explicit case selectors. Changing
+a window or timezone clears the investigation's selected `day`, preserving case
+and session identity parameters.
+
 Verify with `make typecheck`, `make smoke` (synthetic fixtures), and the native T3 preview against the isolated fixture server. Browser coverage must exercise both themes, keyboard enable/disable, reload, empty/error text states, full-cohort navigation, selector retention after toolbar changes/reset, blocked storage, and a disabled interval longer than the normal 30-second polling period.
 
 For production browser checks, run `make build`, then `YALD_PREVIEW_PORT=5498 scripts/bun run scripts/preview-fixture.ts --scope`. Open your own private preview tab on port 5498. This server creates isolated synthetic opencodex, Claude and Codex homes and synthetic pricing, and removes them on shutdown. Do not run the normal server against a personal home for these checks.
+
+For the UX regressions, add `--ux-regressions` to that fixture command. It adds
+21 days of synthetic history with a spike ten days ago and supplies the fixed demo
+display clock. Open `/usage?range=30d&projects=**/ux-regression&sources=ocx&models=gpt-6-luna&providers=wrong-provider&efforts=high&statuses=error&routeKinds=explicit-provider&search=no-match&conversationId=wrong-session`.
+Click Labs: its controls/chip must show only source, project and model, and the
+board must have data. Open Spikes: `day=2026-09-22` is picked automatically.
+Click 24h: `day` must disappear and the daily-cost chart must load without an
+error. Return to 30d, open See the requests, and verify the one September 22 row
+and the allowed cohort in both selectors. Check the other three investigations'
+evidence too. Reset on the board must remove the filter chip while keeping the
+window. On `/`, the fixture's fresh Plan usage readings must not say Stale merely
+because the wall clock is later than the fixed demo clock. These are browser
+interaction checks; `make smoke` alone provides API/SSR evidence.
 
 To inspect shared states and prove that a future polling child is gated, also run `OCX_API=http://127.0.0.1:5498 scripts/bun run --cwd web vite --host 127.0.0.1 --port 5499 --strictPort`. In a native preview tab on port 5499, evaluate:
 

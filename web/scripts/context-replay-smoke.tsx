@@ -8,6 +8,7 @@ import { ChartStyleContext } from "../src/lib/chartStyle";
 import { makeRelayStyle } from "../src/lib/relayStyle";
 import { YaldiSmokeProviders } from "./yaldi-smoke";
 import { FiltersProvider } from "../src/lib/useFilters";
+import { labsFilters } from "../src/lib/labsFilters";
 import { ContextReplay, ContextReplayView } from "../src/pages/labs/ContextReplay";
 import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
 import { contextEvidenceHref, contextTimelineOption } from "../src/pages/labs/contextReplayChart";
@@ -98,28 +99,30 @@ export async function checkContextReplaySmoke() {
 
   const filteredParams = new URLSearchParams(CONTEXT_REPLAY_PARAMS);
   for (const [key, value] of Object.entries({ sources: "ocx", projects: "/synthetic/context/project", providers: "anthropic", models: "l07-alpha", statuses: "ok", routeKinds: "native", conversationId: "l07-shared" })) filteredParams.set(key, value);
-  const scoped = await fetchJson<ContextReplayResponse>("/api/labs/context", filteredParams.toString());
+  const filters = labsFilters(filtersFromParams(filteredParams));
+  const params = filtersToParams(filters);
+  const scoped = await fetchJson<ContextReplayResponse>("/api/labs/context", params);
   check(() => {
-    assert.equal(scoped.sessions.length, 1);
-    assert.equal(scoped.sessions[0]!.source, "ocx");
-    assert(scoped.sessions[0]!.requests.every(r => r.source === "ocx" && r.model === "l07-alpha"));
-    const filters = filtersFromParams(filteredParams);
-    const params = filtersToParams(filters);
+    assert.deepEqual(scoped.sessions.map(session => session.conversationId).sort(), ["l07-excluded", "l07-shared", "l07-zero-baseline"]);
+    assert(scoped.sessions.every(session => session.source === "ocx" && session.requests.every(r => r.source === "ocx" && r.model === "l07-alpha")));
+    assert(scoped.sessions.flatMap(session => session.requests).some(request => request.id === "l07-cohort-outside"), "inherited effort must not hide the low-effort request");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     client.setQueryData(["/api/labs/context", params], scoped);
     const html = plain(renderToString(<QueryClientProvider client={client}><YaldiSmokeProviders><MemoryRouter initialEntries={[`/labs/context-replay?${filteredParams}`]}>
       <FiltersProvider><ContextReplay /></FiltersProvider></MemoryRouter></YaldiSmokeProviders></QueryClientProvider>));
-    assert.match(html, /Session l07-sh/);
+    assert.match(html, /Session l07-ze/); // With the inherited conversation filter removed, this session is first.
     assert(!html.includes("l07-claude-0"));
     assert(!html.includes("l07-model-change"));
     const links = [...html.matchAll(/href="([^"]*investigation=context-replay[^"]*)"/g)].map(match => new URL(match[1]!.replace(/&amp;/g, "&"), "http://localhost"));
     assert(links.some(link => JSON.stringify(JSON.parse(link.searchParams.get("selector")!).cohort) === JSON.stringify(scoped.cohort)));
     client.clear();
     assert.equal(scoped.cohort.projects[0], "/synthetic/context/project");
-    assert.equal(scoped.cohort.efforts[0], "high");
-    assert.equal(scoped.cohort.search, "l07-");
-    assert.equal(scoped.sessions[0]!.history.cohortLimited, true);
-  }, "all source/project/request filters flow through the real hook, selection and evidence together");
+    for (const key of ["providers", "efforts", "statuses", "routeKinds"] as const) assert.deepEqual(scoped.cohort[key], []);
+    assert.equal(scoped.cohort.search, "");
+    assert.equal(scoped.cohort.conversationId, null);
+    assert.equal(scoped.sessions.find(session => session.conversationId === "l07-shared")!.history.cohortLimited, true);
+    assert.equal(scoped.sessions.find(session => session.conversationId === "l07-zero-baseline")!.history.cohortLimited, false);
+  }, "only visible Labs filters flow through the real hook, selection and evidence together");
 
   const emptyParams = new URLSearchParams(CONTEXT_REPLAY_PARAMS); emptyParams.set("models", "l07-absent");
   const empty = await fetchJson<ContextReplayResponse>("/api/labs/context", emptyParams.toString());

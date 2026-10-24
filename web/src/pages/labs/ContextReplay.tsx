@@ -10,7 +10,7 @@ import { TopList, Verdict, periodPhrase, useLabsFilters, type TopRow } from "./s
 import { contextEvidenceHref, contextTimelineOption } from "./contextReplayChart";
 
 export function ContextReplay() {
-  const filters = useLabsFilters("context-replay");
+  const filters = useLabsFilters();
   const query = useContextReplay(filters);
   if (query.isLoading) return <InvestigationState kind="loading" />;
   if (query.error) return <InvestigationState kind="error" detail={query.error.message} onRetry={() => void query.refetch()} />;

@@ -28,6 +28,7 @@ import { InvestigationState, type InvestigationStateKind } from "../src/pages/la
 import { EvidenceCase } from "../src/pages/labs/EvidenceCase";
 import { LABS_INVESTIGATIONS } from "../src/pages/labs/investigations";
 import { FiltersProvider } from "../src/lib/useFilters";
+import { labsFilters } from "../src/lib/labsFilters";
 import { OverviewPage } from "../src/pages/Overview";
 import { UsagePage } from "../src/pages/Usage";
 import { CostPage } from "../src/pages/Cost";
@@ -380,17 +381,21 @@ async function checkLabsShell() {
   const enabledPreferences = { labsEnabled: true, hideArtwork: true };
   const home = renderPage(LabsPage, client, `/labs?${params}`, "/labs", true, enabledPreferences);
   check(["Spend spikes", "Projects", "Cache savings", "Context growth"].every(text => home.includes(text)) && !home.includes("Could not load data"), "enabled shell shows the four cases");
+  const toolbar = home.split('class="relay-toolbar"')[1]?.split("</header>")[0] ?? "";
+  check(["Source", "Project", "Model"].every(text => toolbar.includes(text)) && !["Provider", "Effort", "Outcome", "Search requests"].some(text => toolbar.includes(text)), "board exposes the same allowed controls as investigations");
+  const notes = home.split("data-filter-notes")[1]?.split("</main>")[0]?.split("</div>")[0] ?? "";
+  check(notes.includes("Reset") && !["provider", "effort", "outcome", "one session", "fixture”"].some(text => notes.includes(text)), "Labs reset chip describes only the effective cohort");
   for (const path of [...LABS_INVESTIGATIONS.filter(entry => !entry.Component).map(entry => entry.path), "unknown/deep"]) {
     const html = renderPage(LabsInvestigationPage, client, `/labs/${path}?${params}`, "/labs/*", true, enabledPreferences);
     check((html.includes("Not available yet") || html.includes("Labs page unavailable")) && !html.includes("Could not load data"), `${path} has a neutral placeholder without experiment queries`);
   }
   const invalidEvidence = renderPage(EvidenceCase, client, "/labs/evidence?investigation=unknown&selector=%7B%7D", "/labs/*", false, enabledPreferences);
   check(invalidEvidence.includes("Invalid link"), "evidence route explains invalid intent without issuing an experiment query");
-  const cacheParams = filtersToParams(filters, { limit: 100 });
+  const cacheParams = filtersToParams(labsFilters(filters), { limit: 100 });
   client.setQueryData(["/api/labs/cache", cacheParams], await fetchJson("/api/labs/cache", cacheParams));
   const cache = renderPage(LabsInvestigationPage, client, `/labs/cache-detective?${params}`, "/labs/*", true, enabledPreferences);
   check(cache.includes("No requests to investigate") && !cache.includes("NaN"), "Cache savings renders the real empty API payload");
-  const spendParams = filtersToParams(filters, {});
+  const spendParams = filtersToParams(labsFilters(filters), {});
   client.setQueryData(["/api/labs/spend", spendParams], await fetchJson("/api/labs/spend", spendParams));
   const spend = renderPage(LabsInvestigationPage, client, `/labs/spend-spikes?${params}`, "/labs/*", true, enabledPreferences);
   check(spend.includes("No requests to investigate") && !spend.includes("NaN"), "Spend spikes renders the real empty API payload");

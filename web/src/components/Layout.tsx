@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -28,7 +28,7 @@ import type { ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
 import { DEMO } from "../lib/demo";
 import { YaldiDemoArtwork } from "./YaldiArtwork";
-import { LAB_TABS, labRange } from "../pages/labs/shared";
+import { isLabsAnalysis } from "../lib/labsFilters";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -79,15 +79,10 @@ export function Layout() {
   const scopeData = scope.isPlaceholderData ? undefined : scope.data;
   const updating = usePlaceholderShown();
   const saved = useSavedShown();
-  const [searchParams] = useSearchParams();
   const isLabs = location.pathname === "/labs" || location.pathname.startsWith("/labs/");
-  // Labs: only the four investigations read the toolbar, and only for range, source, project and model.
-  // The board and the request list keep their own scope, so the filters are not shown there.
-  const labsTab = isLabs ? LAB_TABS.find(tab => location.pathname === `/labs/${tab.path}`) : undefined;
-  const showFilters = !isLabs || Boolean(labsTab);
+  // Board and investigations share the visible cohort; evidence keeps its explicit case scope.
+  const showFilters = !isLabs || isLabsAnalysis(location.pathname);
   const showRequestFilters = !isLabs;
-  const explicitWindow = ["range", "from", "to", "last"].some(key => searchParams.has(key));
-  const shownRange = labsTab && !explicitWindow ? labRange(labsTab.path) : filters.range;
   const title = isLabs ? "Labs" : TITLES[location.pathname] ?? "Session";
   const page = isLabs ? "labs" : location.pathname.startsWith("/sessions/") ? "session" : location.pathname.slice(1) || "overview";
 
@@ -138,7 +133,7 @@ export function Layout() {
             <div className="flex flex-wrap items-center gap-1.5">
               {showFilters ? <>
               <Segmented
-                value={filters.from || filters.to || filters.last ? "" : shownRange}
+                value={filters.from || filters.to || filters.last ? "" : filters.range}
                 options={RANGES.map(range => ({ id: range.id, label: range.label }))}
                 onChange={range => set({ range })}
               />

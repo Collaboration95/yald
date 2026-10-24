@@ -13,6 +13,10 @@ function CaseCard({ path, title, loading, error, headline, big, detail }: {
   path: LabPath; title: string; loading: boolean; error: boolean; headline: ReactNode; big?: string; detail?: ReactNode;
 }) {
   const { search } = useLocation();
+  const filters = useLabsFilters();
+  const params = new URLSearchParams(search);
+  // Opening a board case must retain the board's displayed window, even before a range is picked.
+  if (!["range", "from", "to", "last"].some(key => params.has(key))) params.set("range", filters.range);
   return <article className="card flex flex-col p-4">
     <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-muted">{title}</p>
     {loading ? <p className="mt-2 text-[12px] text-muted">Looking…</p> : error ? <p className="mt-2 text-[12px] text-muted">Unavailable right now.</p> : <>
@@ -20,12 +24,12 @@ function CaseCard({ path, title, loading, error, headline, big, detail }: {
       <h2 className="mt-2 text-[13.5px] font-semibold leading-5 text-ink">{headline}</h2>
       {detail ? <p className="mt-1 text-[12px] leading-5 text-ink-soft">{detail}</p> : null}
     </>}
-    <Link to={{ pathname: `/labs/${path}`, search }} className="mt-auto inline-block pt-3 text-[12px] font-medium text-accent hover:underline">Investigate</Link>
+    <Link to={{ pathname: `/labs/${path}`, search: `?${params}` }} className="mt-auto inline-block pt-3 text-[12px] font-medium text-accent hover:underline">Investigate</Link>
   </article>;
 }
 
 function SpikesCard() {
-  const filters = useLabsFilters("spend-spikes");
+  const filters = useLabsFilters();
   const query = useEndpoint<SpendChangesResponse>("/api/labs/spend", filters, {}, { keepPrevious: false, persist: false });
   const spikes = query.data?.days.filter(day => day.state === "spike").sort((a, b) => (b.pricedCostUsd ?? 0) - (a.pricedCostUsd ?? 0)) ?? [];
   const top = spikes[0];
@@ -36,7 +40,7 @@ function SpikesCard() {
 }
 
 function ProjectsCard() {
-  const filters = useLabsFilters("project-radar");
+  const filters = useLabsFilters();
   const query = useEndpoint<ProjectRadarResponse>("/api/labs/projects", filters, {}, { keepPrevious: false, persist: false });
   const mover = query.data ? projectMover(query.data.projects) : undefined;
   const change = mover?.comparison.pricedCostUsd.absoluteChange ?? 0;
@@ -46,7 +50,7 @@ function ProjectsCard() {
 }
 
 function CacheCard() {
-  const filters = useLabsFilters("cache-detective");
+  const filters = useLabsFilters();
   const query = useEndpoint<CacheEconomicsResponse>("/api/labs/cache", filters, { limit: 1 }, { keepPrevious: false, persist: false });
   const totals = query.data?.totals;
   const ok = !!totals && totals.eligibleRequests > 0 && totals.direction !== "insufficient";
@@ -56,7 +60,7 @@ function CacheCard() {
 }
 
 function GrowthCard() {
-  const filters = useLabsFilters("context-replay");
+  const filters = useLabsFilters();
   const query = useEndpoint<ContextResponse>("/api/context", filters, {}, { keepPrevious: false, persist: false });
   const growth = query.data?.growth;
   const ratio = growth?.medianRatio ?? null;

@@ -9,6 +9,7 @@ import { Chart } from "../components/Chart";
 import { stackedAreaChart } from "../components/chartOptions";
 import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatShortDate, formatUsd, quotaLabel, sessionLabel } from "../lib/format";
 import type { OverviewResponse } from "../types";
+import { displayNow } from "../lib/demo";
 
 const STALE_QUOTA_MS = 24 * 3_600_000;
 
@@ -172,7 +173,8 @@ export function OverviewPage() {
                 {quotaWindows.map(window => {
                   const burn = data?.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
                   const tone = window.usedPercent >= 90 ? "bad" : window.usedPercent >= 70 ? "warn" : "accent";
-                  const stale = Date.now() - window.updatedAt > STALE_QUOTA_MS || (window.resetAtMs !== null && window.resetAtMs < Date.now());
+                  const now = displayNow();
+                  const stale = now - window.updatedAt > STALE_QUOTA_MS || (window.resetAtMs !== null && window.resetAtMs < now);
                   return (
                     <li key={`${window.account}-${window.window}`}>
                       <div className="flex items-center justify-between gap-2">

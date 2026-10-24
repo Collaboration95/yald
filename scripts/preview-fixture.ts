@@ -9,6 +9,12 @@ process.env.YALD_HOST = "127.0.0.1";
 process.env.YALD_PORT = process.env.YALD_PREVIEW_PORT ?? "5329";
 const fixtureHome = await materializeFixtureHome({ dashboardScope: process.argv.includes("--scope"), reportDay: process.argv.includes("--scope") });
 const fixturePricing = await materializeFixturePricing();
+if (process.argv.includes("--ux-regressions")) {
+  const { addUxRegressionHistory } = await import("../web/scripts/ux-regressions-fixture");
+  await addUxRegressionHistory(fixtureHome);
+  process.env.YALD_DEMO = "1";
+  process.env.YALD_DEMO_NOW = process.env.YALD_DEMO_SAMPLE_AT = String(Date.now());
+}
 process.env.OCX_HOME = fixtureHome;
 process.env.CLAUDE_PROJECTS_DIR = `${fixtureHome}/claude-projects`;
 process.env.CODEX_HOME = `${fixtureHome}/codex`;

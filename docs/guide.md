@@ -79,10 +79,12 @@ explanation, value and control. Artwork supplies no evidence of its own.
 Labs opens on a board of four cases, each a finding and one number. Every
 investigation uses one layout: Yaldi's one-line verdict with a big number, one
 chart, a top-five list with short names, a **See the requests** button, and an (i)
-holding the rule, coverage, scope and windows. Each investigation reads in its own
-window until you pick a range (spikes and context growth 30 days, projects and
-cache savings 7 days). Only range, source, project and model apply, so the other
-filters are hidden there.
+holding the rule, coverage, scope and windows. The board shows one 30-day window
+until you pick a range; its Investigate links keep that window. Direct investigation
+links default to 30 days for spikes and context growth, 7 days for projects and cache
+savings. The board and investigations share time-window, source, project and model
+controls. Hidden request filters from other pages do not constrain Labs. Evidence
+links keep the actual finding's fixed cohort, including any explicit case selectors.
 
 **Spikes** marks local days whose priced cost is unusually high against your own
 recent loaded history. A day is unusual when its priced cost is above 2.5 times the

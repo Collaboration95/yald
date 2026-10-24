@@ -4,7 +4,7 @@ import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Card, CardHeader, Expandable, InfoTip, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
-import { heatmapChart, lineChart, stackedAreaChart } from "../components/chartOptions";
+import { heatmapChart, lineChart, stackedAreaChart, type ThemeTokens } from "../components/chartOptions";
 import { formatCompact, formatInteger, formatPercent, formatShortDate, formatUsd } from "../lib/format";
 import { effortLabel } from "../components/ScopeControls";
 import type { UsageHeatmapDatesResponse, UsageResponse } from "../types";
@@ -12,6 +12,14 @@ import type { UsageHeatmapDatesResponse, UsageResponse } from "../types";
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DETAIL_PAGE_SIZE = 20;
 type HeatmapSelection = { weekday: number; hour: number; filterKey: string; metric: "tokens" | "requests" };
+
+export function usageCompositionOption(chartTheme: ThemeTokens, composition: UsageResponse["composition"]) {
+  return stackedAreaChart(chartTheme, composition.map(point => point.label), [
+    { name: "Cached", data: composition.map(point => point.cacheRead) },
+    // Writes are new input; reasoning is already included in output.
+    { name: "New", data: composition.map(point => point.freshInput + point.cacheWrite + point.output) },
+  ], { formatter: value => formatCompact(value), colors: { Cached: "#16a34a", New: "#f59e0b" } });
+}
 
 export function UsagePage() {
   const { filters, set } = useFilters();
@@ -39,15 +47,7 @@ export function UsagePage() {
     setDetailRows(current => detailOffset === 0 ? result.dates : current.length === detailOffset ? [...current, ...result.dates] : current);
   }, [detailQuery.data, detailOffset, activeSelection, heatmapMetric]);
 
-  const compositionOption = useMemo(() => {
-    if (!data) return null;
-    const labels = data.composition.map(point => point.label);
-    // Cache reads are ~all of the volume, so the other classes would be slivers: show cached against new.
-    return stackedAreaChart(chartTheme, labels, [
-      { name: "Cached", data: data.composition.map(point => point.cacheRead) },
-      { name: "New", data: data.composition.map(point => point.freshInput + point.output) },
-    ], { formatter: value => formatCompact(value), colors: { Cached: "#16a34a", New: "#f59e0b" } });
-  }, [data, chartTheme]);
+  const compositionOption = useMemo(() => data ? usageCompositionOption(chartTheme, data.composition) : null, [data, chartTheme]);
 
   const groupedOption = useMemo(() => {
     if (!data) return null;

@@ -1,35 +1,17 @@
 import type { ReactNode } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { ProgressBar, InfoTip } from "../../components/ui";
 import { YaldiFindingArtwork } from "../../components/YaldiArtwork";
 import { Expandable } from "../../components/ui";
 import { useFilters } from "../../lib/useFilters";
 import type { Filters } from "../../api";
 
-/** The four investigations, in tab order, each with the window it reads best in. */
-export const LAB_TABS = [
-  { path: "spend-spikes", label: "Spikes", range: "30d" },
-  { path: "project-radar", label: "Projects", range: "7d" },
-  { path: "cache-detective", label: "Cache savings", range: "7d" },
-  { path: "context-replay", label: "Context growth", range: "30d" },
-] as const;
+export { LAB_TABS, type LabPath } from "../../lib/labsFilters";
 
-export type LabPath = (typeof LAB_TABS)[number]["path"];
-const WINDOW_PARAMS = ["range", "from", "to", "last"];
-
-export const labRange = (path: string): string => LAB_TABS.find(tab => tab.path === path)?.range ?? "30d";
-
-/** True once the person has chosen a window themselves; until then each investigation uses its own. */
-export function useExplicitWindow(): boolean {
-  const [params] = useSearchParams();
-  return WINDOW_PARAMS.some(key => params.has(key));
-}
-
-/** The toolbar filters, with the investigation's own window unless one was picked. */
-export function useLabsFilters(path: LabPath): Filters {
+/** FiltersProvider shares the effective Labs cohort/window with queries, toolbar, counts and reset. */
+export function useLabsFilters(): Filters {
   const { filters } = useFilters();
-  const explicit = useExplicitWindow();
-  return explicit ? filters : { ...filters, range: labRange(path) };
+  return filters;
 }
 
 /** One template for every investigation: a one-line verdict with a big number, and the method behind an (i). */

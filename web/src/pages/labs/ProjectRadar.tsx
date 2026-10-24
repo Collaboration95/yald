@@ -26,7 +26,7 @@ export function projectRadarEvidenceHref(project: Project, period: "current" | "
 }
 
 export function ProjectRadar() {
-  const filters = useLabsFilters("project-radar");
+  const filters = useLabsFilters();
   const query = useEndpoint<ProjectRadarResponse>("/api/labs/projects", filters, {}, { keepPrevious: false, persist: false });
   if (query.error) return <InvestigationState kind="error" detail={query.error.message} onRetry={() => void query.refetch()} />;
   if (!query.data) return <InvestigationState kind="loading" />;

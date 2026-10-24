@@ -34,7 +34,7 @@ function shortLabel(cut: SpendCut, label: string): string {
 }
 
 export function SpendChanges() {
-  const filters = useLabsFilters("spend-spikes");
+  const filters = useLabsFilters();
   const [params, setParams] = useSearchParams();
   const day = params.get("day") ?? undefined;
   const query = useEndpoint<SpendChangesResponse>("/api/labs/spend", filters, day ? { day } : {}, { keepPrevious: false, persist: false });
