@@ -836,16 +836,19 @@ test("Claude transcripts: appends, a replaced snapshot, duplicates across files 
   }) + "\n");
   const check = async () => {
     const view: View = await f.probe.ask({ op: "get", freeze: true });
-    // One fresh oracle per observation: force a full parse before using its API.
-    // It never shares the incremental candidate's store or pricing caches.
+    // A fresh dataset oracle never shares the candidate's store or pricing caches.
     const cold = await new Probe(baseline, f.home, f.pricing).ready();
     const expected: View = await cold.ask({ op: "get", force: true });
     expect(comparable(view)).toEqual(comparable(expected));
     expectMergedOrder(view.dataset.rows);
     // Labs evidence identities use row positions: Context Replay ordinals must match a full parse.
+    // An external dataset baseline may predate this route/schema; compare the current API.
+    // Reuse the forced cold parse when the baseline is this checkout.
+    const contextCold = baseline === root ? cold : await new Probe(root, f.home, f.pricing, true).ready();
     const path = "/api/labs/context?range=all";
-    expect((await f.probe.ask({ op: "api", paths: [path] }))[0].body).toEqual((await cold.ask({ op: "api", paths: [path] }))[0].body);
+    expect((await f.probe.ask({ op: "api", paths: [path] }))[0].body).toEqual((await contextCold.ask({ op: "api", paths: [path] }))[0].body);
     cold.stop();
+    if (contextCold !== cold) contextCold.stop();
     return view;
   };
   await check();
