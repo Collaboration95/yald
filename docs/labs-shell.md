@@ -39,12 +39,17 @@ Verify with `make typecheck`, `make smoke` (synthetic fixtures), and the native 
 For production browser checks, run `make build`, then `YALD_PREVIEW_PORT=5498 scripts/bun run scripts/preview-fixture.ts --scope`. Open your own private preview tab on port 5498. This server creates isolated synthetic opencodex, Claude and Codex homes and synthetic pricing, and removes them on shutdown. Do not run the normal server against a personal home for these checks.
 
 For the UX regressions, add `--ux-regressions` to that fixture command. It adds
-21 days of synthetic history with a spike ten days ago and supplies the fixed demo
-display clock. Open `/usage?range=30d&projects=**/ux-regression&sources=ocx&models=gpt-6-luna&providers=wrong-provider&efforts=high&statuses=error&routeKinds=explicit-provider&search=no-match&conversationId=wrong-session`.
+21 days of synthetic history relative to the fixture clock set in
+`scripts/preview-fixture.ts`, which also supplies the demo display clock. The spike
+timestamp is ten days and one hour before that clock
+(`Date.now() - 10 * 86_400_000 - 3_600_000` in
+`web/scripts/ux-regressions-fixture.ts`). Use that timestamp's `YYYY-MM-DD` date in
+the selected timezone (`Asia/Singapore` by default) as the expected spike day.
+Open `/usage?range=30d&projects=**/ux-regression&sources=ocx&models=gpt-6-luna&providers=wrong-provider&efforts=high&statuses=error&routeKinds=explicit-provider&search=no-match&conversationId=wrong-session`.
 Click Labs: its controls/chip must show only source, project and model, and the
-board must have data. Open Spikes: `day=2026-09-22` is picked automatically.
+board must have data. Open Spikes: `day` must automatically select the expected spike day.
 Click 24h: `day` must disappear and the daily-cost chart must load without an
-error. Return to 30d, open See the requests, and verify the one September 22 row
+error. Return to 30d, open See the requests, and verify the one row on that spike day
 and the allowed cohort in both selectors. Check the other three investigations'
 evidence too. Reset on the board must remove the filter chip while keeping the
 window. On `/`, the fixture's fresh Plan usage readings must not say Stale merely
