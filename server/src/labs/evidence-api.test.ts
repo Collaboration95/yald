@@ -393,22 +393,23 @@ test("strict selector shapes, enums, identities, bounds, sizes, versions and pag
   }
   for (const key of ["investigation", "selector", "limit"]) { const p = new URLSearchParams(q); if (!p.has(key)) p.set(key, "1"); p.append(key, p.get(key)!); invalid.push(p); }
   const paths = invalid.map(pathFor);
+  expect(paths).toHaveLength(105);
+  expect(new Set(paths).size).toBe(paths.length);
   const assertInvalid = (response: any, path: string) => {
     expect(response.path, path).toBe(path);
     expect(response.status, path).toBe(400);
     expect(response.body, path).toMatchObject({ ok: false, error: { code: "invalid_evidence" } });
     expect(typeof response.body.error.message, path).toBe("string");
   };
-  // The probe supports one conditional header for a whole paths batch.
   const responses = await command({ op: "api", paths, etag: first.etag });
   expect(responses).toHaveLength(paths.length);
   paths.forEach((path, index) => assertInvalid(responses[index], path));
-  for (const path of paths) {
-    // This exact former pre-validation hash is different for every URL. Keep
-    // those requests separate until the shared probe supports per-path headers.
-    const premature = `W/"${createHash("sha256").update(`${dataset.revision}:http://localhost${path}:`).digest("hex").slice(0, 24)}"`;
-    assertInvalid(await request(path, premature), path);
-  }
+  // Preserve the exact former pre-validation hash for each URL in a second batch.
+  const etags = paths.map(path => `W/"${createHash("sha256").update(`${dataset.revision}:http://localhost${path}:`).digest("hex").slice(0, 24)}"`);
+  expect(new Set(etags).size).toBe(paths.length);
+  const premature = await command({ op: "api", paths, etags });
+  expect(premature).toHaveLength(paths.length);
+  paths.forEach((path, index) => assertInvalid(premature[index], path));
 });
 
 test("Radar rejects a rebased, mismatched or unequal paired window instead of inventing another baseline", async () => {
