@@ -392,16 +392,22 @@ test("strict selector shapes, enums, identities, bounds, sizes, versions and pag
     for (const value of values) { const p = new URLSearchParams(q); p.set(key, value); invalid.push(p); }
   }
   for (const key of ["investigation", "selector", "limit"]) { const p = new URLSearchParams(q); if (!p.has(key)) p.set(key, "1"); p.append(key, p.get(key)!); invalid.push(p); }
-  for (const p of invalid) {
-    const path = pathFor(p);
-    // This is the middleware's exact former pre-validation hash for this fixed URL.
+  const paths = invalid.map(pathFor);
+  const assertInvalid = (response: any, path: string) => {
+    expect(response.path, path).toBe(path);
+    expect(response.status, path).toBe(400);
+    expect(response.body, path).toMatchObject({ ok: false, error: { code: "invalid_evidence" } });
+    expect(typeof response.body.error.message, path).toBe("string");
+  };
+  // The probe supports one conditional header for a whole paths batch.
+  const responses = await command({ op: "api", paths, etag: first.etag });
+  expect(responses).toHaveLength(paths.length);
+  paths.forEach((path, index) => assertInvalid(responses[index], path));
+  for (const path of paths) {
+    // This exact former pre-validation hash is different for every URL. Keep
+    // those requests separate until the shared probe supports per-path headers.
     const premature = `W/"${createHash("sha256").update(`${dataset.revision}:http://localhost${path}:`).digest("hex").slice(0, 24)}"`;
-    for (const etag of [first.etag, premature]) {
-      const response = await request(path, etag);
-      expect(response.status, path).toBe(400);
-      expect(response.body).toMatchObject({ ok: false, error: { code: "invalid_evidence" } });
-      expect(typeof response.body.error.message).toBe("string");
-    }
+    assertInvalid(await request(path, premature), path);
   }
 });
 
