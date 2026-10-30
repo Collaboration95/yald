@@ -55,7 +55,8 @@ quota then remains the last captured account observation.
 - **Outage episodes** on Performance group errors less than 10 minutes apart. A
   timeline and table show their size, length and status mix, and the successes inside
   them. Open an episode to see all of its requests. Classes are inferred from status codes.
-- **Sessions:** source-qualified sessions, named by the project they ran in, ranked
+- **Sessions:** source-qualified sessions, named by the title Claude Code recorded
+  if there is one, otherwise by the project they ran in, ranked
   by tokens, cost, requests, recency or errors; the count and medians cover every
   session in the selection. Detail shows tokens over the session, context size
   per request and the requests, with cache misses (a request that reread none of

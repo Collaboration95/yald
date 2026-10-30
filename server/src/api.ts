@@ -47,6 +47,7 @@ import {
 import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
+import { claudeSessionTitles } from "./claude/transcripts";
 import { contextBreakdown } from "./contextView";
 import { EPISODE_GAP_MS, outageEpisodes } from "./episodes";
 import { spendStructure } from "./spendStructure";
@@ -140,6 +141,8 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
     conversationId: query.conversationId,
     search: query.search,
     projects: listParam(query.projects),
+    agents: listParam(query.agents) as RowFilter["agents"],
+    agentTypes: listParam(query.agentTypes),
   };
   return {
     filter, range: query.range ?? "30d", bucket, from: window.from, to: window.to, tz: window.tz, window: windowEcho(window),
@@ -202,9 +205,10 @@ function canonicalQuery(url: string): string {
 /**
  * Routes whose body is not a function of (dataset, pricing, canonical query, clock): project
  * views, Labs findings and reports resolve git roots on disk, the report stamps its request
- * time, export bodies are too large to keep, and refresh rebuilds.
+ * time, export bodies are too large to keep, refresh rebuilds, and session titles are always
+ * answered `no-store`, which a memo hit would skip.
  */
-const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/spend", "/api/labs/evidence", "/api/export"]);
+const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/session-titles", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/spend", "/api/labs/evidence", "/api/export"]);
 
 /**
  * Serialized response bodies for one dataset and pricing generation, bounded by entry count
@@ -798,6 +802,15 @@ api.get("/api/conversations/:id", async c => {
     },
     requests: [...lookup.scoped].sort((a, b) => a.ts - b.ts).map(publicRow),
   });
+});
+
+/**
+ * Titles Claude Code recorded for its sessions, for local display. A route of its own so they never
+ * enter the conversation list: that payload is saved in the browser, exported and fed to reports.
+ */
+api.get("/api/session-titles", c => {
+  c.header("Cache-Control", "no-store");
+  return c.json({ ok: true, titles: Object.fromEntries(claudeSessionTitles()) });
 });
 
 api.get("/api/labs/projects", async c => {
