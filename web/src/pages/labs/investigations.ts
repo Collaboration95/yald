@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import { ProjectRadar } from "./ProjectRadar";
 import { CacheDetective } from "./CacheDetective";
 import { ContextReplay } from "./ContextReplay";
+import { QuotaPace } from "./QuotaPace";
 import { SpendChanges } from "./SpendChanges";
 
 export interface LabsInvestigation {
@@ -18,4 +19,5 @@ export const LABS_INVESTIGATIONS: readonly LabsInvestigation[] = [
   { path: "project-radar", title: "Projects", description: "Which projects cost more or less than the period before.", Component: ProjectRadar },
   { path: "cache-detective", title: "Cache savings", description: "What caching saved against paying full input price.", Component: CacheDetective },
   { path: "context-replay", title: "Context growth", description: "How much sessions grow from their first request to their last.", Component: ContextReplay },
+  { path: "quota-pace", title: "Quota pace", description: "A quota window against an even pace, with a range of scenarios.", Component: QuotaPace },
 ];

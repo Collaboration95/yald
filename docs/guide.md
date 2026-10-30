@@ -113,6 +113,12 @@ right before. Named projects and Unattributed stay distinct. Both periods use th
 same cohort and loaded price assumptions. "New" means newly observed activity in
 these windows, not a project creation date or delivered value.
 
+**Quota pace** shows where a quota window stands against an even pace, a range of
+scenarios from your past weekday burn, and how many recorded tokens 1% of the window
+matched where the account can be joined to requests. Even pace is a reference line,
+the range is not a prediction, and the ratio is not a conversion rule. See
+[quota pace](metrics.md#quota-pace).
+
 **Cache savings** leads with what caching saved: the identical recorded workload,
 with its observed cache counters, priced against the same input uncached. Read
 discount minus write premium is the net; negative means write premiums outweigh

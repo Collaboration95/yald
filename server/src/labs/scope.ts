@@ -30,7 +30,8 @@ export type EvidenceSelection =
   | { kind: "project"; project: string }
   | { kind: "session"; source: Source; conversationId: string }
   | { kind: "unnamed"; source?: Source }
-  | { kind: "chain"; source: Source; conversationId: string; agentId: string };
+  | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+  | { kind: "account"; account: string; window: string };
 
 export type EvidenceEligibility = "all" | "cache" | "context" | "rebuild";
 

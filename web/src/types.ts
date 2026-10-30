@@ -609,7 +609,8 @@ export interface RadarEvidence {
     window: RadarWindow;
     cohort: RadarCohort;
     selection: { kind: "scope" } | { kind: "project"; project: string }
-      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string };
+      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+      | { kind: "account"; account: string; window: string };
     eligibility: "all" | "cache" | "context" | "rebuild";
     cause?: LedgerRow["class"];
   };
@@ -727,7 +728,8 @@ export type EvidenceSelection =
   | { kind: "project"; project: string }
   | { kind: "session"; source: Source; conversationId: string }
   | { kind: "unnamed"; source?: Source }
-  | { kind: "chain"; source: Source; conversationId: string; agentId: string };
+  | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+  | { kind: "account"; account: string; window: string };
 
 export interface EvidenceSelector {
   version: 1;
@@ -842,6 +844,62 @@ export interface CacheRebuilds {
   topChains: { key: string; source: Source; conversationId: string; agentId: string; requests: number; rewrittenTokens: number; premiumUsd: number; unpricedRequests: number; evidence: CacheEconomicsTotals["evidence"] }[];
   evidence: CacheEconomicsTotals["evidence"];
   notes: string[];
+}
+
+export type QuotaBurn = { p25: number; median: number; p75: number };
+export interface QuotaForecast {
+  state: "range" | "insufficient" | "not-applicable";
+  weekdays: { weekday: string; days: number; instances: number; usesPooled: boolean; burn: QuotaBurn | null }[];
+  history: { instances: number; days: number; samples: number; excludedGaps: number };
+  paths: { low: number | null; typical: number | null; high: number | null } | null;
+  /** How many of the three paths run out before the reset. */
+  runsOutIn: number | null;
+  earliestAt: number | null;
+  /** Null unless every path runs out: the range then ends at "not before reset". */
+  latestAt: number | null;
+}
+export interface QuotaExchange {
+  state: "available" | "unavailable";
+  reason: "no-account-join" | "too-few-intervals" | null;
+  intervals: number;
+  totalIntervals: number;
+  excluded: Record<"reset" | "fell" | "no-change" | "gap", number>;
+  points: number;
+  minIntervals: number;
+  minPoints: number;
+  tokensPerPoint: number | null;
+  costPerPoint: number | null;
+  spread: { p25: number; p75: number } | null;
+  mix: { freshInput: number; cacheRead: number; output: number } | null;
+  ratios: { ts: number; tokensPerPoint: number }[];
+}
+export interface QuotaPaceEntry {
+  key: string;
+  account: string;
+  window: string;
+  lengthMs: number | null;
+  sources: string[];
+  sampleCount: number;
+  samplesWithoutReset: number;
+  instanceCount: number;
+  state: "current" | "expired" | "no-reset" | "unknown-length";
+  instance: { startMs: number | null; resetAtMs: number; samples: number; sources: string[] } | null;
+  age: { sampleAt: number; ageMs: number; fresh: boolean } | null;
+  pace: { usedPercent: number; evenPercent: number; deltaPoints: number; daysToReset: number } | null;
+  otherOpenWindows: number;
+  forecast: QuotaForecast | null;
+  chart: { ts: number; used: number | null; even: number; low: number | null; typical: number | null; high: number | null }[];
+  exchange: QuotaExchange;
+  evidence: CacheEconomicsTotals["evidence"] | null;
+}
+export interface QuotaPaceResponse {
+  ok: true;
+  analysis: "quota-pace";
+  version: 1;
+  entries: QuotaPaceEntry[];
+  minimums: { forecastInstances: number; weekdayInstances: number; exchangeIntervals: number; exchangePoints: number };
+  notes: string[];
+  scope: { available: boolean; ignored: string[]; note: string };
 }
 
 export interface ContextSpread {
