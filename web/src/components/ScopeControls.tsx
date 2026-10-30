@@ -11,6 +11,19 @@ const PROJECTS_STALE_MS = 5 * 60_000;
 export const OUTCOME_LABELS: Record<string, string> = { ok: "Succeeded", error: "Failed", cancelled: "Cancelled", unobserved: "No outcome recorded" };
 export const effortLabel = (effort: string) => (effort === "unknown" ? "Not recorded" : effort);
 
+/** Plain words for the `agents` filter values; a Codex root thread is unlabelled, never main. */
+export const AGENT_LABELS: Record<string, string> = { main: "Main thread", subagent: "Subagents", unlabelled: "Unlabelled" };
+
+export function AgentFilter() {
+  const { filters, toggleIn } = useFilters();
+  return (
+    <Popover label={filters.agents.length ? `Agent · ${filters.agents.length}` : "Agent"} active={filters.agents.length > 0} width={220}>
+      <CheckList items={Object.keys(AGENT_LABELS)} selected={filters.agents} onToggle={value => toggleIn("agents", value)} labelFor={agent => AGENT_LABELS[agent] ?? agent} />
+      <p className="px-2 pb-1 pt-2 text-[11px] leading-4 text-muted">Requests with no recorded marker are Unlabelled, including Codex threads that may hold subagent traffic.</p>
+    </Popover>
+  );
+}
+
 export function SourceFilter({ scope }: { scope?: ScopeResponse }) {
   const { filters, set, toggleIn } = useFilters();
   const unknown = filters.sources.filter(id => !SOURCES.some(source => source.id === id));
@@ -112,6 +125,7 @@ function filterSummary(filters: ReturnType<typeof useFilters>["filters"]): strin
   const parts: string[] = [];
   if (filters.sources.length) parts.push(filters.sources.map(sourceLabel).join(" + "));
   if (filters.projects.length) parts.push(plural(filters.projects.length, "project"));
+  if (filters.agents.length) parts.push(filters.agents.map(agent => AGENT_LABELS[agent] ?? agent).join(" + "));
   if (filters.providers.length) parts.push(plural(filters.providers.length, "provider"));
   if (filters.models.length) parts.push(plural(filters.models.length, "model"));
   if (filters.efforts.length) parts.push(plural(filters.efforts.length, "effort"));

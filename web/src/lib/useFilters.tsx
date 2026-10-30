@@ -26,7 +26,7 @@ export function patchFilterParams(current: URLSearchParams, patch: Partial<Filte
   return next;
 }
 
-type FilterListKey = "providers" | "models" | "efforts" | "statuses" | "sources" | "projects";
+type FilterListKey = "providers" | "models" | "efforts" | "statuses" | "sources" | "projects" | "agents";
 
 interface FiltersContextValue {
   filters: Filters;

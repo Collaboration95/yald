@@ -36,6 +36,7 @@ import { PerformancePage } from "../src/pages/Performance";
 import { ContextPage } from "../src/pages/Context";
 import { ConversationDetailPage, ConversationsPage } from "../src/pages/Conversations";
 import { WorkingStylePage } from "../src/pages/WorkingStyle";
+import { SubagentsPage } from "../src/pages/Subagents";
 import { materializeFixtureHome, materializeFixturePricing } from "./fixtureHome";
 import { addContextReplayFixtures } from "./context-replay-fixtures";
 import { checkContextReplaySmoke } from "./context-replay-smoke";
@@ -170,6 +171,14 @@ const PAGES: PageSpec[] = [
     Component: WorkingStylePage,
     queries: [{ path: "/api/style", params: filtersToParams(DEFAULT_FILTERS, {}) }],
     expect: ["Session shapes", "Sessions at once", "Days with data", "Requests by hour"],
+    expectFrom: () => [],
+  },
+  {
+    name: "Subagents",
+    route: "/subagents",
+    Component: SubagentsPage,
+    queries: [{ path: "/api/subagents", params: filtersToParams(DEFAULT_FILTERS, {}) }],
+    expect: ["Subagent share", "Label coverage"],
     expectFrom: () => [],
   },
   {

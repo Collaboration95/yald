@@ -146,6 +146,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/cost` | Shared | Summary, cost composition (with `adjustment`), `pricedTokens`, cost series/cumulative totals, cache savings, breakdowns, the ten costliest sessions across all sessions |
 | `GET /api/cost/structure` | Shared; `bucket` | Session cost concentration, blended price by price tier over time and token-class cost mix per source, priced rows only; see [`GET /api/cost/structure`](#get-apicoststructure) |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
+| `GET /api/subagents` | Shared | [Subagents](metrics.md#subagents): `claude` with `labelledShare`, `shares` per agent kind, `overTime`, `fanOut`, `byType`, `byDepth`, `startup` (capped `points`), `byProject` and `byModel`; `codex` with `rootThread` and `subagentThread` |
 | `GET /api/style` | Shared | [Working style](metrics.md#working-style): `archetypes` with shares of sessions, requests and priced cost, `concurrency`, `activity` (days with data, streaks), `hours`, `night` and `totals` |
 | `GET /api/reliability` | Shared; `gapMinutes` (1-1440, default 10) | Outcome report, recent failures, [outage episodes](metrics.md#reliability-and-retries) in `episodes`, waste, metering, retry overhead |
 | `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |

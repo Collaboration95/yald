@@ -6,6 +6,35 @@ const HOUR = 3_600_000, DAY = 24 * HOUR, MINUTE = 60_000;
 const key = id => createHash("sha256").update(id).digest("hex").slice(0, 32);
 const jsonl = rows => rows.map(row => JSON.stringify(row)).join("\n") + "\n";
 
+const SUBAGENT_SESSION = "synthetic-demo-subagents";
+
+/** A labelled Claude session: a main chain that spawns two subagents, one nested. Structure and counts only. */
+async function writeSubagentSession(folder, cwd, now) {
+  const line = (id, ts, input, extra = {}) => ({ type: "assistant", requestId: `demo-agents-${id}`, sessionId: SUBAGENT_SESSION, cwd, gitBranch: "synthetic-feature",
+    timestamp: new Date(ts).toISOString(), isSidechain: false, ...extra, message: { id: `demo-agents-${id}`, model: "demo-lantern", stop_reason: extra.stop ?? "tool_use", content: extra.tools ?? [],
+      usage: { input_tokens: 100, output_tokens: 200, cache_read_input_tokens: Math.floor(input * 0.1), cache_creation_input_tokens: Math.floor(input * 0.9),
+        cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: Math.floor(input * 0.9) } } } });
+  const tool = (id, name) => ({ type: "tool_use", id, name });
+  const start = now - 6 * HOUR;
+  const main = [
+    line("main-0", start, 8000, { tools: [tool("synthetic-spawn-a", "Agent")] }),
+    line("main-1", start + 8 * MINUTE, 9000, { tools: [tool("synthetic-spawn-b", "Agent"), tool("synthetic-read", "Read")] }),
+    line("main-2", start + 16 * MINUTE, 10000, { stop: "end_turn" }),
+  ];
+  const sub = (agentId, count, begin, input) => Array.from({ length: count }, (_, i) => line(`${agentId}-${i}`, begin + i * MINUTE, input + i * 1000, { isSidechain: true, agentId,
+    stop: i === count - 1 ? "end_turn" : "tool_use", tools: i === count - 1 ? [] : [tool(`synthetic-${agentId}-${i}`, "Read")] }));
+  await writeFile(join(folder, `${SUBAGENT_SESSION}.jsonl`), jsonl(main));
+  const agents = join(folder, SUBAGENT_SESSION, "subagents");
+  await mkdir(agents, { recursive: true });
+  const spawn = async (agentId, lines, meta) => {
+    await writeFile(join(agents, `agent-${agentId}.jsonl`), jsonl(lines));
+    await writeFile(join(agents, `agent-${agentId}.meta.json`), JSON.stringify(meta));
+  };
+  await spawn("demoa", sub("demoa", 5, start + MINUTE, 3000), { agentType: "synthetic-explorer", spawnDepth: 1, model: "demo-lantern", toolUseId: "synthetic-spawn-a" });
+  await spawn("demob", sub("demob", 2, start + 9 * MINUTE, 2000), { agentType: "synthetic-reviewer", spawnDepth: 1, model: "demo-lantern", toolUseId: "synthetic-spawn-b" });
+  await spawn("democ", sub("democ", 3, start + 10 * MINUTE, 1000), { agentType: "synthetic-reviewer", spawnDepth: 2, model: "demo-lantern", toolUseId: "synthetic-demob-0" });
+}
+
 /** Only synthetic accounting and session metadata. No prompts or response bodies. */
 export async function generateDemo(root, now) {
   const ocx = join(root, "opencodex"), codex = join(root, "codex"), claude = join(root, "claude-projects");
@@ -86,6 +115,7 @@ export async function generateDemo(root, now) {
       { kind: "settle", at: row.timestamp + 1200, send, tokens: (u?.inputTokens ?? 0) + (u?.outputTokens ?? 0) },
     ]))));
   await writeFile(join(claude, "synthetic-orbit/session.jsonl"), jsonl(transcripts));
+  await writeSubagentSession(join(claude, "synthetic-orbit"), orbit, now);
   await writeFile(join(ocx, "codex-quota-cache.json"), JSON.stringify({ version: 1,
     quotas: { "synthetic-demo-account": { updatedAt: now - MINUTE, weeklyPercent: 39,
       weeklyResetAt: Math.floor((now + 3 * DAY) / 1000), monthlyPercent: 55, monthlyResetAt: Math.floor((now + 12 * DAY) / 1000) } },
