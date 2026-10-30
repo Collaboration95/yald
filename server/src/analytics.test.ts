@@ -256,3 +256,21 @@ test("conversations rank by the requested order across every session before the 
   expect(analytics.conversations(list, 2, "tokens").map(c => c.id)).toEqual(["t4", "t3"]);
   expect(analytics.conversations(list, 2, "cost").map(c => c.id)).toEqual(["costly", "t4"]);
 });
+
+test("agent filters and groups never count a missing marker as main", () => {
+  const details = (agent: "main" | "subagent", agentType: string | null = null) => ({ agent, agentType }) as NonNullable<RequestRow["details"]>;
+  const rows = [
+    row({ id: "main", details: details("main") }),
+    row({ id: "sub", details: details("subagent", "Explore") }),
+    row({ id: "sub-untyped", details: details("subagent") }),
+    row({ id: "old", details: null }),
+    row({ id: "ocx" }),
+  ];
+  const ids = (filter: analytics.RowFilter) => analytics.filterRows(rows, filter).map(item => item.id);
+  expect(ids({ agents: ["main"] })).toEqual(["main"]);
+  expect(ids({ agents: ["subagent"] })).toEqual(["sub", "sub-untyped"]);
+  expect(ids({ agents: ["unlabelled"] })).toEqual(["old", "ocx"]);
+  expect(ids({ agentTypes: ["Explore"] })).toEqual(["sub"]);
+  expect(rows.map(item => analytics.groupKey(item, "agent"))).toEqual(["main", "subagent", "subagent", "unlabelled", "unlabelled"]);
+  expect(rows.map(item => analytics.groupKey(item, "agentType"))).toEqual(["main", "Explore", "unknown", "unknown", "unknown"]);
+});

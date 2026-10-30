@@ -8,7 +8,7 @@ All endpoints return JSON except `/api/export` and `/api/report?format=html`. Ea
 
 Every `/api/*` response, `304 Not Modified` included, carries `Server-Timing: build;dur=<ms>, compute;dur=<ms>`. `build` is the time spent getting the dataset (checking the files and rebuilding when they changed); `compute` is the time in the route itself. A body served from the memo adds `memo;desc="hit"`. The header holds durations only, never data.
 
-Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
+Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `agents` (`main`, `subagent`, `unlabelled`), `agentTypes`, `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `agent`, `agentType`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
 
 ## Time windows
 
@@ -147,10 +147,11 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/cost/structure` | Shared; `bucket` | Session cost concentration, blended price by price tier over time and token-class cost mix per source, priced rows only; see [`GET /api/cost/structure`](#get-apicoststructure) |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
 | `GET /api/style` | Shared | [Working style](metrics.md#working-style): `archetypes` with shares of sessions, requests and priced cost, `concurrency`, `activity` (days with data, streaks), `hours`, `night` and `totals` |
-| `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
+| `GET /api/reliability` | Shared; `gapMinutes` (1-1440, default 10) | Outcome report, recent failures, [outage episodes](metrics.md#reliability-and-retries) in `episodes`, waste, metering, retry overhead |
 | `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |
 | `GET /api/ledger` | Window parameters, `sources`; other shared filters are declared ignored | Account-wide spend-ledger counts and selected-range buckets, send/token totals, account `scope` |
 | `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Sessions ranked by `sort` across every session in the selection, then cut to `limit`; each carries `project`, the folder it last ran in (or null). `totals.conversations` and the medians cover every session, not just the page returned |
+| `GET /api/session-titles` | None | `{ ok, titles }`: titles Claude Code recorded in transcripts still on disk, by session id. In memory only; served `no-store`, and absent from every other route, the archive, exports and reports |
 | `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |

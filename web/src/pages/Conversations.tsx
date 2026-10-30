@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, MessagesSquare } from "lucide-react";
-import { conversationLink, sourceLabel, useEndpoint } from "../api";
+import { conversationLink, sourceLabel, useEndpoint, useSessionTitles } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Expandable, ModelTag, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
@@ -19,6 +19,10 @@ const SORTS: { id: SortOption; label: string }[] = [
   { id: "errors", label: "Errors" },
 ];
 
+/** Only Claude Code records titles, and only its ids may look one up. */
+const sessionTitle = (session: { id: string; source: string }, titles: Record<string, string>): string | undefined =>
+  session.source === "claude-code" ? titles[session.id] : undefined;
+
 const clock = (ts: number) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
 
 export function ConversationsPage() {
@@ -27,6 +31,7 @@ export function ConversationsPage() {
   const [sort, setSort] = useState<SortOption>("tokens");
   const query = useEndpoint<ConversationsResponse>("/api/conversations", filters, { sort, limit: 200 });
   const data = query.data;
+  const titles = useSessionTitles();
 
   return (
     <div className="space-y-3">
@@ -62,9 +67,9 @@ export function ConversationsPage() {
                     <tr key={JSON.stringify([session.source, session.id])} className="transition hover:bg-surface-2">
                       <Td className="max-w-[260px]">
                         <Link to={conversationLink(session, search)} className="block truncate font-medium text-info hover:underline" title={session.project ?? session.id}>
-                          {sessionLabel(session)}
+                          {sessionTitle(session, titles) ?? sessionLabel(session)}
                         </Link>
-                        <span className="block text-[10.5px] text-muted">{sourceLabel(session.source)} · {formatShortDate(session.startedAt)}</span>
+                        <span className="block truncate text-[10.5px] text-muted">{sessionTitle(session, titles) ? `${sessionLabel(session)} · ` : ""}{sourceLabel(session.source)} · {formatShortDate(session.startedAt)}</span>
                       </Td>
                       <Td className="max-w-[240px]">
                         <span className="flex flex-wrap gap-1">
@@ -102,6 +107,8 @@ export function ConversationDetailPage() {
   // Another session's requests must never stand in for this one's.
   const query = useEndpoint<ConversationDetailResponse>("/api/conversations/" + encodeURIComponent(id ?? ""), filters, { sessionSource }, { keepPrevious: false });
   const data = query.data;
+  const titles = useSessionTitles();
+  const title = data ? sessionTitle({ id: id ?? "", source: data.source }, titles) : undefined;
 
   const labels = useMemo(() => data?.points.map(point => `${formatShortDate(point.ts)} ${clock(point.ts)}`) ?? [], [data]);
   const cumulativeOption = useMemo(() => {
@@ -128,7 +135,7 @@ export function ConversationDetailPage() {
         <Link to={{ pathname: "/sessions", search }} className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11.5px] font-medium text-ink-soft transition hover:border-line-strong">
           <ArrowLeft size={12} /> All sessions
         </Link>
-        <span className="text-[13px] font-semibold text-ink" title={project ?? id}>{project ? shortPath(project) : `Session ${(id ?? "").slice(0, 6)}`}</span>
+        <span className="text-[13px] font-semibold text-ink" title={project ?? id}>{title ?? (project ? shortPath(project) : `Session ${(id ?? "").slice(0, 6)}`)}</span>
         {data ? <span className="text-[11.5px] text-muted">{sourceLabel(data.source)}</span> : null}
         <span className="flex flex-wrap gap-1">{models.slice(0, 3).map(model => <ModelTag key={model.name} model={model.name} className="text-[11px]" />)}</span>
       </div>

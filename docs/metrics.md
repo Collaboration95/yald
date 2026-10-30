@@ -114,6 +114,17 @@ savings and should not be compared as if they had the same eligible population.
 
 Success rate uses observed logical request outcomes, not physical sends or Claude transcript compatibility statuses. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.
 
+**Outage episodes** group errors (`outcome = error`, so never cancelled or unobserved requests) in time order: a gap of 10 minutes or more (`gapMinutes`) starts a new episode. Only requests with an observed outcome count, which today means opencodex rows; `episodes.coverage` gives the numbers.
+
+- An episode lists its first and last error, its status and error-code mix, providers, models, and the successful requests inside its span, which separate a hard outage from a partial one. A single error has no duration.
+- `clippedStart` and `ongoing` mark an episode within one gap of the window's start or end. Its size and length are then lower bounds.
+- Concentration is the cumulative share of errors in the largest episodes, with the episode counts reaching 50% and 75%.
+- Persistence compares how often the next observed request failed after an error with the base error rate, overall and per provider, with the counts behind both. It does not show a retry loop.
+- Status classes are inferred from the code alone, since yald sees no response bodies: `upstream or capacity` (429, 500, 502, 503, 504), `configuration or request` (400, 401, 403, 404, 422) and `other`. The raw status stays visible.
+- Tokens and dollars come only from failed rows that reported usage, with the reporting fraction. With none, they are unavailable, not 0.
+
+Clustering is an observation and says nothing about why errors cluster. Episodes do not treat any request as a retry.
+
 ## Project attribution
 
 Each request carries the working directory (`cwd`) it was made from, or none when that is unknown.
@@ -149,6 +160,8 @@ Limits:
 
 - Codex sessions run without opencodex do not appear in the opencodex ledger, so yald sees neither their usage nor their folder.
 - Codex can delete or prune old rollouts. Their opencodex rows then lose attribution and count as unattributed, while their usage still counts.
+- Compressed rollouts (`rollout-*.jsonl.zst`) count the same as plain ones. A missing or invalid frame is treated as no rollout, not an error.
+- Where a rollout records them, rows carry `codexSession`: its git branch and commit at session start, and for a spawned thread its parent thread, depth and role. Absent means unavailable. Codex subagent traffic often reuses the parent thread's id and then cannot be split. The repository URL is not kept.
 - opencodex traffic from clients other than Codex (or without a conversation id) has no rollout and stays unattributed.
 - Attribution is by the folder a session started in. A session that changes directory part-way still counts toward its starting folder.
 - The local API can include absolute paths. Reports redact home paths to `~` by default, but other absolute paths can remain; `--no-redact` keeps full paths. Review shareable outputs before sending them.
@@ -161,6 +174,8 @@ labels the account scope and declares ignored filters, and a Claude-only selecti
 shows them as unavailable. Their history uses the selected window; current quota
 and aggregate ledger counts remain the latest available account observations.
 They must never be read as a selected project's quota or spend allowance.
+
+Quota samples come from two places, each labelled with its `source`: opencodex's `codex-quota-cache.json`, and `rate_limits` in the `token_count` records of Codex rollouts, including compressed ones. Rollouts name no account, so their samples sit under the label `codex-rollouts` and are never joined to a project or request. Samples are deduplicated by window, reset time and observation time. A window opencodex does not report itself takes its latest reading from them. Rollouts are read in the background, so after a restart this history can appear a little after the first page load.
 
 Calendar buckets use the request's `tz` (default: the configured local timezone), never the server process's zone. Weeks begin Monday. Quota burn is measured from observed samples inside the selected time range; current utilization remains the latest point-in-time value. The history chart may include the sample immediately before the range as a visual baseline, but it does not count toward the two in-range samples required for a burn estimate. With insufficient samples, the dashboard reports that state instead of extrapolating. Projections compare the measured burn against the provider's reset time and may be null when a reset or a positive burn rate is unavailable.
 
@@ -177,7 +192,8 @@ transcript; every other protocol is `ocx`. An Anthropic request routed through
 opencodex remains `ocx`. The API's `sourceCapabilities` describes what each source
 can observe. Capability does not prove that an individual row recorded a value.
 
-Claude transcripts record usage and cache counters. They do not record failures,
+Claude transcripts record usage and cache counters, plus the structure listed under
+[Claude transcript structure](#claude-transcript-structure). They do not record failures,
 retry history, request timing or subscription quota. Their compatibility HTTP 200,
 one-attempt and send defaults are not observations. Their API outcome is
 `unobserved`, and their request badge says so. `ok`, `error` and `cancelled` filters
@@ -235,6 +251,25 @@ are deleted and has no automatic retention expiry. An empty transcript folder
 does not remove archived usage; a source filter does not delete the archive or
 disable ingestion. [Local storage details](install.md#data-locations-and-local-archive)
 explain isolation with a separate home.
+
+### Claude transcript structure
+
+Where a transcript records it, a Claude Code request carries `details` in `publicRow` and exports. Every field is null when not recorded, and `details` itself is null on archive lines written before Yald kept these fields, so older data reads as unavailable and never as zero or "main".
+
+| Field | From | Notes |
+| --- | --- | --- |
+| `agent` | `isSidechain` | `main` or `subagent`. Null is `unlabelled`, in the `agents` filter and the `agent` group, and is never folded into main |
+| `agentId`, `attributionAgent` | transcript line | An extra dimension: a session stays `(source, conversationId)` |
+| `agentType`, `spawnDepth`, `spawnToolUseId` | `subagents/agent-*.meta.json` | Named fields only; any task description in the file is not kept |
+| `effort` (row field), `perTurnEffort`, `thinkingDurationMs` | transcript line | Claude effort is populated where present |
+| `cacheWrite5m`, `cacheWrite1h` | `usage.cache_creation` | Token split only. Dollars still use the engine's single write rate |
+| `cacheMissReason` | `message.diagnostics` | As the API reported it. A missing reason is not "no miss" |
+| `toolCounts`, `toolUseIds` | `tool_use` blocks | Names, ids and counts of requested calls. MCP tool names can reveal which servers you run; they stay local like every other field |
+| `gitBranch`, `promptId` | transcript line | |
+
+Records that are not requests live in their own archive and on `Dataset.claudeEvents`: recorded compactions, API errors and client retries, turn durations, human prompt times, PR links and agent records. A `captured` record marks a session read with event capture, so "no recorded compaction" can be told apart from "not captured". A human prompt is a `user` line that is not a tool result, meta, sidechain or compaction summary; its text is examined only to classify it and is never kept.
+
+No prompt, response, tool input or tool output text is stored. Reading a line parses its text in memory, then only the fields above are kept.
 
 ## Project Radar (Labs)
 

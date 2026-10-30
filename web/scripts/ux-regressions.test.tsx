@@ -5,7 +5,7 @@ import { activeFilterCount, filtersToParams, type Filters } from "../src/api";
 import { FiltersProvider, patchFilterParams } from "../src/lib/useFilters";
 import { useLabsFilters } from "../src/pages/labs/shared";
 import { usageCompositionOption } from "../src/pages/Usage";
-import type { ThemeTokens } from "../src/components/chartOptions";
+import { laneTimelineChart, type ThemeTokens } from "../src/components/chartOptions";
 
 const inherited = new URLSearchParams({ range: "30d", sources: "claude-code", projects: "/synthetic/app", models: "claude-test",
   providers: "wrong-provider", efforts: "high", statuses: "error", routeKinds: "native", search: "no-match", conversationId: "other-session",
@@ -68,4 +68,24 @@ test("Cached + New reconciles cache-write-heavy Claude token accounting, without
   expect(series[0]!.data).toEqual([2000, 0]);
   expect(series[1]!.data).toEqual([61500, 0]);
   expect(series[0]!.data[0]! + series[1]!.data[0]!).toBe(sample.total);
+});
+
+describe("lane timeline", () => {
+  const theme: ThemeTokens = { text: "#111", axis: "#222", split: "#333", tooltipBg: "#fff", tooltipBorder: "#444", area: "#555" };
+  const bars = [{ lane: 1, start: 1000, end: 1001, label: "3 upstream", color: "#f00", tooltip: "tip" }];
+  const render = (option: any, width: number) => option.series[0].renderItem({ dataIndex: 0 }, {
+    value: (index: number) => [1, 1000, 1001][index], coord: ([x, y]: [number, number]) => [x === 1000 ? 50 : 50 + width, y * 10], size: () => [0, 40],
+  });
+
+  test("a minute-scale bar keeps a visible width and a text label, so colour is never the only cue", () => {
+    const [rect, label] = render(laneTimelineChart(theme, ["a", "b"], bars), 0.1).children;
+    expect(rect.shape.width).toBe(6);
+    expect(label.style.text).toBe("3 upstream");
+  });
+
+  test("a long bar keeps its real width, and dataZoom appears only when asked", () => {
+    expect(render(laneTimelineChart(theme, ["a", "b"], bars), 200).children[0].shape.width).toBe(200);
+    expect("dataZoom" in laneTimelineChart(theme, ["a", "b"], bars)).toBe(false);
+    expect((laneTimelineChart(theme, ["a", "b"], bars, { zoom: true }) as any).dataZoom).toHaveLength(2);
+  });
 });
