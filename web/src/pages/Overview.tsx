@@ -4,7 +4,7 @@ import { Activity, CircleDollarSign, Flame, Gauge, Layers, Timer, Zap } from "lu
 import { conversationLink, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
-import { Badge, Card, CardHeader, InfoTip, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { Badge, Card, CardHeader, InfoTip, MiniSpark, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { stackedAreaChart } from "../components/chartOptions";
 import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatShortDate, formatUsd, quotaLabel, sessionLabel } from "../lib/format";
@@ -167,7 +167,7 @@ export function OverviewPage() {
             <Card>
               <CardHeader
                 title={<span className="inline-flex items-center gap-1.5">Plan usage
-                  <InfoTip label="About plan usage">An account-wide opencodex reading. It is not one project's own usage, so filters do not narrow it.</InfoTip></span>}
+                  <InfoTip label="About plan usage">An account-wide reading from opencodex, or from Codex rollouts where marked. It is not one project's own usage, so filters do not narrow it.</InfoTip></span>}
               />
               <ul className="space-y-3">
                 {quotaWindows.map(window => {
@@ -175,6 +175,7 @@ export function OverviewPage() {
                   const tone = window.usedPercent >= 90 ? "bad" : window.usedPercent >= 70 ? "warn" : "accent";
                   const now = displayNow();
                   const stale = now - window.updatedAt > STALE_QUOTA_MS || (window.resetAtMs !== null && window.resetAtMs < now);
+                  const history = data?.quota.series.find(entry => entry.account === window.account && entry.window === window.window)?.points ?? [];
                   return (
                     <li key={`${window.account}-${window.window}`}>
                       <div className="flex items-center justify-between gap-2">
@@ -182,7 +183,9 @@ export function OverviewPage() {
                         <span className="num text-[12px] font-semibold text-ink">{window.usedPercent}% used</span>
                       </div>
                       <ProgressBar value={window.usedPercent} max={100} tone={tone} className="mt-1.5" />
+                      {history.length > 1 ? <MiniSpark values={history.map(point => point.usedPercent)} className="mt-1 h-5 w-full" /> : null}
                       <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[10.5px] text-muted">
+                        {window.account === "codex-rollouts" ? <span>from Codex rollouts</span> : null}
                         {window.resetAtMs && !stale ? <span>resets {formatCountdown(window.resetAtMs)}</span> : null}
                         {stale ? <Badge tone="warn">Stale · last reading {formatRelative(window.updatedAt)}</Badge> : null}
                         {burn?.willExhaustBeforeReset && !stale ? <span className="inline-flex items-center gap-1 font-medium text-warn"><Flame size={11} /> on track to run out before reset</span> : null}

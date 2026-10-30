@@ -6,6 +6,7 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ### Added
 
+- **More Codex history is read.** Compressed rollouts (`.jsonl.zst`) now count for project attribution. `rate_limits` records in rollouts add quota history, labelled by source and account-scoped, shown on the Overview plan usage card. opencodex rows gain the rollout's git branch and subagent parent and depth where recorded ([#97](https://github.com/Collaboration95/yald/issues/97)).
 - **More of what Claude Code records is kept.** Requests now carry subagent markers, effort, the 5-minute and 1-hour cache write split, API-reported cache miss reasons, git branch and tool names and counts, and a new `yald-claude-events.jsonl` keeps compactions, API errors, turn durations, prompt times, PR links and agent types after transcripts are deleted. Older data reads as unavailable, not zero. `agents` and `agentTypes` filter any analytics route, and `agent` and `agentType` work as `groupBy`. No prompt, response or tool text is stored ([#96](https://github.com/Collaboration95/yald/issues/96)).
 
 ### Changed

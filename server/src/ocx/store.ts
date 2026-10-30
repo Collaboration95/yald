@@ -1,5 +1,6 @@
 import { stat, readFile } from "node:fs/promises";
 import { readClaudeEntries, transcriptBytesRead, type ClaudeEvent, type EntryDetail } from "../claude/transcripts";
+import { mergeRolloutQuota, readRolloutQuotaSamples } from "../codex/quota";
 import { readCodexSessionIndex, type CodexSession } from "../codex/sessions";
 import { readTail, TailChangedError, type TailCursor, type TailFile, type TailRead } from "../ingest/tail";
 import { SOURCE_CAPABILITIES, sourceOf, type Measurements } from "../report/source";
@@ -61,6 +62,8 @@ export interface RequestRow {
   cwd: string | null;
   /** True when a Codex rollout index was read and held no session for this row's conversationId. */
   rolloutMiss?: boolean;
+  /** What this row's Codex rollout recorded. Absent: no rollout, or it recorded none of this. */
+  codexSession?: { gitBranch: string | null; commitHash: string | null; parentThreadId: string | null; depth: number | null; agentRole: string | null };
   /**
    * The same recorded workload priced with and without its cache counters, under the
    * engine's own tier/service decisions (L04). Null/absent: unpriced or not computed.
@@ -508,6 +511,15 @@ function codexSignature(index: CodexIndex): string {
   return `codex:${codexGeneration}`;
 }
 
+/** Branch and spawn facts for a row, only where the rollout recorded them, so absence stays unavailable. */
+function sessionFields(session: CodexSession): Pick<RequestRow, "codexSession"> | object {
+  if (!session.git && !session.subagent) return {};
+  return { codexSession: {
+    gitBranch: session.git?.branch ?? null, commitHash: session.git?.commitHash ?? null,
+    parentThreadId: session.subagent?.parentThreadId ?? null, depth: session.subagent?.depth ?? null, agentRole: session.subagent?.agentRole ?? null,
+  } };
+}
+
 /** Attributed copies per source row, for one index: an append re-attributes only its new rows. */
 let attributions: { index: CodexIndex; copies: WeakMap<RequestRow, RequestRow> } | null = null;
 
@@ -529,7 +541,7 @@ function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[]
     let copy = copies.get(row);
     if (!copy) {
       const session = index.get(row.conversationId);
-      copy = session ? { ...row, cwd: session.cwd } : { ...row, rolloutMiss: true };
+      copy = session ? { ...row, cwd: session.cwd, ...sessionFields(session) } : { ...row, rolloutMiss: true };
       copies.set(row, copy);
     }
     attributed ??= rows.slice();
@@ -558,6 +570,34 @@ function claudeRowsByTime(entries: Record<string, unknown>[], generation: string
     }
     return row;
   }).sort(byTime);
+}
+
+/** Rate-limit samples from rollouts. The scan reads whole files, so it runs beside builds and never holds one up. */
+let rolloutSamples: QuotaSample[] = [];
+let rolloutGeneration = 0;
+let rolloutScan: Promise<void> | null = null;
+
+function scanRollouts(): void {
+  rolloutScan ??= readRolloutQuotaSamples().then(samples => {
+    // Nothing found changes nothing: a revision must not move because a scan ran.
+    if (samples === rolloutSamples || (!samples.length && !rolloutSamples.length)) return;
+    rolloutSamples = samples;
+    rolloutGeneration++;
+  }).catch(() => {
+    // A failed scan leaves the last samples; the next build tries again.
+  }).finally(() => {
+    rolloutScan = null;
+  });
+}
+
+/** Resolves when the running scan has finished; for tests and benchmarks. */
+export const rolloutScanSettled = (): Promise<void> => rolloutScan ?? Promise.resolve();
+
+let mergedQuota: { base: Dataset["quota"]; samples: QuotaSample[]; value: Dataset["quota"] } | null = null;
+
+function quotaWithRollouts(base: Dataset["quota"]): Dataset["quota"] {
+  if (mergedQuota?.base !== base || mergedQuota.samples !== rolloutSamples) mergedQuota = { base, samples: rolloutSamples, value: mergeRolloutQuota(base, rolloutSamples) };
+  return mergedQuota.value;
 }
 
 /** Copies with agent type and depth per source row, for one set of agent records. */
@@ -623,7 +663,8 @@ async function build(force: boolean): Promise<Dataset> {
   const transcriptBytesBefore = transcriptBytesRead();
   const [initialFiles, claude, codex] = await Promise.all([currentFiles(), readClaudeEntries(undefined, undefined, { full: force }), readCodexSessionIndex()]);
   const transcriptIngest = { bytesRead: transcriptBytesRead() - transcriptBytesBefore };
-  const codexKey = codexSignature(codex);
+  scanRollouts();
+  const codexKey = `${codexSignature(codex)}|rollouts:${rolloutGeneration}`;
   // Preserve the existing file-driven whole-dataset fast path. Pricing-only
   // changes still require force; generation guards component reuse on rebuild.
   if (!force && dataset && `${initialFiles.signature}|${claude.signature}|${codexKey}` === signature) return dataset;
@@ -718,7 +759,7 @@ async function build(force: boolean): Promise<Dataset> {
     const nextDataset: Dataset = {
       rows,
       claudeEvents: claude.events,
-      quota: nextQuota.value,
+      quota: quotaWithRollouts(nextQuota.value),
       ledger: nextSpend.value,
       files: {
         usage: files.usage ? { path: PATHS.usage, bytes: files.usage.bytes, mtimeMs: files.usage.mtimeMs, lines: usage.lines } : null,

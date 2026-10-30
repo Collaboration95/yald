@@ -41,6 +41,7 @@ export function publicRow(row: RequestRow) {
     routeKind: row.routeKind,
     attempts: row.attempts,
     account: row.account,
+    codexSession: row.codexSession ?? null,
     details: row.details,
   };
 }

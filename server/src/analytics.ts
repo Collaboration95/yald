@@ -1043,6 +1043,15 @@ export interface QuotaView {
   observed: { samples: number; first: number | null; last: number | null };
 }
 
+const QUOTA_CHART_POINTS = 500;
+
+/** Evenly spaced points, first and last kept. Only for the response: burn is measured on every point first. */
+function thinPoints<T>(points: T[]): T[] {
+  if (points.length <= QUOTA_CHART_POINTS) return points;
+  const step = (points.length - 1) / (QUOTA_CHART_POINTS - 1);
+  return Array.from({ length: QUOTA_CHART_POINTS }, (_, index) => points[Math.round(index * step)]!);
+}
+
 /** Groups quota samples into series, optionally trimmed to a time window. `now` dates the exhaustion projection. */
 export function quotaView(dataset: Pick<Dataset, "quota">, selected?: { from?: number; to?: number }, now = Date.now()): QuotaView {
   const from = selected?.from;
@@ -1105,7 +1114,7 @@ export function quotaView(dataset: Pick<Dataset, "quota">, selected?: { from?: n
   const observed = dataset.quota.samples.filter(sample => inWindow(sample.observedAt));
   return {
     windows: dataset.quota.windows,
-    series,
+    series: series.map(entry => ({ ...entry, points: thinPoints(entry.points) })),
     burn,
     updatedAt: dataset.quota.updatedAt,
     window: { from: from ?? null, to: to ?? null },
