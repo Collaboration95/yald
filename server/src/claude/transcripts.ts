@@ -101,7 +101,7 @@ function toDetail(line: Record<string, any>): EntryDetail {
   keep("thinkingDurationMs", count(line.thinkingDurationMs));
   keep("cacheWrite5m", count(creation?.ephemeral_5m_input_tokens));
   keep("cacheWrite1h", count(creation?.ephemeral_1h_input_tokens));
-  keep("cacheMissReason", text(message?.diagnostics?.cache_miss_reason));
+  keep("cacheMissReason", text(message?.diagnostics?.cache_miss_reason?.type));
   keep("gitBranch", text(line.gitBranch));
   keep("promptId", text(line.promptId));
   if (Object.keys(tools).length) detail.tools = tools;

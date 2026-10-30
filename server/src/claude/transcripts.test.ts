@@ -280,7 +280,7 @@ const SECRET = "SECRET-TEXT";
 const richLine = (block: Record<string, unknown>, extra: Record<string, unknown> = {}) => JSON.stringify({
   type: "assistant", requestId: "req_rich", sessionId: "s1", uuid: "u1", timestamp: "2026-10-04T16:44:49.068Z",
   isSidechain: true, agentId: "a1", gitBranch: "feat/x", effort: "high", thinkingDurationMs: 900, promptId: "p1", attributionAgent: "explorer",
-  message: { id: "m1", model: "claude-opus-5-5", stop_reason: "tool_use", diagnostics: { cache_miss_reason: "messages_changed" }, content: [block],
+  message: { id: "m1", model: "claude-opus-5-5", stop_reason: "tool_use", diagnostics: { cache_miss_reason: { type: "messages_changed" } }, content: [block],
     usage: { ...usage, cache_creation: { ephemeral_5m_input_tokens: 375, ephemeral_1h_input_tokens: 2000 } } }, ...extra,
 });
 
