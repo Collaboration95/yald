@@ -42,6 +42,7 @@ export function publicRow(row: RequestRow) {
     attempts: row.attempts,
     account: row.account,
     codexSession: row.codexSession ?? null,
+    gitBranch: row.details?.gitBranch ?? row.codexSession?.gitBranch ?? null,
     details: row.details,
   };
 }

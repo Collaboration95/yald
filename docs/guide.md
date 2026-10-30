@@ -113,6 +113,11 @@ right before. Named projects and Unattributed stay distinct. Both periods use th
 same cohort and loaded price assumptions. "New" means newly observed activity in
 these windows, not a project creation date or delivered value.
 
+**Projects** also lists the selected project's branches and the PRs linked to them,
+with `main`, detached HEAD and `no branch recorded` kept apart. Branch cost is where
+usage was recorded, not the value of the work, and PR figures overlap. See
+[Project Radar](metrics.md#project-radar-labs).
+
 **Quota pace** shows where a quota window stands against an even pace, a range of
 scenarios from your past weekday burn, and how many recorded tokens 1% of the window
 matched where the account can be joined to requests. Even pace is a reference line,
@@ -193,6 +198,9 @@ writing report outputs; reading Claude usage can still update Yald's archive.
 `node scripts/yald.mjs report --help` lists all options. Invalid input exits 2;
 runtime failures exit 1.
 
+Reports contain no branch names or PR repositories, redacted or not, because they can
+identify work. The evidence list and the CSV request export show `gitBranch`, as they
+already show the working directory, and they stay on your machine unless you share them.
 Reports redact conversation IDs to eight characters, home paths to `~` and omit
 account labels by default. `--no-redact` keeps them. Other paths, models,
 timestamps and usage can remain identifying; review the HTML and embedded or

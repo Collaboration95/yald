@@ -19,7 +19,8 @@ export interface CaseSelector {
   selection: { kind: "scope" } | { kind: "project"; project: string }
     | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source }
     | { kind: "chain"; source: Source; conversationId: string; agentId: string }
-    | { kind: "account"; account: string; window: string };
+    | { kind: "account"; account: string; window: string }
+    | { kind: "branch"; project: string; state: "named"; branch: string } | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
   eligibility: "all" | "cache" | "context" | "rebuild";
   /** One ledger row. Only with rebuild eligibility; absent means every rebuild class, no starts. */
   cause?: LedgerClass;
@@ -93,18 +94,21 @@ function decode(raw: string | null, param: string): CaseSelector {
     conversationId: c.conversationId === null ? null : text(c.conversationId, "conversationId"),
     search: text(c.search, "search", true),
   };
-  const s = object(value.selection, `${param}.selection`, ["kind", "project", "source", "conversationId", "agentId", "account", "window"]);
-  const kind = enumeration(s.kind, ["scope", "project", "session", "unnamed", "chain", "account"] as const, "selection");
+  const s = object(value.selection, `${param}.selection`, ["kind", "project", "source", "conversationId", "agentId", "account", "window", "state", "branch"]);
+  const kind = enumeration(s.kind, ["scope", "project", "session", "unnamed", "chain", "account", "branch"] as const, "selection");
+  const branchState = kind === "branch" ? enumeration(s.state, ["named", "detached", "unrecorded"] as const, "branch state") : null;
   const allowed = kind === "scope" ? ["kind"] : kind === "project" ? ["kind", "project"]
     : kind === "session" ? ["kind", "source", "conversationId"]
     : kind === "chain" ? ["kind", "source", "conversationId", "agentId"]
-    : kind === "account" ? ["kind", "account", "window"] : ["kind", "source"];
+    : kind === "account" ? ["kind", "account", "window"]
+    : kind === "branch" ? ["kind", "project", "state", ...(branchState === "named" ? ["branch"] : [])] : ["kind", "source"];
   object(s, "selection", allowed);
   const selection: CaseSelector["selection"] = kind === "scope" ? { kind }
     : kind === "project" ? { kind, project: text(s.project, "project") }
     : kind === "session" ? { kind, source: enumeration(s.source, sources, "session source"), conversationId: text(s.conversationId, "session ID") }
     : kind === "chain" ? { kind, source: enumeration(s.source, sources, "chain source"), conversationId: text(s.conversationId, "session ID"), agentId: text(s.agentId, "agent ID") }
     : kind === "account" ? { kind, account: text(s.account, "account"), window: text(s.window, "quota window") }
+    : kind === "branch" ? (branchState === "named" ? { kind, project: text(s.project, "project"), state: "named", branch: text(s.branch, "branch") } : { kind, project: text(s.project, "project"), state: branchState! })
     : { kind, ...(s.source === undefined ? {} : { source: enumeration(s.source, sources, "unnamed source") }) };
   const eligibility = enumeration(value.eligibility, ["all", "cache", "context", "rebuild"] as const, "eligibility");
   if (value.cause !== undefined && eligibility !== "rebuild") fail("cause", "Only rebuild evidence can select a cause. Open the finding again.");
@@ -121,7 +125,7 @@ export function parseCaseIntent(params: URLSearchParams): CaseIntent {
   const selector = decode(params.get("selector"), "selector");
   const eligibilities: CaseSelector["eligibility"][] = investigation === "cache-detective" ? ["cache", "rebuild"] : ["all"];
   if (!eligibilities.includes(selector.eligibility)) fail("eligibility", `This investigation requires ${eligibilities[0]} evidence eligibility. Open the finding again.`);
-  const allowedSelections = investigation === "project-radar" ? ["scope", "project"]
+  const allowedSelections = investigation === "project-radar" ? ["scope", "project", "branch"]
     : investigation === "spend-changes" ? ["scope", "project", "session"]
     : investigation === "cache-detective" ? ["scope", "session", "unnamed", "chain"]
     : investigation === "quota-pace" ? ["account"] : ["scope", "session", "unnamed"];

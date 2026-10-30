@@ -30,7 +30,8 @@ export interface ContextEvidence {
     cohort: ContextCohort;
     selection: { kind: "scope" } | { kind: "session"; source: Source; conversationId: string }
       | { kind: "project"; project: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string }
-      | { kind: "account"; account: string; window: string };
+      | { kind: "account"; account: string; window: string }
+      | { kind: "branch"; project: string; state: "named"; branch: string } | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
     /** Context Replay emits "all" so excluded observations remain inspectable. */
     eligibility: "all" | "cache" | "context" | "rebuild";
   };

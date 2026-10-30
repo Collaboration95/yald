@@ -863,7 +863,7 @@ api.get("/api/session-titles", c => {
 api.get("/api/labs/projects", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
-  const payload = buildProjectRadar(dataset.rows, query.filter, query.window);
+  const payload = buildProjectRadar(dataset.rows, query.filter, query.window, { events: dataset.claudeEvents });
   const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   if (c.req.header("if-none-match") === etag) return c.body(null, 304);

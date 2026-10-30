@@ -7,6 +7,7 @@ import { contextEligible, sourceOf } from "../report/source";
 import { buildCacheEconomics, cacheEligibility, round6 } from "./cache";
 import { buildCacheRebuilds, ledgerExclusion, ledgerIndex } from "./cache-rebuild";
 import { buildContextReplay, contextExclusionReason } from "./context";
+import { matchesBranch } from "./branches";
 import { buildProjectRadar } from "./projects";
 import { analysisScope, evidenceFor, orderedRequests, sessionKey } from "./scope";
 import { quotaCase } from "./quota";
@@ -28,6 +29,7 @@ export function selectCaseRows(datasetRows: RequestRow[], selector: CaseSelector
     || (selection.kind === "session" && sourceOf(row) === selection.source && row.conversationId === selection.conversationId)
     || (selection.kind === "unnamed" && row.conversationId === null && (!selection.source || sourceOf(row) === selection.source))
     || (selection.kind === "chain" && sourceOf(row) === selection.source && row.conversationId === selection.conversationId && (row.details?.agentId ?? "main") === selection.agentId)
+    || (selection.kind === "branch" && identity(row.cwd).project === selection.project && matchesBranch(row, selection))
     || (selection.kind === "account" && row.account === selection.account)));
 }
 
@@ -45,9 +47,11 @@ const COST_NOTE = "Costs are API list-price equivalents, not subscription bills 
 
 function radarObservation(rows: RequestRow[], intent: CaseIntent) {
   const selector = intent.selector;
-  const radar = buildProjectRadar(rows, caseFilter(selector), selector.window);
   const selection = selector.selection;
-  const group = selection.kind === "project" ? radar.projects.find(project => project.project === selection.project) : radar;
+  // A branch reads as a project of just its rows, against the whole loaded history.
+  const scoped = selection.kind === "branch" ? rows.filter(row => matchesBranch(row, selection)) : rows;
+  const radar = buildProjectRadar(scoped, caseFilter(selector), selector.window, { historyRows: rows });
+  const group = selection.kind === "project" || selection.kind === "branch" ? radar.projects.find(project => project.project === selection.project) : radar;
   // A disappeared group is empty, never the whole scope. Retain real dataset history limits.
   const empty = group ? null : buildProjectRadar([], caseFilter(selector), selector.window);
   const selected = group ?? empty!;
@@ -62,7 +66,7 @@ function radarObservation(rows: RequestRow[], intent: CaseIntent) {
     investigation: "project-radar" as const, state,
     summary: `Current: ${current.totals.requests} requests, ${current.totals.tokens} recorded tokens, ${money(current.totals.pricedRequests ? current.totals.pricedCostUsd : null)}. Prior: ${prior.totals.requests} requests, ${prior.totals.tokens} recorded tokens, ${money(prior.totals.pricedRequests ? prior.totals.pricedCostUsd : null)}.`,
     current, prior, comparison: selected.comparison, history: radar.history,
-    project: selection.kind === "project" ? { key: selection.project, present: Boolean(group),
+    project: selection.kind === "project" || selection.kind === "branch" ? { key: selection.project, present: Boolean(group),
       gitRoot: group && "gitRoot" in group ? group.gitRoot : false } : null,
     notes: [radar.history.note, "Both original periods use the currently loaded price engine. Unpriced requests contribute no dollars; priced zero remains zero.", COST_NOTE],
   };

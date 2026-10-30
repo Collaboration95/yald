@@ -334,6 +334,26 @@ is unavailable. Mixed price coverage produces a partial money sum, not a
 full-population cost estimate. Both windows use the same loaded assumptions;
 there is no historical-price snapshot or subscription-cost claim.
 
+Each project's `current` and `prior` carry `branches`, so usage below the project
+stays on the same fixed pair of windows. A branch is keyed under its project, since
+every repository has a `main`. Claude Code records a branch per request (basis
+`request time`), so a session that changes branch splits by request. Codex records it
+once in `session_meta` (basis `session start`), so a session that switches branch stays
+on its starting branch. Each row shows its basis and source split.
+
+Three states are separate. `main` and `master`, in any case, are listed by name. Detached means a
+recorded `HEAD`, or a Codex git record with a commit and no branch. Anything else with
+no branch is `no branch recorded`: unavailable, never assigned to `main` and never
+inferred from cwd, timing or neighbouring requests. Every request lands in exactly one
+row, so the rows sum to the project's totals.
+
+PR links come from `pr-link` transcript lines, so only Claude sessions have them. A
+branch lists the PRs seen in its sessions as `owner/repo#N`. Association is by session,
+not by time, and a link may be recorded after some of the work. A session can link several
+PRs and a PR can span branches, so PR figures overlap: they are never added together or
+split. Branch cost is where usage was recorded, not the value of the work, and a name is
+a label at request time, not an identity over the project's life.
+
 The preceding window has exactly the current window's elapsed duration and
 preserves all other filters and timezone. Per-metric absolute change is current
 minus prior; relative change divides by a positive prior value (fraction, not
