@@ -53,6 +53,7 @@ import { EPISODE_GAP_MS, outageEpisodes } from "./episodes";
 import { sessionAnatomy } from "./anatomy";
 import { spendStructure } from "./spendStructure";
 import { subagentBreakdown } from "./subagents";
+import { turnStructure } from "./turns";
 import { workingStyle } from "./workingStyle";
 import { buildCacheEconomics } from "./labs/cache";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
@@ -752,6 +753,19 @@ api.get("/api/style", async c => {
     ...coverageField(dataset.rows, query.filter),
     window: query.window,
     ...workingStyle(rows, { tz: query.tz, from: query.from, to: query.to, now: c.get("now"), datasetRows: dataset.rows }),
+  });
+});
+
+/** Agent turns and tools (#104): turn depth, cost share by depth, autonomy, tool mix and stop reasons. Claude Code only. */
+api.get("/api/turns", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { ...query.window, bucket: query.bucket },
+    ...turnStructure(rows, { bucket: query.bucket, from: query.from, to: query.to, tz: query.tz, events: dataset.claudeEvents, datasetRows: dataset.rows }),
   });
 });
 

@@ -115,6 +115,10 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
     const subagents = await get(base, "/api/subagents");
     expect(subagents.claude.shares.map((entry: any) => [entry.kind, entry.requests])).toEqual([["main", 3], ["subagent", 10], ["unlabelled", 7]]);
     expect(subagents.claude).toMatchObject({ labelledRequests: 13, fanOut: { withSubagents: 1, max: 3 }, startup: { spawns: 3, unavailableSpawns: 0 } });
+    const turns = await get(base, "/api/turns");
+    expect(turns).toMatchObject({ approximate: false, autonomy: { mainSteps: 3, humanPrompts: 1, overall: 3 } });
+    expect(turns.tools.groups.map((group: any) => group.name)).toEqual(expect.arrayContaining(["Read", "Agent"]));
+    expect(turns.stops.map((stop: any) => stop.name)).toEqual(expect.arrayContaining(["tool_use", "end_turn"]));
     expect(overview.summary.unobserved).toBe(20); // Claude does not claim measured success.
     const radar = await get(base, "/api/labs/projects");
     expect(radar.priorWindow.to).toBe(radar.window.from);

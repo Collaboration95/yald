@@ -12,6 +12,7 @@ import {
   MessagesSquare,
   Moon,
   RefreshCw,
+  Repeat2,
   Search,
   Settings,
   Sun,
@@ -41,6 +42,7 @@ const NAV = [
   { to: "/context", label: "Context", icon: Layers },
   { to: "/sessions", label: "Sessions", icon: MessagesSquare },
   { to: "/subagents", label: "Subagents", icon: Bot },
+  { to: "/turns", label: "Agent turns", icon: Repeat2 },
   { to: "/style", label: "Working style", icon: CalendarDays },
 ];
 
@@ -52,6 +54,7 @@ const TITLES: Record<string, string> = {
   "/context": "Context",
   "/sessions": "Sessions",
   "/subagents": "Subagents",
+  "/turns": "Agent turns",
   "/style": "Working style",
 };
 
