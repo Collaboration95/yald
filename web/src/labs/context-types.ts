@@ -29,9 +29,11 @@ export interface ContextEvidence {
     window: Pick<ContextWindow, "from" | "to" | "tz" | "label">;
     cohort: ContextCohort;
     selection: { kind: "scope" } | { kind: "session"; source: Source; conversationId: string }
-      | { kind: "project"; project: string } | { kind: "unnamed"; source?: Source };
+      | { kind: "project"; project: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+      | { kind: "account"; account: string; window: string }
+      | { kind: "branch"; project: string; state: "named"; branch: string } | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
     /** Context Replay emits "all" so excluded observations remain inspectable. */
-    eligibility: "all" | "cache" | "context";
+    eligibility: "all" | "cache" | "context" | "rebuild";
   };
 }
 
@@ -53,6 +55,8 @@ export interface ContextObservation {
   ts: number;
   source: Source;
   protocol: string | null;
+  /** The session chain this request belongs to; absent without an agent marker. */
+  chain?: string;
   provider: string;
   model: string;
   requestedModel: string | null;
@@ -77,6 +81,29 @@ export interface ContextObservation {
   cacheProvenance: string | null;
   eligible: boolean;
   exclusionReason: ContextExclusion | null;
+}
+
+export type CompactionState = "recorded" | "none recorded" | "unavailable";
+
+export interface ContextCompaction {
+  state: CompactionState;
+  /** Recorded events inside the window; `position` is the count of session requests before each. */
+  events: { ts: number; chain: string | null; trigger: string | null; preTokens: number | null; postTokens: number | null; durationMs: number | null; position: number; requestsSincePrevious: number }[];
+  outsideWindowEvents: number;
+  requestsUntilFirst: number | null;
+  requestsUntilFirstUnavailable: string | null;
+  auto: number;
+  manual: number;
+  other: number;
+}
+
+export interface ContextChain {
+  /** The `agentId`, or the agent kind for requests without one. */
+  key: string;
+  agent: "main" | "subagent" | "unlabelled";
+  agentType: string | null;
+  requests: number;
+  growth: { ranked: boolean; baseline: number | null; latest: number | null; ratio: number | null };
 }
 
 export interface ContextSession extends ContextCounts {
@@ -104,6 +131,9 @@ export interface ContextSession extends ContextCounts {
     /** Latest median / baseline median; null for zero baseline or <6 eligible. */
     ratio: number | null;
   };
+  /** The session's agents, main first; null when no request carries a marker. */
+  chains: ContextChain[] | null;
+  compaction: ContextCompaction;
   requests: ContextObservation[];
   evidence: ContextEvidence;
 }
@@ -134,6 +164,18 @@ export interface ContextReplayResponse {
       };
     } | null;
     evidence: ContextEvidence;
+    compaction: {
+      recordedSessions: number;
+      noneRecordedSessions: number;
+      unavailableSessions: number;
+      events: number;
+      auto: number;
+      manual: number;
+      other: number;
+      autoPerManual: number | null;
+      medianRequestsUntilFirst: number | null;
+      requestsUntilFirstSessions: number;
+    };
   };
   sessions: ContextSession[];
   unnamedRequests: number;

@@ -6,6 +6,7 @@ import { buildEvidenceCase } from "./labs/evidence";
 import { buildProjectRadar } from "./labs/projects";
 import { buildSpendChanges } from "./labs/spend";
 import { createHash } from "node:crypto";
+import { opencodexVersion, yaldVersion } from "./versions";
 import {
   breakdown,
   bucketer,
@@ -17,6 +18,8 @@ import {
   cumulativeSeries,
   contextPressure,
   conversationTimeline,
+  allConversations,
+  slowestRequests,
   conversations,
   costComposition,
   filterRows,
@@ -44,9 +47,17 @@ import {
 import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputEligible } from "./report/source";
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
+import { claudeSessionTitles } from "./claude/transcripts";
 import { contextBreakdown } from "./contextView";
+import { EPISODE_GAP_MS, outageEpisodes } from "./episodes";
+import { sessionAnatomy } from "./anatomy";
 import { spendStructure } from "./spendStructure";
+import { subagentBreakdown } from "./subagents";
+import { turnStructure } from "./turns";
+import { workingStyle } from "./workingStyle";
+import { buildQuotaPace } from "./labs/quota";
 import { buildCacheEconomics } from "./labs/cache";
+import { buildCacheRebuilds } from "./labs/cache-rebuild";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
@@ -136,6 +147,8 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
     conversationId: query.conversationId,
     search: query.search,
     projects: listParam(query.projects),
+    agents: listParam(query.agents) as RowFilter["agents"],
+    agentTypes: listParam(query.agentTypes),
   };
   return {
     filter, range: query.range ?? "30d", bucket, from: window.from, to: window.to, tz: window.tz, window: windowEcho(window),
@@ -159,10 +172,6 @@ function delta(current: number, prior: number): number | null {
   if (!Number.isFinite(current) || !Number.isFinite(prior)) return null;
   if (prior === 0) return current === 0 ? 0 : null;
   return round((current - prior) / prior, 4);
-}
-
-function slowest(rows: RequestRow[], limit = 10): RequestRow[] {
-  return topN(rows.filter(row => row.measurements.duration), limit, (a, b) => b.durationMs - a.durationMs);
 }
 
 const newestFirst = (a: RequestRow, b: RequestRow) => b.ts - a.ts;
@@ -202,9 +211,10 @@ function canonicalQuery(url: string): string {
 /**
  * Routes whose body is not a function of (dataset, pricing, canonical query, clock): project
  * views, Labs findings and reports resolve git roots on disk, the report stamps its request
- * time, export bodies are too large to keep, and refresh rebuilds.
+ * time, export bodies are too large to keep, refresh rebuilds, and session titles are always
+ * answered `no-store`, which a memo hit would skip.
  */
-const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/spend", "/api/labs/evidence", "/api/export"]);
+const UNMEMOIZED = new Set(["/api/dataset/refresh", "/api/session-titles", "/api/report", "/api/projects", "/api/labs/projects", "/api/labs/spend", "/api/labs/evidence", "/api/export"]);
 
 /**
  * Serialized response bodies for one dataset and pricing generation, bounded by entry count
@@ -359,7 +369,9 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
   const routeKinds = new Set<string>();
   let tokens = 0;
   let cost = 0;
+  const modelRequests = new Map<string, number>();
   for (const row of dataset.rows) {
+    modelRequests.set(row.model, (modelRequests.get(row.model) ?? 0) + 1);
     providers.add(row.provider);
     models.add(row.model);
     efforts.add(row.effort ?? "unknown");
@@ -379,6 +391,7 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
     ...(DEMO ? { demo: DEMO } : {}),
     timeZone: TIME_ZONE,
     pricing: pricingStatus(),
+    versions: { yald: yaldVersion(), opencodex: opencodexVersion(pricingStatus().packageDir) },
     files: dataset.files,
     parse: dataset.parse,
     builtAt: dataset.builtAt,
@@ -390,6 +403,8 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
     sourceCapabilities: SOURCE_CAPABILITIES,
     providers: [...providers].sort(),
     models: [...models].sort(),
+    // Most used first: charts colour the models people actually see before the long tail.
+    modelsByUse: [...modelRequests.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([model]) => model),
     modelsByProvider: Object.fromEntries([...modelsByProvider.entries()].map(([key, value]) => [key, value.sort()])),
     efforts: [...efforts].sort(),
     routeKinds: [...routeKinds].sort(),
@@ -402,7 +417,8 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
 
 api.get("/api/labs/evidence", c => {
   const intent = parseCaseIntent(new URL(c.req.url).searchParams);
-  const payload = buildEvidenceCase(c.get("dataset").rows, intent);
+  const dataset = c.get("dataset");
+  const payload = buildEvidenceCase(dataset.rows, intent, dataset.claudeEvents, { quota: dataset.quota, now: c.get("now") });
   // Derived roots can change without a ledger revision. Validate and resolve before any 304.
   const etag = `W/"${createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
@@ -413,7 +429,7 @@ api.get("/api/labs/evidence", c => {
 api.get("/api/labs/context", c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
-  return c.json({ ok: true, ...buildContextReplay(dataset.rows, query.filter, query.window) });
+  return c.json({ ok: true, ...buildContextReplay(dataset.rows, query.filter, query.window, dataset.claudeEvents) });
 });
 
 api.get("/api/overview", async c => {
@@ -631,7 +647,7 @@ api.get("/api/performance", async c => {
       .filter(row => row.measurements.ttft && row.measurements.output && row.outputTokens > 0)
       .slice(-2000)
       .map(row => ({ ttftMs: row.ttftMs, outputTokens: row.outputTokens, model: row.model, ts: row.ts })),
-    slowest: slowest(rows, 15).map(publicRow),
+    slowest: slowestRequests(rows, 15).map(publicRow),
     context: contextPressure(rows),
   });
 });
@@ -657,6 +673,8 @@ api.get("/api/reliability", async c => {
   const report = reliability(rows, query.tz);
   const summary = summarize(rows);
   const failureRows = rows.filter(row => outcome(row) === "error" || outcome(row) === "cancelled").slice(-500);
+  const gapMinutes = numberParam(c.req.query("gapMinutes"));
+  const gapMs = gapMinutes !== undefined && gapMinutes >= 1 && gapMinutes <= 1_440 ? gapMinutes * 60_000 : EPISODE_GAP_MS;
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
@@ -665,6 +683,7 @@ api.get("/api/reliability", async c => {
     successRate: summary.successRate,
     measurementCoverage: summary.measurementCoverage,
     recentFailures: topN(failureRows, 40, newestFirst).map(publicRow),
+    episodes: outageEpisodes(rows, { from: query.from, to: query.to, gapMs }),
     waste: summary.waste,
     metering: summary.metering,
     retryOverhead: summary.retryOverhead,
@@ -726,6 +745,45 @@ api.get("/api/ledger", async c => {
   });
 });
 
+/** Working style (#105): session archetypes, concurrency, days with data and hours. */
+api.get("/api/style", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: query.window,
+    ...workingStyle(rows, { tz: query.tz, from: query.from, to: query.to, now: c.get("now"), datasetRows: dataset.rows }),
+  });
+});
+
+/** Agent turns and tools (#104): turn depth, cost share by depth, autonomy, tool mix and stop reasons. Claude Code only. */
+api.get("/api/turns", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { ...query.window, bucket: query.bucket },
+    ...turnStructure(rows, { bucket: query.bucket, from: query.from, to: query.to, tz: query.tz, events: dataset.claudeEvents, datasetRows: dataset.rows }),
+  });
+});
+
+/** Subagents (#101): main and subagent shares, fan-out, agent types, spawn depth and first-request cost. */
+api.get("/api/subagents", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: { ...query.window, bucket: query.bucket },
+    ...subagentBreakdown(rows, { bucket: query.bucket, from: query.from, to: query.to, tz: query.tz, datasetRows: dataset.rows, sessionRows: filterRows(dataset.rows, { ...query.filter, agents: undefined }) }),
+  });
+});
+
 api.get("/api/conversations", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
@@ -734,18 +792,20 @@ api.get("/api/conversations", async c => {
   const requested = c.req.query("sort");
   const sort: ConversationSort = requested === "cost" || requested === "requests" || requested === "recent" || requested === "errors" ? requested : "tokens";
   // Ranked across every session, then cut: a costly low-token session is never lost to the cut.
-  const sorted = conversations(rows, limit, sort);
+  const every = allConversations(rows, sort);
+  const sorted = every.slice(0, limit);
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
     window: query.window,
     conversations: sorted,
     totals: {
-      conversations: sorted.length,
+      // Every session in the selection, not just the page of them returned above.
+      conversations: every.length,
       requests: rows.filter(row => row.conversationId).length,
       unattributed: rows.filter(row => !row.conversationId).length,
-      medianRequests: percentile(sorted.map(row => row.requests), 0.5),
-      medianTokens: percentile(sorted.map(row => row.tokens), 0.5),
+      medianRequests: percentile(every.map(row => row.requests), 0.5),
+      medianTokens: percentile(every.map(row => row.tokens), 0.5),
     },
   });
 });
@@ -772,10 +832,11 @@ api.get("/api/conversations/:id", async c => {
     return c.json({ ok: false, error: { code: "ambiguous_session", param: "sessionSource", message: `Conversation id "${id}" exists in ${lookup.sources.join(" and ")}. Add sessionSource=<source>.`, sources: lookup.sources } }, 409);
   }
   const timeline = conversationTimeline(lookup.scoped, id);
-  const applied = ["sources", "projects", "providers", "models", "efforts", "statuses", "routeKinds", "search"].filter(key => params[key]?.split(",").some(part => part.trim()));
+  const applied = ["sources", "projects", "providers", "models", "efforts", "statuses", "routeKinds", "agents", "agentTypes", "search"].filter(key => params[key]?.split(",").some(part => part.trim()));
   return c.json({
     ok: true,
     ...timeline,
+    anatomy: sessionAnatomy(lookup.scoped, { source: lookup.source, id, all: lookup.all, events: dataset.claudeEvents }),
     source: lookup.source,
     ...coverageField(lookup.all, filter),
     scope: {
@@ -790,10 +851,19 @@ api.get("/api/conversations/:id", async c => {
   });
 });
 
+/**
+ * Titles Claude Code recorded for its sessions, for local display. A route of its own so they never
+ * enter the conversation list: that payload is saved in the browser, exported and fed to reports.
+ */
+api.get("/api/session-titles", c => {
+  c.header("Cache-Control", "no-store");
+  return c.json({ ok: true, titles: Object.fromEntries(claudeSessionTitles()) });
+});
+
 api.get("/api/labs/projects", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
-  const payload = buildProjectRadar(dataset.rows, query.filter, query.window);
+  const payload = buildProjectRadar(dataset.rows, query.filter, query.window, { events: dataset.claudeEvents });
   const etag = `W/"${createHash("sha256").update(c.req.url).update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
   if (c.req.header("if-none-match") === etag) return c.body(null, 304);
@@ -837,7 +907,16 @@ api.get("/api/labs/cache", async c => {
     window: query.window,
     pricing: { available: pricing.available, detail: pricing.detail },
     ...buildCacheEconomics(dataset.rows, query.filter, query.window, { limit: numberParam(c.req.query("limit")) }),
+    rebuilds: buildCacheRebuilds(dataset.rows, query.filter, query.window, dataset.claudeEvents ?? []),
   });
+});
+
+// Account-wide, so the toolbar window and request filters do not apply; `scope.ignored` declares them.
+api.get("/api/labs/quota", async c => {
+  const dataset = c.get("dataset");
+  const scope = accountScope(c.req.query());
+  const tz = c.req.query("tz") || parseQuery(c.req.query(), dataset, c.get("now")).window.tz;
+  return c.json({ ...buildQuotaPace(scope.available ? dataset.quota : EMPTY_QUOTA, dataset.rows, { now: c.get("now"), tz }), scope });
 });
 
 api.get("/api/projects", async c => {
@@ -929,7 +1008,7 @@ api.get("/api/report", async c => {
     from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz,
     phases: c.req.queries("phase") ?? [],
     sources: joined("sources"), projects: joined("projects"),
-    top: query.top, redact: query.redact, title: query.title,
+    top: query.top, redact: query.redact, recap: query.recap, title: query.title,
   }, { now, first: dataset.rows[0]?.ts ?? now });
   const report = buildReport(dataset, spec, liveReportContext(now));
   const stable = { ...report, meta: { ...report.meta, generatedAt: 0 } };

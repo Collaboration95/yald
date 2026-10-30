@@ -28,6 +28,18 @@ export function axisCommon(theme: ThemeTokens) {
   };
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Axis text for a bucket label: "2026-09-23" reads "Sep 23". Anything else is left alone; tooltips keep the full label. */
+export function shortAxisLabel(label: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(label);
+  if (!match) return label;
+  const day = `${MONTHS[Number(match[2]) - 1] ?? match[2]} ${Number(match[3])}`;
+  return match[4] ? `${day} ${match[4]}` : day;
+}
+
+const dateAxisLabel = (theme: ThemeTokens) => ({ ...axisCommon(theme).axisLabel, formatter: shortAxisLabel });
+
 export function tooltipCommon(theme: ThemeTokens) {
   return {
     trigger: "axis" as const,
@@ -41,14 +53,21 @@ export function tooltipCommon(theme: ThemeTokens) {
   };
 }
 
+/** Space the grid keeps for the legend; the legend sits below the plot so it can never cover an axis label. */
+export const LEGEND_SPACE = 30;
+
 export function legendCommon(theme: ThemeTokens, show = true) {
   return {
     show,
-    top: 0,
-    right: 4,
+    // One scrolling row at the bottom: a long legend pages instead of wrapping onto the plot.
+    type: "scroll" as const,
+    bottom: 0,
+    left: "center",
+    width: "92%",
     itemWidth: 8,
     itemHeight: 8,
     icon: "roundRect",
+    pageIconSize: 10,
     textStyle: { color: theme.axis, fontSize: 11 },
   };
 }
@@ -62,10 +81,10 @@ export function stackedAreaChart(
   const formatter = options.formatter ?? ((value: number) => String(value));
   const colorOf = (name: string, index: number) => options.colors?.[name] ?? colorAt(index);
   return {
-    grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
+    grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
-    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
+    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
     yAxis: { type: "value", ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
@@ -86,13 +105,13 @@ export function stackedBarChart(
   theme: ThemeTokens,
   labels: string[],
   series: SeriesLike[],
-  options: { formatter?: (value: number) => string; showLegend?: boolean; horizontal?: boolean } = {},
+  options: { formatter?: (value: number) => string; showLegend?: boolean; horizontal?: boolean; max?: number } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
-  const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme) };
-  const valueAxis = { type: "value" as const, ...axisCommon(theme) };
+  const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) };
+  const valueAxis = { type: "value" as const, ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme) };
   return {
-    grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
+    grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
     xAxis: options.horizontal ? valueAxis : categoryAxis,
@@ -118,16 +137,18 @@ export function lineChart(
     showLegend?: boolean;
     /** Opt in to disconnected nulls and unavailable tooltips; legacy defaults stay intact. */
     preserveGaps?: boolean;
+    /** Counts: no ticks between whole numbers, so a formatted axis never repeats a label. */
+    wholeNumbers?: boolean;
   } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   return {
-    grid: baseGrid({ top: options.showLegend === false ? 16 : 30 }),
+    grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => options.preserveGaps && (typeof value !== "number" || !Number.isFinite(value))
       ? "Unavailable" : formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
-    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme) },
-    yAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
+    xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
+    yAxis: { type: "value", ...(options.wholeNumbers ? { minInterval: 1 } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
       type: "line",
@@ -192,11 +213,13 @@ export function barChart(
     color?: string | ((index: number) => string);
     showAxis?: boolean;
     showLabels?: boolean;
+    /** Counts: no ticks between whole numbers, so a formatted axis never repeats a label. */
+    wholeNumbers?: boolean;
   } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme), splitLine: { show: false } };
-  const valueAxis = { type: "value" as const, ...axisCommon(theme), axisLabel: { show: options.showAxis !== false, color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } };
+  const valueAxis = { type: "value" as const, ...(options.wholeNumbers ? { minInterval: 1 } : {}), ...axisCommon(theme), axisLabel: { show: options.showAxis !== false, color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } };
   return {
     grid: baseGrid({ top: 12, bottom: 4 }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
@@ -335,7 +358,7 @@ export function pairedBarChart(
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   return {
-    grid: baseGrid({ top: 30, right: 36 }),
+    grid: baseGrid({ top: 12, right: 36, bottom: LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), axisPointer: { type: "shadow" }, valueFormatter: (value: unknown) => (typeof value === "number" ? formatter(value) : "Unavailable") },
     legend: legendCommon(theme),
     xAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
@@ -412,13 +435,13 @@ export function boxplotChart(
 export function scatterChart(
   theme: ThemeTokens,
   series: { name: string; points: [number, number, number?][]; color?: string }[],
-  options: { xFormatter?: (value: number) => string; yFormatter?: (value: number) => string; xName?: string; yName?: string; scaleSize?: number } = {},
+  options: { xFormatter?: (value: number) => string; yFormatter?: (value: number) => string; xName?: string; yName?: string; scaleSize?: number; xLog?: boolean; yMax?: number } = {},
 ): ChartOption {
   const xFormatter = options.xFormatter ?? ((value: number) => String(value));
   const yFormatter = options.yFormatter ?? ((value: number) => String(value));
   const divisor = options.scaleSize ?? 12;
   return {
-    grid: baseGrid({ top: 34, right: 24, bottom: 26 }),
+    grid: baseGrid({ top: 34, right: 24, bottom: 26 + (series.length > 1 ? LEGEND_SPACE : 0) }),
     tooltip: {
       trigger: "item",
       backgroundColor: theme.tooltipBg,
@@ -430,8 +453,8 @@ export function scatterChart(
       },
     },
     legend: series.length > 1 ? legendCommon(theme) : { show: false },
-    xAxis: { type: "value", ...axisCommon(theme), name: options.xName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => xFormatter(value) } },
-    yAxis: { type: "value", ...axisCommon(theme), name: options.yName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => yFormatter(value) } },
+    xAxis: { type: options.xLog ? "log" : "value", ...axisCommon(theme), name: options.xName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => xFormatter(value) } },
+    yAxis: { type: "value", ...(options.yMax !== undefined ? { max: options.yMax } : {}), ...axisCommon(theme), name: options.yName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => yFormatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
       type: "scatter",
@@ -439,5 +462,130 @@ export function scatterChart(
       itemStyle: { color: entry.color ?? colorAt(index), opacity: 0.7 },
       data: entry.points,
     })),
+  };
+}
+
+export interface TimelineBar { lane: number; start: number; end: number; label: string; color: string; tooltip: string }
+
+/** Bars on a time axis, one lane per category. A bar never gets thinner than `minWidth`, so a one-minute burst stays visible in a long window. */
+export function laneTimelineChart(theme: ThemeTokens, lanes: string[], bars: TimelineBar[], options: { minWidth?: number; zoom?: boolean } = {}): ChartOption {
+  const minWidth = options.minWidth ?? 6;
+  type Api = { value: (index: number) => number; coord: (point: [number, number]) => [number, number]; size: (point: [number, number]) => [number, number] };
+  return {
+    grid: baseGrid({ top: 12, bottom: options.zoom ? 40 : 8 }),
+    tooltip: { ...tooltipCommon(theme), trigger: "item" as const, formatter: (params: { dataIndex: number }) => bars[params.dataIndex]?.tooltip ?? "" },
+    xAxis: { type: "time" as const, ...axisCommon(theme), splitLine: { show: false } },
+    yAxis: { type: "category" as const, data: lanes, ...axisCommon(theme), splitLine: { show: false } },
+    ...(options.zoom ? { dataZoom: [{ type: "inside" as const }, { type: "slider" as const, height: 18, bottom: 6, showDetail: false, borderColor: theme.split }] } : {}),
+    series: [{
+      type: "custom",
+      encode: { x: [1, 2], y: 0 },
+      data: bars.map(bar => [bar.lane, bar.start, bar.end]),
+      renderItem: (params: { dataIndex: number }, api: Api) => {
+        const bar = bars[params.dataIndex]!;
+        const [x, y] = api.coord([api.value(1), api.value(0)]);
+        const [xEnd] = api.coord([api.value(2), api.value(0)]);
+        const height = Math.min(18, api.size([0, 1])[1] * 0.6);
+        const width = Math.max(minWidth, xEnd - x);
+        return {
+          type: "group",
+          children: [
+            { type: "rect", shape: { x, y: y - height / 2, width, height, r: 2 }, style: { fill: bar.color } },
+            { type: "text", style: { x: x + width + 4, y, text: bar.label, fill: theme.text, fontSize: 10, verticalAlign: "middle" } },
+          ],
+        };
+      },
+    }],
+  };
+}
+
+export interface TreeNode { name: string; value: number; color?: string; tooltip?: string; children?: TreeNode[] }
+
+/** Nested areas sized by `value`, with no zoom or click-through: the table beside it holds the detail. */
+export function treemapChart(theme: ThemeTokens, nodes: TreeNode[]): ChartOption {
+  const tooltips = new Map<string, string>();
+  const style = (node: TreeNode): Record<string, unknown> => {
+    if (node.tooltip) tooltips.set(node.name, node.tooltip);
+    return { name: node.name, value: node.value, ...(node.color ? { itemStyle: { color: node.color } } : {}), ...(node.children ? { children: node.children.map(style) } : {}) };
+  };
+  return {
+    animation: false,
+    tooltip: {
+      trigger: "item", backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, textStyle: { color: theme.text, fontSize: 12 },
+      formatter: (params: { name: string }) => tooltips.get(params.name) ?? params.name,
+    },
+    series: [{
+      type: "treemap", roam: false, nodeClick: false, breadcrumb: { show: false }, left: 0, right: 0, top: 0, bottom: 0,
+      label: { show: true, fontSize: 11, color: theme.tooltipBg, overflow: "truncate" }, upperLabel: { show: false },
+      itemStyle: { borderColor: theme.tooltipBg, borderWidth: 2, gapWidth: 2 },
+      levels: [{ itemStyle: { borderWidth: 0, gapWidth: 3 } }, { itemStyle: { gapWidth: 2 } }],
+      data: nodes.map(style),
+    }],
+  };
+}
+
+export interface SwimLane { label: string; start: number; end: number; color: string; ticks: number[]; tooltip: string }
+
+/**
+ * One lane per chain, first on top: a bar from first to last request with a tick per request, and a
+ * connector from the spawning request to the first request of the lane it started.
+ */
+export function swimlaneChart(theme: ThemeTokens, lanes: SwimLane[], links: { from: number; ts: number; to: number; end: number }[]): ChartOption {
+  type Api = { value: (index: number) => number; coord: (point: [number, number]) => [number, number]; size: (point: [number, number]) => [number, number] };
+  const axis = axisCommon(theme);
+  const tooltip = (index: number) => lanes[index]?.tooltip ?? "";
+  return {
+    animation: false,
+    grid: baseGrid({ top: 8, bottom: 4 }),
+    tooltip: { ...tooltipCommon(theme), trigger: "item" as const, formatter: (params: { value: number[] }) => tooltip(params.value[0]!) },
+    xAxis: { type: "time" as const, ...axis, splitLine: { show: false } },
+    yAxis: { type: "category" as const, inverse: true, data: lanes.map(lane => lane.label), ...axis, splitLine: { show: false } },
+    series: [
+      {
+        type: "custom", encode: { x: [1, 2], y: 0 }, data: lanes.map((lane, index) => [index, lane.start, lane.end]),
+        renderItem: (params: { dataIndex: number }, api: Api) => {
+          const [x, y] = api.coord([api.value(1), api.value(0)]);
+          const [xEnd] = api.coord([api.value(2), api.value(0)]);
+          return { type: "rect", shape: { x, y: y - 5, width: Math.max(3, xEnd - x), height: 10, r: 2 }, style: { fill: lanes[params.dataIndex]!.color, opacity: 0.35 } };
+        },
+      },
+      {
+        type: "scatter", symbol: "rect", symbolSize: [1.5, 12], silent: false,
+        itemStyle: { color: (params: { value: number[] }) => lanes[params.value[0]!]?.color ?? theme.axis },
+        data: lanes.flatMap((lane, index) => lane.ticks.map(ts => [index, ts])), encode: { x: 1, y: 0 },
+      },
+      {
+        type: "custom", silent: true, encode: { x: [1, 3], y: [0, 2] }, data: links.map(link => [link.from, link.ts, link.to, link.end]),
+        renderItem: (_params: unknown, api: Api) => {
+          const [x1, y1] = api.coord([api.value(1), api.value(0)]);
+          const [x2, y2] = api.coord([api.value(3), api.value(2)]);
+          return { type: "polyline", shape: { points: [[x1, y1], [x1, y2], [x2, y2]] }, style: { stroke: theme.axis, lineWidth: 1, lineDash: [3, 3], fill: "none" } };
+        },
+      },
+    ],
+  };
+}
+
+/** Input per request on a time axis, with a labelled dashed line per recorded event. Requests without a measurement are absent, not zero. */
+export function contextTimeChart(theme: ThemeTokens, points: { ts: number; tokens: number }[], markers: { ts: number; label: string; tooltip: string }[], formatter: (value: number) => string): ChartOption {
+  const color = colorAt(0);
+  const axis = axisCommon(theme);
+  const tips = new Map(markers.map(marker => [marker.ts, marker.tooltip]));
+  return {
+    animation: false,
+    grid: baseGrid({ top: 22, bottom: 4 }),
+    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
+    xAxis: { type: "time" as const, ...axis, splitLine: { show: false } },
+    yAxis: { type: "value" as const, ...axis, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
+    series: [{
+      name: "Input per request", type: "line", symbol: "none", lineStyle: { width: 2, color }, itemStyle: { color }, areaStyle: { opacity: 0.12, color },
+      data: points.map(point => [point.ts, point.tokens]),
+      markLine: {
+        symbol: "none", silent: false, lineStyle: { type: "dashed", color: theme.axis, width: 1 },
+        label: { formatter: (params: { value: number }) => markers.find(marker => marker.ts === params.value)?.label ?? "", color: theme.text, fontSize: 10, position: "end" },
+        tooltip: { formatter: (params: { value: number }) => tips.get(params.value) ?? "" },
+        data: markers.map(marker => ({ xAxis: marker.ts })),
+      },
+    }],
   };
 }

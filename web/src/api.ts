@@ -15,7 +15,7 @@ export const RANGES = [
 /** Sources are determined by ingestion protocol, never by provider (see docs/metrics.md). */
 export const SOURCES: { id: Source; label: string; detail: string }[] = [
   { id: "claude-code", label: "Claude Code", detail: "Claude Code transcripts" },
-  { id: "ocx", label: "Codex · opencodex", detail: "Requests through the opencodex proxy" },
+  { id: "ocx", label: "Codex", detail: "Requests through the opencodex proxy" },
 ];
 
 /** CLI aliases the server also accepts, mapped to the canonical source id. */
@@ -45,6 +45,8 @@ export interface Filters {
   sources: string[];
   /** Folder globs matched against a request's working directory or any ancestor; empty means every project. */
   projects: string[];
+  /** `main`, `subagent`, `unlabelled`; empty means every request. */
+  agents: string[];
   groupBy: string;
   metric: string;
   bucket: string;
@@ -66,6 +68,7 @@ export const DEFAULT_FILTERS: Filters = {
   conversationId: "",
   sources: [],
   projects: [],
+  agents: [],
   groupBy: "model",
   metric: "tokens",
   bucket: "auto",
@@ -83,7 +86,7 @@ export function filtersFromParams(params: URLSearchParams): Filters {
     ...Object.fromEntries(["range", "groupBy", "metric", "bucket", "search", "from", "to", "tz", "last", "conversationId"]
       .map(key => [key, params.get(key) ?? DEFAULT_FILTERS[key as keyof Filters]])),
     providers: list("providers"), models: list("models"), efforts: list("efforts"), statuses: list("statuses"),
-    routeKinds: list("routeKinds"), projects: list("projects"), sources: canonicalSources(list("sources")),
+    routeKinds: list("routeKinds"), projects: list("projects"), agents: list("agents"), sources: canonicalSources(list("sources")),
   };
 }
 
@@ -91,21 +94,22 @@ export function filtersFromParams(params: URLSearchParams): Filters {
 export function conversationLink(conversation: { id: string; source: Source }, search: string) {
   const params = new URLSearchParams(search);
   params.set("sessionSource", conversation.source);
-  return { pathname: `/conversations/${encodeURIComponent(conversation.id)}`, search: `?${params}` };
+  return { pathname: `/sessions/${encodeURIComponent(conversation.id)}`, search: `?${params}` };
 }
 
 /** True for a selection that narrows beyond the time window: anything the scope strip and no-match state report on. */
 export function hasScope(filters: Filters): boolean {
-  return Boolean(filters.sources.length || filters.projects.length || filters.providers.length || filters.models.length
+  return Boolean(filters.sources.length || filters.projects.length || filters.agents.length || filters.providers.length || filters.models.length
     || filters.efforts.length || filters.statuses.length || filters.routeKinds.length || filters.conversationId || filters.search.trim());
 }
 
 export const hasCustomWindow = (filters: Filters): boolean => Boolean(filters.from || filters.to || filters.last);
 
+/** How many request filters narrow the data. The time range, a custom window and the time zone are not filters. */
 export function activeFilterCount(filters: Filters): number {
-  return filters.sources.length + filters.projects.length + filters.providers.length + filters.models.length
-    + filters.efforts.length + filters.statuses.length + filters.routeKinds.length + Number(Boolean(filters.search))
-    + Number(Boolean(filters.conversationId)) + Number(hasCustomWindow(filters) || filters.range !== DEFAULT_FILTERS.range) + Number(Boolean(filters.tz));
+  return filters.sources.length + filters.projects.length + filters.agents.length + filters.providers.length + filters.models.length
+    + filters.efforts.length + filters.statuses.length + filters.routeKinds.length + Number(Boolean(filters.search.trim()))
+    + Number(Boolean(filters.conversationId));
 }
 
 /** The complete request scope as one string, to reset state that belongs to a particular selection. */
@@ -123,6 +127,7 @@ export function filtersToParams(filters: Filters, extra: Record<string, unknown>
   const sources = canonicalSources(filters.sources);
   if (sources.length) params.set("sources", sources.join(","));
   if (filters.projects.length) params.set("projects", filters.projects.join(","));
+  if (filters.agents.length) params.set("agents", filters.agents.join(","));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.tz) params.set("tz", filters.tz);
@@ -227,6 +232,17 @@ function useSavedQuery<T>(
 function showsSaved(data: unknown, dataUpdatedAt: number): boolean {
   const savedAt = savedTime(data);
   return savedAt !== undefined && savedAt === dataUpdatedAt;
+}
+
+/**
+ * Recorded Claude Code session titles by id. Never persisted: `docs/install.md` promises that
+ * what this browser keeps holds no prompt text, and a generated title is drawn from one.
+ */
+export function useSessionTitles(): Record<string, string> {
+  const query = useQuery<{ titles: Record<string, string> }>({
+    queryKey: ["/api/session-titles"], queryFn: () => fetchJson("/api/session-titles"), staleTime: 60_000, refetchOnWindowFocus: false,
+  });
+  return query.data?.titles ?? {};
 }
 
 /** `/api/meta`, shared by the layout and the chart palette; persisted like the views. */

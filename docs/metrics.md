@@ -98,8 +98,7 @@ Tier flags count long-context, confirmed/requested-only, priority and lower-boun
 rows. The tier summary comes from the engine's evaluated provenance record,
 including authoritative attempt outcomes. A lower-bound price flags incomplete
 Fast/tier pricing on both sides; it does not guarantee the net is a savings floor.
-Claude writes use the engine's single write rate. The transcript conversion does
-not preserve separate write TTL accounting, so 1-hour writes can have an
+Claude writes use the engine's single write rate, so 1-hour writes have an
 understated premium. TTL reconstruction is outside this comparison.
 
 Existing `summary.cache.savingsUsd`, cache timeline `savingsUsd` and cost
@@ -113,6 +112,17 @@ savings and should not be compared as if they had the same eligible population.
 ## Reliability and retries
 
 Success rate uses observed logical request outcomes, not physical sends or Claude transcript compatibility statuses. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.
+
+**Outage episodes** group errors (`outcome = error`, so never cancelled or unobserved requests) in time order: a gap of 10 minutes or more (`gapMinutes`) starts a new episode. Only requests with an observed outcome count, which today means opencodex rows; `episodes.coverage` gives the numbers.
+
+- An episode lists its first and last error, its status and error-code mix, providers, models, and the successful requests inside its span, which separate a hard outage from a partial one. A single error has no duration.
+- `clippedStart` and `ongoing` mark an episode within one gap of the window's start or end. Its size and length are then lower bounds.
+- Concentration is the cumulative share of errors in the largest episodes, with the episode counts reaching 50% and 75%.
+- Persistence compares how often the next observed request failed after an error with the base error rate, overall and per provider, with the counts behind both. It does not show a retry loop.
+- Status classes are inferred from the code alone, since yald sees no response bodies: `upstream or capacity` (429, 500, 502, 503, 504), `configuration or request` (400, 401, 403, 404, 422) and `other`. The raw status stays visible.
+- Tokens and dollars come only from failed rows that reported usage, with the reporting fraction. With none, they are unavailable, not 0.
+
+Clustering is an observation and says nothing about why errors cluster. Episodes do not treat any request as a retry.
 
 ## Project attribution
 
@@ -136,9 +146,11 @@ The projects list rolls each folder up to the nearest enclosing git root (a fold
 The dashboard's Source and Project controls apply the same scope to request-based
 views and exports. Project choices use that existing aggregation, but selection
 uses the report's folder/ancestor glob rule: a selected root includes nested
-projects too. An unattributed row is not a project choice. The selection status
-states how many otherwise-matching requests and tokens had no folder and were
-excluded; a zero match offers a reset instead of assigning that usage elsewhere.
+projects too. An unattributed row is not a project choice. Under a project
+selection, a small note beside the filter chip (below the toolbar) states how many
+otherwise-matching requests and tokens had no folder and were excluded; the chip
+itself appears only while a filter narrows the data. A zero match offers a reset
+instead of assigning that usage elsewhere.
 URL filters survive navigation/reload, and session links retain the cohort plus
 the source-qualified `(source, conversationId)` identity. Session detail reports
 how much history was excluded by the window and the other filters.
@@ -147,6 +159,8 @@ Limits:
 
 - Codex sessions run without opencodex do not appear in the opencodex ledger, so yald sees neither their usage nor their folder.
 - Codex can delete or prune old rollouts. Their opencodex rows then lose attribution and count as unattributed, while their usage still counts.
+- Compressed rollouts (`rollout-*.jsonl.zst`) count the same as plain ones. A missing or invalid frame is treated as no rollout, not an error.
+- Where a rollout records them, rows carry `codexSession`: its git branch and commit at session start, and for a spawned thread its parent thread, depth and role. Absent means unavailable. Codex subagent traffic often reuses the parent thread's id and then cannot be split. The repository URL is not kept.
 - opencodex traffic from clients other than Codex (or without a conversation id) has no rollout and stays unattributed.
 - Attribution is by the folder a session started in. A session that changes directory part-way still counts toward its starting folder.
 - The local API can include absolute paths. Reports redact home paths to `~` by default, but other absolute paths can remain; `--no-redact` keeps full paths. Review shareable outputs before sending them.
@@ -160,9 +174,49 @@ shows them as unavailable. Their history uses the selected window; current quota
 and aggregate ledger counts remain the latest available account observations.
 They must never be read as a selected project's quota or spend allowance.
 
+Quota samples come from two places, each labelled with its `source`: opencodex's `codex-quota-cache.json`, and `rate_limits` in the `token_count` records of Codex rollouts, including compressed ones. Rollouts name no account, so their samples sit under the label `codex-rollouts` and are never joined to a project or request. Samples are deduplicated by window, reset time and observation time. A window opencodex does not report itself takes its latest reading from them. Rollouts are read in the background, so after a restart this history can appear a little after the first page load.
+
 Calendar buckets use the request's `tz` (default: the configured local timezone), never the server process's zone. Weeks begin Monday. Quota burn is measured from observed samples inside the selected time range; current utilization remains the latest point-in-time value. The history chart may include the sample immediately before the range as a visual baseline, but it does not count toward the two in-range samples required for a burn estimate. With insufficient samples, the dashboard reports that state instead of extrapolating. Projections compare the measured burn against the provider's reset time and may be null when a reset or a positive burn rate is unavailable.
 
 Range presets are rolling elapsed-time windows ending at the current time, rounded down to the API's 10-second clock quantum (see [request clock](api.md)): `24h` is 24 hours and `7d` is exactly 168 hours, including across daylight-saving changes. Calendar chart buckets do not expand or truncate the selected window. Explicit `from`, `to` and `last` parameters override its boundaries (see the [API reference](api.md#time-windows)). Every window is half-open, `[from, to)`: a request exactly at `to` is counted in the next window, and the prior-period comparison is `[from − span, from)`. Future-dated source rows do not move the default end time.
+
+### Quota pace
+
+Labs' Quota pace reads one account and window at a time. It is account-scoped: nothing
+is split by project, model or session, and a Claude-only selection shows nothing.
+
+- **Window instance.** The period between resets. Samples whose reset times sit within
+  five minutes are one instance, because each sample reports a reset a few seconds
+  apart. Start is the reset minus the window length, taken from the window name.
+- **Used percent.** The highest value so far in the instance, because parallel
+  sessions can report a stale lower value.
+- **Pace.** Even pace at time t is `100 × (t − start) / length`. The delta is used
+  percent minus even pace at the latest sample, in points, with that sample's age.
+  A single opencodex snapshot is enough. After the reset the window is expired, and
+  the last percentage is not presented as current. Even pace is a reference line.
+- **Weekday burn.** The change in used percent per local day, split at local midnight
+  in proportion to time, in instances other than the current one. A day inside a gap
+  over 24 hours is unobserved and left out; a day with samples on both sides and no
+  change is a real zero. A weekday seen in fewer than three instances uses all days
+  pooled.
+- **Forecast range.** Windows of at least a week, with at least three past instances.
+  From the latest sample, each local day to the reset adds the P25, median or P75 burn
+  of its weekday, in proportion to the time left, giving a low, typical and high path.
+  The result is the earliest and latest date on which a path reaches 100%, or "not before
+  reset", with how many of the three paths run out. It is a range of scenarios, not a
+  prediction, and never one date. Days with no samples are left out, so it reads as if
+  the window is used on every remaining day. A plan or limit change invalidates it.
+- **Exchange rate.** For consecutive samples of one account and window, the tokens and
+  list-price cost of that account's requests in `(a, b]`, pooled as tokens over points.
+  Intervals across a reset, where used percent fell, with no change or over a 24-hour
+  gap are excluded and counted. It needs 10 intervals and 5 points. Rollout samples name
+  no account, so no join to requests is established and the rate is unavailable for
+  them. It is an observed ratio, not a conversion rule: usage elsewhere on the account
+  also moves used percent, which makes tokens per point look lower than what a point
+  buys.
+
+Rollouts can blend several accounts under one label. Instances then overlap, and each
+is still read on its own. `otherOpenWindows` counts the others still open.
 
 ### Claude Code quota
 
@@ -175,7 +229,8 @@ transcript; every other protocol is `ocx`. An Anthropic request routed through
 opencodex remains `ocx`. The API's `sourceCapabilities` describes what each source
 can observe. Capability does not prove that an individual row recorded a value.
 
-Claude transcripts record usage and cache counters. They do not record failures,
+Claude transcripts record usage and cache counters, plus the structure listed under
+[Claude transcript structure](#claude-transcript-structure). They do not record failures,
 retry history, request timing or subscription quota. Their compatibility HTTP 200,
 one-attempt and send defaults are not observations. Their API outcome is
 `unobserved`, and their request badge says so. `ok`, `error` and `cancelled` filters
@@ -234,6 +289,25 @@ does not remove archived usage; a source filter does not delete the archive or
 disable ingestion. [Local storage details](install.md#data-locations-and-local-archive)
 explain isolation with a separate home.
 
+### Claude transcript structure
+
+Where a transcript records it, a Claude Code request carries `details` in `publicRow` and exports. Every field is null when not recorded, and `details` itself is null on archive lines written before Yald kept these fields, so older data reads as unavailable and never as zero or "main".
+
+| Field | From | Notes |
+| --- | --- | --- |
+| `agent` | `isSidechain` | `main` or `subagent`. Null is `unlabelled`, in the `agents` filter and the `agent` group, and is never folded into main |
+| `agentId`, `attributionAgent` | transcript line | An extra dimension: a session stays `(source, conversationId)` |
+| `agentType`, `spawnDepth`, `spawnToolUseId` | `subagents/agent-*.meta.json` | Named fields only; any task description in the file is not kept |
+| `effort` (row field), `perTurnEffort`, `thinkingDurationMs` | transcript line | Claude effort is populated where present |
+| `cacheWrite5m`, `cacheWrite1h` | `usage.cache_creation` | Token split only. Dollars still use the engine's single write rate |
+| `cacheMissReason` | `message.diagnostics` | As the API reported it. A missing reason is not "no miss" |
+| `toolCounts`, `toolUseIds` | `tool_use` blocks | Names, ids and counts of requested calls. MCP tool names can reveal which servers you run; they stay local like every other field |
+| `gitBranch`, `promptId` | transcript line | |
+
+Records that are not requests live in their own archive and on `Dataset.claudeEvents`: recorded compactions, API errors and client retries, turn durations, human prompt times, PR links and agent records. A `captured` record marks a session read with event capture, so "no recorded compaction" can be told apart from "not captured". A human prompt is a `user` line that is not a tool result, meta, sidechain or compaction summary; its text is examined only to classify it and is never kept.
+
+No prompt, response, tool input or tool output text is stored. Reading a line parses its text in memory, then only the fields above are kept.
+
 ## Project Radar (Labs)
 
 Radar groups normalized requests by the same nearest git root as the project
@@ -259,6 +333,26 @@ counts, never guessed money. A priced zero is valid; an all-unpriced sum of zero
 is unavailable. Mixed price coverage produces a partial money sum, not a
 full-population cost estimate. Both windows use the same loaded assumptions;
 there is no historical-price snapshot or subscription-cost claim.
+
+Each project's `current` and `prior` carry `branches`, so usage below the project
+stays on the same fixed pair of windows. A branch is keyed under its project, since
+every repository has a `main`. Claude Code records a branch per request (basis
+`request time`), so a session that changes branch splits by request. Codex records it
+once in `session_meta` (basis `session start`), so a session that switches branch stays
+on its starting branch. Each row shows its basis and source split.
+
+Three states are separate. `main` and `master`, in any case, are listed by name. Detached means a
+recorded `HEAD`, or a Codex git record with a commit and no branch. Anything else with
+no branch is `no branch recorded`: unavailable, never assigned to `main` and never
+inferred from cwd, timing or neighbouring requests. Every request lands in exactly one
+row, so the rows sum to the project's totals.
+
+PR links come from `pr-link` transcript lines, so only Claude sessions have them. A
+branch lists the PRs seen in its sessions as `owner/repo#N`. Association is by session,
+not by time, and a link may be recorded after some of the work. A session can link several
+PRs and a PR can span branches, so PR figures overlap: they are never added together or
+split. Branch cost is where usage was recorded, not the value of the work, and a name is
+a label at request time, not an identity over the project's life.
 
 The preceding window has exactly the current window's elapsed duration and
 preserves all other filters and timezone. Per-metric absolute change is current
@@ -289,7 +383,7 @@ The Context page reads `inputTokens` of requests that pass `contextEligible` (in
 - **At or above a threshold.** Share of eligible requests and of priced list-price cost at or above 50k, 150k and 300k, and with `contextTier === "long"`. The tier cutoff varies by model, so the two differ. Cost shares use priced eligible requests only; unpriced requests count as requests but carry no dollars, and a band or threshold with no priced request has no cost (`null`), not $0.
 - **Context tax.** Per band: requests, cost, cost per priced request, median TTFT and cancel rate (`cancelled / (ok + error + cancelled)` over observed outcomes). TTFT and outcomes exist for opencodex requests only; Claude rows read "not recorded". Cancel rate covers requests with a measured context length, so a request cancelled before any usage was recorded is not in it, and a request cancelled before its first token has no TTFT.
 - **Session growth.** The median input of a session's first 3 eligible requests versus its last 3, ranked from 6 eligible, through the same helper as Context Replay. Sessions with requests outside the window (loaded history only) are counted as clipped.
-- **Interpretation.** These are associations in loaded data. Cost per request mixes models and is partly a model effect. Claude Code subagent requests are not labelled, so Claude per-model numbers can mix a main conversation with its subagents' smaller contexts.
+- **Interpretation.** These are associations in loaded data. Cost per request mixes models and is partly a model effect. Claude per-model numbers mix a main conversation with its subagents' smaller contexts unless the `agents` filter narrows them.
 
 ## Spend structure
 
@@ -303,6 +397,71 @@ The Cost page's structure sections read priced requests only. Cost is the sum of
 - **Token-class cost mix** splits cost into fresh input, cache read, cache write and output, per bucket and source, beside each class's share of priced tokens. Each row carries the engine's own per-class cost (`costParts`), so the classes add up to `row.cost` exactly, including long-context-tier and priority rows. A row without the split falls back to tokens times table rates and the difference is shown as a separate "tier adjustment", never folded into a class. Reasoning tokens are a subset of output; reasoning cost is the output cost in proportion to reasoning tokens (an attribution, not a measurement) and is never added twice.
 - **Interpretation.** These are arithmetic on tokens and today's price table: rows are priced at load with the current engine and overlays, so a series shows mix and the current table, not what was paid at the time. Until Claude's 5m and 1h cache-write split is read, the 1h write premium is understated. A large cache-write share is not waste; the net comparison is Cache Detective's.
 
+## Subagents
+
+Where Claude Code usage ran, by agent. A request counts once, under its own agent kind: `main`, `subagent` or `unlabelled`. A row without a marker is `unlabelled`, its own slice, and is never folded into main. A session stays `(source, conversationId)`; `agentId` is an extra dimension. A chain is `(source, conversationId, agentId ?? "main")`.
+
+- **Shares** of requests, tokens, input tokens and list-price cost are per kind over the selected Claude rows. Cost is priced rows only, with the priced share of each kind. With no labelled rows, the page says the markers are unavailable and shows no split.
+- **Label coverage** is the share of Claude requests with a marker, overall and per bucket.
+- **Fan-out** is distinct `agentId` per labelled session, sessions with none included: bins 0, 1, 2-3, 4-7, 8-15 and 16+, with median, p90, max and the share with any subagent. A session with no marker on any row is counted apart. Fan-out uses the selection without its `agents` filter, because Main only would otherwise read as zero subagents.
+- **Agent type** comes from the sidecar: spawns (distinct `agentId`), requests, tokens, cost, median requests per spawn, the most used model and first-request write cost. **Spawn depth** is as recorded and never derived.
+- **First-request cache write** is the cache-write cost of the first request of each `(session, agentId)` by timestamp, from the engine's own class split where the row has it, else tokens times the row's write rate. It is reported as a total, a median per spawn and the share of spawns with 2 or fewer requests. A spawn whose first request is outside the selection is counted as unavailable, and one with an unpriced first request as unpriced. Scatter points are capped at the newest 2,000. All writes use one engine rate, so the 1h premium is understated.
+- **Codex.** Subagent traffic often reuses the parent thread's id, so it cannot be split. Rows are reported as `root thread (may include subagents)` and `subagent thread`, the latter only where a rollout names a parent thread. Such a row is `subagent` in the `agents` filter; a root-thread row is `unlabelled`, never main.
+- **Interpretation.** A share is where usage was recorded, not waste or overhead. A first-request write is the cost of that request, not a penalty. Older archive lines cannot be back-filled.
+
+## Session anatomy
+
+The shape of one session, built from the same rows as its detail response, so chain totals add up to the session's. A chain is one agent's requests within the session: `main`, one per `agentId`, and `unlabelled` for requests with no marker, which are never folded into main.
+
+- **Cost tree.** Each chain is sized by list-price cost, tokens or requests, and nested under the chain that spawned it. The parent comes from a subagent's recorded `spawnToolUseId` matching a request's `tool_use` id. A chain with no recorded link sits at the top level and reads "spawn point not recorded"; nothing is guessed. A partly priced chain shows its priced subtotal as a lower bound.
+- **Timeline.** A lane per chain from its first to its last request, with a tick per request (at most 300 per chain, evenly spaced, first and last kept) and a connector from the spawning request where one is recorded.
+- **Context line.** Input tokens per measured request, one chain at a time, main by default (at most 800 points, or 200 for a subagent). Recorded compactions are marked with Claude Code's own pre and post token counts. An event without an agent id is drawn on the main line: a transcript does not say more. These counts are not API usage counters.
+- **Stats.** Chains, maximum recorded depth, subagent share of requests, tokens and cost, the first-request cache write (same definition as [Subagents](#subagents)), and coverage: labelled, priced and context-measured shares. A first request outside the selection is unavailable, not zero.
+- **Codex** sessions and unmarked Claude sessions read as one chain with a note. Codex subagent traffic often reuses the parent thread's id, so it cannot be split.
+
+## Agent turns and tools
+
+How agent work is shaped, for Claude Code only. opencodex close reasons use a different vocabulary, so those requests are left out and counted. This is not a productivity measure: a deep turn is not good or bad, a high autonomy ratio does not mean the agent did more for you, and no band is ideal.
+
+- A **step** is one logical request. A **turn** is a run of steps in one chain, `(conversationId, agentId ?? "main")`, so interleaved subagents do not break it. A step whose stop reason is `tool_use` continues the turn, as does a step with no stop reason that requested a tool (a transcript can lose the stop reason on a partial line). Any other stop reason ends it. A human prompt between two main-chain steps also ends it: the turn was interrupted, and it counts under its last recorded stop reason. A turn is built from the filtered rows, so a model or Agent filter changes its shape. A turn cut by the start of the window is counted in `clippedTurns`.
+- **Turn depth** is the number of steps in a turn, binned 1, 2-4, 5-9, 10-19 and 20+. **Cost share by depth** is the list-price cost of the steps in each bin over all priced cost, priced steps only, next to the share of turns.
+- **Autonomy ratio** is main-chain steps divided by human prompts, overall, per session (median, p90) and per week (the median and p90 of session ratios). It is unavailable without prompt counts, never zero. A session with no recorded prompt in the window is left out.
+- **Tool mix** counts `tool_use` blocks by name. Counts are requested calls, not successful ones. **Steps with a tool** overlap by design, since a step can use several, and no cost is attributed to a tool. Tool names are local like every other field; MCP names can reveal which servers you run.
+- **Stop reasons** are shown as recorded, including unknown values. A step without one reads `not recorded`.
+
+| Tool group | Tools (case-insensitive) |
+| --- | --- |
+| Bash | Bash, BashOutput, KillShell, Monitor |
+| Read | Read, NotebookRead |
+| Edit/Write | Edit, Write, MultiEdit, NotebookEdit |
+| Search | Grep, Glob, WebSearch, WebFetch, ToolSearch |
+| Agent | Agent, Task, SendMessage, SubagentHandback, TaskStop, Skill |
+| MCP | any name starting `mcp__` |
+| Other | everything else |
+
+Without transcript structure (older archive lines), turn depth is approximate from stop reasons alone, with the share of steps that have one, and autonomy and tool mix read unavailable.
+
+## Working style
+
+Describes how sessions are shaped and when requests happened. A label is about size and span, not value, and a session is not a task. Nothing here measures productivity, overtime or health.
+
+A session is `(source, conversationId)`, using its in-window requests. Requests without a conversation id are counted apart. Rules apply in order, from one table in `server/src/workingStyle.ts`:
+
+| Archetype | Rule |
+| --- | --- |
+| poke | 1-3 requests |
+| quick | 4-24 requests |
+| deep | 25-999 requests within one local calendar day |
+| marathon | 1,000 or more requests, or 25 or more requests across two or more local days |
+
+A session with requests outside the window is counted in `clippedSessions`, and its archetype is a lower bound. Cost is the list-price equivalent of priced requests, with unpriced requests counted.
+
+- **Concurrency** is the number of distinct sessions with a request in each 10-minute bin. Idle open sessions are invisible, and a Codex subagent under its own id counts as a session. A day's peak is its largest bin.
+- **Days with data** are local days with at least one request. A day without requests may be a day without work, a source that was not running, or a gap. Streaks are runs of consecutive days with data, and the current run ends today.
+- **Hours** sum requests by local hour. Night share is requests from 00:00 to 05:59 on the selected time zone's clock, divided by all requests.
+
+**Recap.** With `recap=1`, or `--recap` on `yald report`, the report adds a `workingStyle` block whose notes are fixed sentences composed by the server, so the CLI, the HTML report and the dashboard card print the same text. Each note carries its n, and below 5 sessions or requests a note reads "Too little data". The block is off by default because streaks and hours describe personal habits. The session id in it follows `redact`, and the recap adds no project names, paths or prompt text. The PNG export of the card leaves out notes that name a session unless you ask for them, and it is drawn from the same notes.
+
 ## Labs context growth
 
 Context Replay compares median input of the first three eligible requests with
@@ -313,6 +472,62 @@ remain viewable without ranked growth. Sessions are source-qualified; window and
 cohort limits and all excluded requests are disclosed. See the
 [Context Replay contract](labs-context.md) for denominators and history coverage.
 These request observations do not infer turns, compaction, waste or answer quality.
+
+### Cache rebuild ledger
+
+Cache Detective's second question is where the cache write cost comes from, and
+how much of it wrote again what was already cached. The ledger is separate from
+the net comparison: it has its own population, and the stricter net predicate does
+not shrink it. Anthropic only; other rows are not applicable, never zero.
+
+- **Population.** `provider === "anthropic"` with observed cache counters, a session
+  and an agent marker. Exclusions are counted: `cache-unmeasured`, `no-session`,
+  `no-agent-marker`.
+- **Chains.** `(source, conversationId, agentId ?? "main")`, the whole loaded
+  history in `orderedRequests` order, so a window never turns a continuing request
+  into a first one.
+- **Starts.** A chain's first request is `session-start` or `subagent-start`, with
+  the same first-request rule as the Subagents page. It is not a rebuild.
+- **Rebuild.** A later request with `cacheWriteTokens > cacheReadTokens`. This is a
+  threshold on counters and does not prove that an entry existed and expired.
+- **Rewritten tokens.** `min(write, max(0, prevRead + prevWrite - read))`.
+- **Premium.** Rewritten tokens × (write rate − read rate) at the row's effective
+  `cacheEconomics.rates`. It is an upper bound that assumes the earlier prefix
+  could have been reused. It is not Cache Detective's write premium, which compares
+  writes with uncached input, and the two are never added. The engine gives no read
+  rate to a row that read nothing, so such a row uses the effective read rate of an
+  earlier request in its chain with the same model and context tier
+  (`borrowedRateRequests`). Without one it is unpriced, never zero. Base rates are
+  not a fallback.
+- **Causes.** First match wins, and all matches stay on the row as `signals`:
+  `reported` (`cache_miss_reason`, raw value kept), `compaction` (an event between
+  the two requests, placed by `requestsBefore` as in Context Replay, in the chain it
+  was recorded in), `model-switch`, `idle-gap`, `no-evidence`. Only `reported` is
+  reported; the next three are inferred. The idle gap compares the time since the
+  previous request with the lifetime of the chain's latest write: one hour if it
+  wrote any 1-hour tokens, otherwise five minutes. Without a split it is not asserted.
+- **Warm rate by gap.** Share of later requests with read at least write, by gap
+  since the previous request in the chain. A bucket under 20 requests shows its
+  count and no rate.
+- **Interleaving.** The same rule ordered by session and by chain. `disappeared`
+  counts requests that only look like a lost cache in session order.
+
+The write bill reuses the Spend structure class mix on Anthropic rows, and adds
+write tokens by lifetime. Its dollars use the engine's single write rate, so 1-hour
+writes are understated. Chosen compactions, model switches and subagent start-ups
+are described as what happened, never as waste.
+
+### Recorded compactions
+
+Claude Code writes a `compact_boundary` line when it compacts. Context Replay places those events on the session's sequence and never infers one from an input drop.
+
+- **State.** `recorded`: at least one event. `none recorded`: the session was read with event capture and none was seen, shown as "no recorded compaction", never "no compaction". `unavailable`: no capture record, which covers sessions archived before events were kept and all Codex sessions.
+- **Placement.** An event sits between the last request before its timestamp and the next request (`requestsBefore` in `server/src/labs/scope.ts`). The Cache Detective rebuild ledger uses the same rule.
+- **Requests until first compaction** is the number of selected requests before the first recorded event, counting excluded requests. It is available only when no loaded request precedes the sequence outside the window or cohort, and no event falls outside the window. Otherwise it reads "unavailable: the sequence starts before the window". The first loaded request is still not proof of the session's true start.
+- **Counts** are by `trigger`: auto, manual, and any other or missing value as other. An auto-to-manual ratio exists only from 10 events with at least one manual.
+- `preTokens` and `postTokens` are Claude Code's own counts, not API usage counters. Missing values are unavailable, not zero. An event with an agent id draws on that chain; without one it cannot be split by agent and draws on the main chain. Events outside a fixed window are counted, not returned.
+
+An event is a record that Claude Code compacted. It is not a cause of cost, of an input drop elsewhere or of answer quality, and it is not waste or failure.
 
 ## Labs spend spikes
 

@@ -1,12 +1,12 @@
-import { expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import * as analytics from "./analytics";
 import type { Dataset, RequestRow } from "./ocx/store";
 import { parseWindow } from "./time/window";
 
-process.env.TZ = "America/New_York";
 const tz = "America/New_York";
 
 const now = new Date("2026-03-08T16:00:00-04:00").getTime();
@@ -173,72 +173,32 @@ test("heatmap date detail ranks actual local dates across range boundaries and D
 
 test("API routes return their documented payloads and range-scoped quota and ledger", async () => {
   const home = await mkdtemp(join(tmpdir(), "yald-api-test-"));
-  const usage = rows.map((r, i) => ({ requestId: r.id, timestamp: r.ts, provider: r.provider, model: r.model, requestedModel: r.requestedModel, effectiveEffort: r.effort, status: r.status, durationMs: r.durationMs, firstOutputMs: r.ttftMs, usageStatus: r.usageStatus, usage: { inputTokens: r.inputTokens, outputTokens: r.outputTokens, totalTokens: r.totalTokens, cacheReadInputTokens: r.cacheReadTokens, cachedInputTokens: r.cacheWriteTokens, reasoningOutputTokens: r.reasoningTokens }, totalTokens: r.totalTokens, cacheProvenance: r.cacheProvenance, conversationId: r.conversationId, attempts: [], routeDecision: { selected: { provider: r.provider, model: r.model } }, errorCode: r.errorCode, spend: { sends: 1, settled: 1 }, _i: i }));
-  await writeFile(join(home, "usage.jsonl"), usage.map(x => JSON.stringify(x)).join("\n") + "\n");
-  await writeFile(join(home, "spend-ledger.jsonl"), [JSON.stringify({ kind: "dispatch", send: "s1", at: now }), JSON.stringify({ kind: "settle", send: "s1", tokens: 120, at: now })].join("\n") + "\n");
-  await writeFile(join(home, "codex-quota-cache.json"), JSON.stringify({ version: 1, history: { accounts: { a: { samples: [{ observedAt: now - 86_400_000, windows: [{ family: "account", window: "weekly", usedPercent: 40 }] }, { observedAt: now, windows: [{ family: "account", window: "weekly", usedPercent: 50 }] }] } } }, quotas: { a: { updatedAt: now, weeklyPercent: 50, weeklyResetAt: Math.floor((now + 7 * 86_400_000) / 1000) } } }));
-  process.env.OCX_HOME = home;
-  process.env.CLAUDE_PROJECTS_DIR = join(home, "claude-projects");
-  // opencodex refuses a CODEX_HOME that does not exist, so give it an empty one.
-  process.env.CODEX_HOME = join(home, "codex");
-  await mkdir(process.env.CODEX_HOME);
-  const { api } = await import("./api");
-  const paths: [string, string][] = [
-    ["/api/health", "revision"], ["/api/meta", "totals"], [`/api/overview?range=7d&to=${now + 60_000}`, "summary"],
-    ["/api/timeseries?range=7d", "series"], ["/api/models?range=7d", "scatter"], ["/api/usage?range=7d", "composition"],
-    ["/api/usage/heatmap-dates?range=all&weekday=6&hour=12&metric=tokens", "dates"],
-    ["/api/cost?range=7d", "cumulative"], ["/api/performance?range=7d", "percentiles"], ["/api/reliability?range=7d", "metering"],
-    ["/api/quota?range=7d", "burn"], ["/api/ledger?range=7d", "buckets"], ["/api/conversations?range=7d", "conversations"],
-    ["/api/conversations/c1", "points"], ["/api/filters?range=7d", "providers"],
-  ];
-  let etag = "";
-  for (const [path, field] of paths) {
-    const response = await api.request(path);
-    expect(response.status).toBe(200);
-    const payload = await response.json() as Record<string, unknown>;
-    expect(payload).toHaveProperty("ok", true);
-    expect(payload).toHaveProperty(field);
-    if (path === `/api/overview?range=7d&to=${now + 60_000}`) {
-      etag = response.headers.get("etag") ?? "";
-      expect(etag.length).toBeGreaterThan(0);
-    }
-  }
-  expect((await api.request(`/api/overview?range=7d&to=${now + 60_000}`, { headers: { "if-none-match": etag } })).status).toBe(304);
-  const clock = spyOn(Date, "now").mockReturnValue(now + 7 * 86_400_000 - 30_000);
   try {
-    const first = await api.request("/api/overview?range=7d");
-    const original = await first.json() as { summary: { requests: number }; window: { from: number; to: number } };
-    expect(original.summary.requests).toBe(2);
-    const rollingEtag = first.headers.get("etag")!;
-    expect((await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } })).status).toBe(304);
-    // Rolling windows end on the clock rounded down to the 10 s quantum: within one
-    // quantum the window, the body and the ETag stay put.
-    clock.mockReturnValue(now + 7 * 86_400_000 + 1);
-    const sameQuantum = await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } });
-    expect(sameQuantum.status).toBe(200);
-    expect((await sameQuantum.json() as typeof original).window.to).toBe(now + 7 * 86_400_000);
-    clock.mockReturnValue(now + 7 * 86_400_000 + 10_001);
-    const expired = await api.request("/api/overview?range=7d", { headers: { "if-none-match": rollingEtag } });
-    expect(expired.status).toBe(200);
-    const current = await expired.json() as typeof original;
-    expect(current.summary.requests).toBe(1);
-    expect(current.window.to - current.window.from).toBe(168 * 3_600_000);
-    expect(current.window.to).toBe(now + 7 * 86_400_000 + 10_000);
-    expect(Date.now() - current.window.to).toBeLessThan(10_000);
-    // A pinned end time still permits a 304 while the clock advances.
-    expect((await api.request(`/api/overview?range=7d&to=${now + 60_000}`, { headers: { "if-none-match": etag } })).status).toBe(304);
+    const usage = rows.map((r, i) => ({ requestId: r.id, timestamp: r.ts, provider: r.provider, model: r.model, requestedModel: r.requestedModel, effectiveEffort: r.effort, status: r.status, durationMs: r.durationMs, firstOutputMs: r.ttftMs, usageStatus: r.usageStatus, usage: { inputTokens: r.inputTokens, outputTokens: r.outputTokens, totalTokens: r.totalTokens, cacheReadInputTokens: r.cacheReadTokens, cachedInputTokens: r.cacheWriteTokens, reasoningOutputTokens: r.reasoningTokens }, totalTokens: r.totalTokens, cacheProvenance: r.cacheProvenance, conversationId: r.conversationId, attempts: [], routeDecision: { selected: { provider: r.provider, model: r.model } }, errorCode: r.errorCode, spend: { sends: 1, settled: 1 }, _i: i }));
+    await writeFile(join(home, "usage.jsonl"), usage.map(x => JSON.stringify(x)).join("\n") + "\n");
+    await writeFile(join(home, "spend-ledger.jsonl"), [JSON.stringify({ kind: "dispatch", send: "s1", at: now }), JSON.stringify({ kind: "settle", send: "s1", tokens: 120, at: now })].join("\n") + "\n");
+    await writeFile(join(home, "codex-quota-cache.json"), JSON.stringify({ version: 1, history: { accounts: { a: { samples: [{ observedAt: now - 86_400_000, windows: [{ family: "account", window: "weekly", usedPercent: 40 }] }, { observedAt: now, windows: [{ family: "account", window: "weekly", usedPercent: 50 }] }] } } }, quotas: { a: { updatedAt: now, weeklyPercent: 50, weeklyResetAt: Math.floor((now + 7 * 86_400_000) / 1000) } } }));
+    const pricing = join(home, "pricing");
+    await mkdir(join(home, "codex"));
+    await mkdir(join(home, "claude-projects"));
+    await mkdir(join(pricing, "src/usage"), { recursive: true });
+    // This case tests routes, cache identity and time boundaries, not the installed price catalog.
+    await writeFile(join(pricing, "src/usage/cost.ts"), "export function estimateRequestCost() { return null; }\n");
+    const root = resolve(import.meta.dir, "../..");
+    const result = spawnSync(process.execPath, [join(root, "tests/helpers/analytics-api-probe.ts"), String(now)], {
+      cwd: root,
+      env: {
+        ...process.env, NODE_ENV: "test", OCX_HOME: home, CODEX_HOME: join(home, "codex"),
+        CLAUDE_PROJECTS_DIR: join(home, "claude-projects"), OCX_PACKAGE_DIR: pricing,
+        TZ: tz, YALD_TZ: tz, YALD_CLOCK_QUANTUM_MS: "10000",
+      },
+      encoding: "utf8", timeout: 5000,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain("analytics API assertions passed");
   } finally {
-    clock.mockRestore();
+    await rm(home, { recursive: true, force: true });
   }
-  // Half-open windows: `to` must pass the sample and ledger events recorded at `now`.
-  const quota = await (await api.request(`/api/quota?from=${now - 60_000}&to=${now + 1}`)).json() as { observed: { samples: number } };
-  expect(quota.observed.samples).toBe(1);
-  const ledger = await (await api.request(`/api/ledger?from=${now - 60_000}&to=${now + 1}`)).json() as { distinctSends: number };
-  expect(ledger.distinctSends).toBe(1);
-  expect((await api.request("/api/export?range=7d")).headers.get("content-type")).toContain("text/csv");
-  expect((await api.request("/api/conversations/missing")).status).toBe(404);
-  const invalidHeatmapDate = await api.request("/api/usage/heatmap-dates?weekday=7&hour=24");
-  expect(invalidHeatmapDate.status).toBe(400);
 });
 
 test("class costs use the engine split, or keep an explicit adjustment so they always add up to the row cost", () => {
@@ -265,6 +225,29 @@ test("blended price per model divides priced cost by priced tokens only", () => 
   expect(model).toMatchObject({ tokens: 10_000_000, pricedTokens: 1_000_000, costPer1MTokens: 1, costPer1kTokens: 0.001 });
 });
 
+test("the slowest list leaves out stalled streams that stayed open for hours", () => {
+  const list = [
+    row({ id: "stalled", durationMs: 5 * 3_600_000 }),
+    row({ id: "slow", durationMs: 90_000 }),
+    row({ id: "fast", durationMs: 800 }),
+  ];
+  expect(analytics.slowestRequests(list, 5).map(r => r.id)).toEqual(["slow", "fast"]);
+});
+
+test("a session reports where it last ran, and allConversations is not cut", () => {
+  const list = [
+    row({ id: "a", conversationId: "s1", ts: 1000, cwd: "/work/old" }),
+    row({ id: "b", conversationId: "s1", ts: 2000, cwd: "/work/app" }),
+    row({ id: "c", conversationId: "s1", ts: 3000, cwd: null }),
+    row({ id: "d", conversationId: "s2", ts: 1000, cwd: null }),
+  ];
+  const all = analytics.allConversations(list);
+  expect(all).toHaveLength(2);
+  expect(all.find(c => c.id === "s1")!.project).toBe("/work/app");
+  expect(all.find(c => c.id === "s2")!.project).toBeNull();
+  expect(analytics.conversations(list, 1)).toHaveLength(1);
+});
+
 test("conversations rank by the requested order across every session before the cut", () => {
   const list = [
     ...Array.from({ length: 5 }, (_, i) => row({ id: `t${i}`, conversationId: `t${i}`, totalTokens: 1000 + i, cost: 0.01 })),
@@ -272,4 +255,22 @@ test("conversations rank by the requested order across every session before the 
   ];
   expect(analytics.conversations(list, 2, "tokens").map(c => c.id)).toEqual(["t4", "t3"]);
   expect(analytics.conversations(list, 2, "cost").map(c => c.id)).toEqual(["costly", "t4"]);
+});
+
+test("agent filters and groups never count a missing marker as main", () => {
+  const details = (agent: "main" | "subagent", agentType: string | null = null) => ({ agent, agentType }) as NonNullable<RequestRow["details"]>;
+  const rows = [
+    row({ id: "main", details: details("main") }),
+    row({ id: "sub", details: details("subagent", "Explore") }),
+    row({ id: "sub-untyped", details: details("subagent") }),
+    row({ id: "old", details: null }),
+    row({ id: "ocx" }),
+  ];
+  const ids = (filter: analytics.RowFilter) => analytics.filterRows(rows, filter).map(item => item.id);
+  expect(ids({ agents: ["main"] })).toEqual(["main"]);
+  expect(ids({ agents: ["subagent"] })).toEqual(["sub", "sub-untyped"]);
+  expect(ids({ agents: ["unlabelled"] })).toEqual(["old", "ocx"]);
+  expect(ids({ agentTypes: ["Explore"] })).toEqual(["sub"]);
+  expect(rows.map(item => analytics.groupKey(item, "agent"))).toEqual(["main", "subagent", "subagent", "unlabelled", "unlabelled"]);
+  expect(rows.map(item => analytics.groupKey(item, "agentType"))).toEqual(["main", "Explore", "unknown", "unknown", "unknown"]);
 });

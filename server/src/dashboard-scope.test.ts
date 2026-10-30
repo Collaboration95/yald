@@ -109,6 +109,17 @@ test("every request route honours the same source and project selection", async 
   expect(both.body.matched.requests).toBeGreaterThan(expected);
 });
 
+test("the scope lists the models in the window with counts, whatever model is selected", async () => {
+  const all = await get(`/api/scope?${q("")}`);
+  const models: { model: string; requests: number }[] = all.body.models;
+  expect(models.length).toBeGreaterThan(0);
+  expect(models.reduce((sum, entry) => sum + entry.requests, 0)).toBe(all.body.matched.requests);
+  expect(models.every((entry, index) => index === 0 || models[index - 1]!.requests >= entry.requests)).toBe(true);
+  const picked = await get(`/api/scope?${q(`models=${encodeURIComponent(models[0]!.model)}`)}`);
+  expect(picked.body.models).toEqual(models);
+  expect(picked.body.matched.requests).toBe(models[0]!.requests);
+});
+
 test("a project filter explains the usage it excluded and never assigns it to the project", async () => {
   const mixed = await get(`/api/scope?${q(`projects=${esc(appA)}`)}`);
   const total = await get(`/api/scope?${q("")}`);

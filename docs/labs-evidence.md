@@ -1,10 +1,10 @@
 # Labs case evidence
 
-Enable Labs, open Project Radar, Cache Detective, Context Replay or Spend spikes, and select a
-finding's request evidence. The case shows its observations, fixed bounds,
-source-qualified selection, eligible sample and limitations above the request list.
-Expand Complete fixed cohort and coverage to inspect every cohort dimension.
-Artwork can be hidden without losing any explanation.
+Turn on Labs, open Spikes, Projects, Cache savings or Context growth, and press a
+finding's **See the requests** button. The case is a plain table of time, model,
+project, tokens and cost. Its window, eligible sample, exclusions and limitations
+sit behind the (i) beside its title. Artwork can be hidden without losing any
+explanation.
 
 For Spend spikes the case is one local day (`selector`) plus the baseline window
 before it (`priorSelector`), recomputed from only those rows: the day's cost,
@@ -15,10 +15,26 @@ day may read as not above the threshold on its own; its change is still shown.
 
 The case URL carries its complete selection. Opening it directly, refreshing,
 reloading or changing/resetting the global toolbar keeps that fixed case. Toolbar
-filters describe your next investigation. In Radar, Current requests and Prior
-requests choose between the two original windows while retaining the full
+filters describe your next investigation. In Projects, Now and Before
+choose between the two original windows while retaining the full
 comparison. Both windows remain visible; inspecting prior requests does not
 create an earlier baseline.
+
+A branch in Projects opens the same fixed current and prior pair, narrowed to that
+branch. The detached and `no branch recorded` states work the same way, and the list adds
+a branch column.
+
+Quota pace evidence is one quota window, not a set of requests. It lists the sample
+intervals: times, used percent before and after, the change, and the tokens and cost
+recorded in the interval with the reason it was left out, if any. Where the account is
+joined to requests, an interval opens its requests. Where it is not, those figures read
+unavailable, never zero. Source filters other than `ocx` do not apply.
+
+Rebuild evidence, opened from the Cache savings rebuild ledger, lists the requests
+behind one ledger row or one chain. Each row shows its class, whether the cause is
+reported or inferred, the gap, and the previous request's model and cache counters,
+so the classification can be checked by eye. A compaction or a model switch is listed
+as what happened, not as a fault.
 
 Cache evidence lists the exact cache-accounting eligible population used for
 fixed-workload read discount, write premium and net. Original request totals and
@@ -35,11 +51,12 @@ context comparisons; observed input zero is valid. Cache is within input and
 reasoning is within output. No transcripts or request/response bodies are shown.
 
 The bounded list is ordered by timestamp, source, request ID and original order.
-Each expandable request shows source, session or unnamed identity, request ID,
-millisecond timestamp and ordinals. The page controls and request details support
-keyboard operation with visible focus in both themes. Totals always describe the
+Each row shows time, model, project, tokens and cost; rows left out of the
+comparison are dimmed. Full timestamps, request IDs and ordinals stay in the data,
+not on screen. The page controls support keyboard operation with visible focus in
+both themes. Totals always describe the
 whole selected population. Empty, short or unavailable observations stay plain
-and inspectable; they do not infer compaction, productivity, quality or cache causes.
+and inspectable; they show recorded compactions only and infer none, nor productivity, quality or cache causes.
 
 An invalid link displays an explanation. Open the finding again to recover the
 complete selector. A failed request offers Try again. With Labs disabled, no

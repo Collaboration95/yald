@@ -1,6 +1,6 @@
 {
   "name": "yald-dashboard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local, read-only analytics for opencodex and Claude Code usage, with Yaldi as Yald's detective companion",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/Collaboration95/yald.git" },
@@ -19,8 +19,8 @@
     "start": "bash -c 'scripts/bun run server/src/index.ts'",
     "smoke": "bash scripts/smoke.sh",
     "typecheck": "bash -c 'scripts/bun run --cwd web typecheck && scripts/bun run --cwd server typecheck'",
-    "test": "scripts/bun test",
-    "test:fast": "scripts/bun test --bail server/src tests/relay-style.test.ts tests/demo.test.ts",
+    "test": "node scripts/test-suite.mjs",
+    "test:fast": "node scripts/test-suite.mjs --fast",
     "lint": "scripts/bun x oxlint server/src web/src",
     "check:fast": "scripts/bun run lint && scripts/bun run test:fast",
     "hooks:install": "bash scripts/install-hooks.sh",

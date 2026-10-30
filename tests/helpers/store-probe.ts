@@ -181,8 +181,10 @@ async function command(input: Record<string, any>) {
     case "api": {
       const { api } = await import(pathToFileURL(join(root, "server/src/api.ts")).href);
       const responses = [];
-      for (const path of input.paths) {
-        const response = await api.request(path, input.etag ? { headers: { "if-none-match": input.etag } } : undefined);
+      for (const [index, path] of input.paths.entries()) {
+        // Optional per-path headers override the existing batch-wide ETag.
+        const etag = input.etags?.[index] ?? input.etag;
+        const response = await api.request(path, etag ? { headers: { "if-none-match": etag } } : undefined);
         const text = await response.text();
         responses.push({ path, status: response.status, etag: response.headers.get("etag"), type: response.headers.get("content-type"), disposition: response.headers.get("content-disposition"), csp: response.headers.get("content-security-policy"), body: text && response.headers.get("content-type")?.includes("json") ? JSON.parse(text) : text,
           // Durations differ run to run, so they are only returned on request.

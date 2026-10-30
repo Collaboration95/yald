@@ -1,10 +1,12 @@
 import { bucketLabel, filterRows, measurementCoverage, projectCoverage, type RowFilter } from "../analytics";
 import { summarizeReasons } from "../attribution";
+import type { ClaudeEvent } from "../claude/transcripts";
 import type { RequestRow } from "../ocx/store";
 import { createProjectIdentity, UNATTRIBUTED } from "../projects";
 import { sourceOf } from "../report/source";
 import type { Source } from "../report/types";
 import { makeBucketer, nextBucketStart, windowLabel } from "../time/window";
+import { branchBreakdown, pullRequestsBySession } from "./branches";
 import { analysisScope, evidenceFor, orderedRequests, type AnalysisWindow, type EvidenceSelection } from "./scope";
 
 export interface RadarTotals {
@@ -102,7 +104,7 @@ function comparison(current: RadarPeriod, prior: RadarPeriod, hasBaselineHistory
 }
 
 /** Project Radar consumes normalized, already-priced rows. Both periods use today's loaded engine. */
-export function buildProjectRadar(rows: RequestRow[], filter: RowFilter, window: AnalysisWindow) {
+export function buildProjectRadar(rows: RequestRow[], filter: RowFilter, window: AnalysisWindow, options: { events?: readonly ClaudeEvent[]; historyRows?: readonly RequestRow[] } = {}) {
   const span = window.to - window.from;
   const priorWindow: AnalysisWindow = {
     from: window.from - span, to: window.from, tz: window.tz,
@@ -114,7 +116,7 @@ export function buildProjectRadar(rows: RequestRow[], filter: RowFilter, window:
   const currentRows = orderedRequests(filterRows(rows, currentFilter));
   const priorRows = orderedRequests(filterRows(rows, priorFilter));
   let firstLoadedAt: number | null = null;
-  for (const row of rows) firstLoadedAt = Math.min(firstLoadedAt ?? row.ts, row.ts);
+  for (const row of options.historyRows ?? rows) firstLoadedAt = Math.min(firstLoadedAt ?? row.ts, row.ts);
   const historyFor = (w: AnalysisWindow) => ({
     startsBeforeLoadedHistory: firstLoadedAt === null || w.from < firstLoadedAt,
     hasLoadedHistory: span > 0 && firstLoadedAt !== null && firstLoadedAt < w.to,
@@ -138,10 +140,11 @@ export function buildProjectRadar(rows: RequestRow[], filter: RowFilter, window:
       groups.set(project, group);
     }
   }
+  const prs = pullRequestsBySession(options.events ?? []);
   const projects = [...groups.values()].map(group => {
     const selection = { kind: "project" as const, project: group.project };
-    const current = period(group.current, currentFilter, window, selection);
-    const prior = period(group.prior, priorFilter, priorWindow, selection);
+    const current = { ...period(group.current, currentFilter, window, selection), branches: branchBreakdown(group.current, window.tz, prs) };
+    const prior = { ...period(group.prior, priorFilter, priorWindow, selection), branches: branchBreakdown(group.prior, window.tz, prs, { days: false }) };
     return {
       project: group.project, gitRoot: group.gitRoot, folders: [...group.folders].sort(compareText),
       current, prior, comparison: comparison(current, prior, history.prior.hasLoadedHistory),

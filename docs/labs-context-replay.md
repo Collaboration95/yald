@@ -1,6 +1,6 @@
 # Context Replay view
 
-Enable Labs and open `/labs/context-replay`. The view consumes the real
+Turn on Labs and open `/labs/context-replay` (the Context growth tab). The view consumes the real
 `useContextReplay` / `ContextReplayResponse` boundary documented in
 [labs-context.md](labs-context.md). Sessions retain the server's source-qualified
 keys and ranking order. Growth, coverage, token totals and prices are never
@@ -31,8 +31,9 @@ as unavailable; priced zero stays `$0.00`. Reasoning remains within output and t
 view displays the server's total without adding it again.
 
 History limits, loaded-only coverage and exclusion reasons are explicit. Scope
-evidence also includes unnamed requests. An input decrease or nearby model
-change is an observation; the view infers no cause or task quality. No prompt or
+evidence also includes unnamed requests. A recorded compaction is shown as an
+event. An input decrease with no recorded event, or a nearby model change, is an
+observation; the view infers no cause or task quality. No prompt or
 response bodies are displayed.
 
 Both evidence actions preserve the server's complete `href` selector and append
@@ -61,7 +62,7 @@ YALD_PREVIEW_PORT=5507 scripts/bun run scripts/preview-context-replay.ts
 The server prints the exact fixture URL, creates private temporary opencodex,
 Codex and Claude homes plus synthetic pricing, and removes them on shutdown.
 Open your own native T3 tab with `reuseExistingTab:false` and the incognito profile.
-Enable Labs, then verify the fixture's 22 eligible / 28 selected requests and two
+Turn on Labs, then verify the fixture's 22 eligible / 28 selected requests and two
 unnamed requests. The proxy's `l07-shared` has medians 200 → 1,000, change +800,
 ratio 5; the Claude session with the same ID has 500 → 50, change −450, ratio 0.1.
 The first two proxy requests share ID and timestamp but show input 300 and 200

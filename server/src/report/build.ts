@@ -6,11 +6,12 @@
 // directory and a project resolver (the git root lookup reads the disk, so callers
 // pass `gitRoot` from projects.ts rather than this module calling it).
 import {
-  breakdown, bucketStarts, conversations as conversationRows, costComposition, filterRows,
+  allConversations, breakdown, bucketStarts, conversations as conversationRows, costComposition, filterRows,
   projectCoverage, quotaView, round, summarize, type RowFilter,
 } from "../analytics";
 import type { Dataset, RequestRow } from "../ocx/store";
 import { formatInZone, isoInZone, makeBucketer, type Instant } from "../time/window";
+import { recapNotes, workingStyle } from "../workingStyle";
 import { ALL_SOURCES, sourceOf } from "./source";
 import type { ReportData, ReportSpec, Source, Totals } from "./types";
 
@@ -348,6 +349,17 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
   let ledgerStart: number | null = null;
   for (const event of dataset.ledger.events) if (ledgerStart === null || event.at < ledgerStart) ledgerStart = event.at;
 
+  const recap = (): NonNullable<ReportData["workingStyle"]> => {
+    const style = workingStyle(rows, { tz, from, to, now: ctx.now, datasetRows: dataset.rows });
+    const biggest = allConversations(rows)[0] ?? null;
+    const biggestSession = biggest && { id: redact ? biggest.id.slice(0, 8) : biggest.id, source: biggest.source, requests: biggest.requests, costUsd: priced && biggest.pricedRequests > 0 ? biggest.cost : null };
+    return {
+      archetypes: style.archetypes, peakConcurrency: style.concurrency.maxPeak, nightShare: style.night.share,
+      activeDays: style.activity.activeDays, windowDays: style.activity.windowDays, longestStreak: style.activity.longestStreak,
+      biggestSession, topModel: topModel(rows), notes: recapNotes(style, biggestSession),
+    };
+  };
+
   return {
     schemaVersion: 1,
     meta: {
@@ -366,6 +378,7 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
     cache,
     conversations,
     quota,
+    ...(spec.recap ? { workingStyle: recap() } : {}),
     coverage: {
       sourcesRead,
       unpriced: [...unpricedByModel.entries()].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests || compare(a.model, b.model)),

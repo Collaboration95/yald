@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { RequestRow } from "../ocx/store";
 import type { ContextReplayResponse } from "../../../web/src/labs/context-types";
 import { buildContextReplay } from "./context";
-import { evidenceParams, sessionKey, type AnalysisWindow } from "./scope";
+import { evidenceParams, requestsBefore, sessionKey, type AnalysisWindow } from "./scope";
 
 const start = Date.parse("2026-10-10T00:00:00Z");
 const window: AnalysisWindow = { from: start, to: start + 1000, tz: "Asia/Singapore", label: "synthetic window" };
@@ -178,4 +178,80 @@ test("empty and fully excluded scopes are serializable and satisfy the frontend 
     expect(response.coverage.eligibleRequests + response.coverage.excludedRequests).toBe(rows.length);
     expect(response.sessions.reduce((n, s) => n + s.inWindowRequests, 0) + response.unnamedRequests).toBe(rows.length);
   }
+});
+
+test("a session with agent markers lists its chains, main first, each with its own growth", () => {
+  const base = { protocol: "claude-code", conversationId: "chains", provider: "anthropic", model: "m", totalTokens: 10, outputTokens: 0, measurements: { usage: "logical", input: true, output: true, cacheRead: true, cacheWrite: true } };
+  const rows = [
+    ...[1, 2, 3, 4, 5, 6].map(index => ({ ...base, id: `m${index}`, ts: index * 2, inputTokens: index * 100, details: { agent: "main", agentId: null, agentType: null } })),
+    ...[1, 2].map(index => ({ ...base, id: `s${index}`, ts: index * 2 + 1, inputTokens: 5, details: { agent: "subagent", agentId: "a1", agentType: "Explore" } })),
+  ] as never[];
+  const { sessions } = buildContextReplay(rows, {}, { from: 0, to: 100, tz: "UTC", label: "t" });
+  expect(sessions[0]!.chains!.map(chain => [chain.key, chain.requests, chain.growth.ranked])).toEqual([["main", 6, true], ["a1", 2, false]]);
+  expect(sessions[0]!.requests.find(request => request.id === "s1")).toMatchObject({ chain: "a1" });
+});
+
+test("a session with no markers has no chains to pick", () => {
+  const rows = [{ id: "r", ts: 1, protocol: "responses", conversationId: "x", provider: "p", model: "m", inputTokens: 1, outputTokens: 0, totalTokens: 1, measurements: { usage: "logical", input: true, output: true, cacheRead: true, cacheWrite: true } }] as never[];
+  expect(buildContextReplay(rows, {}, { from: 0, to: 100, tz: "UTC", label: "t" }).sessions[0]!.chains).toBeNull();
+});
+
+describe("recorded compactions", () => {
+  const window = { from: 1_000, to: 2_000, tz: "UTC", label: "t" };
+  const measured = { usage: "logical", input: true, output: true, cacheRead: true, cacheWrite: true };
+  const row = (id: string, ts: number, overrides: Record<string, unknown> = {}) => ({ id, ts, protocol: "claude-code", conversationId: "c", provider: "anthropic", model: "m", totalTokens: 10, inputTokens: 10, outputTokens: 0, measurements: measured, ...overrides }) as never;
+  const rows = (...times: number[]) => times.map((ts, index) => row(`r${index}`, ts));
+  const compact = (ts: number, trigger: string | null = "auto", extra: Record<string, unknown> = {}) => ({ key: `c${ts}`, kind: "compact", sessionId: "c", ts, agentId: null, trigger, preTokens: 900, postTokens: 100, durationMs: 5, ...extra }) as never;
+  const captured = { key: "captured:c", kind: "captured", sessionId: "c", ts: 0 } as never;
+  const session = (data: never[], events: never[]) => buildContextReplay(data, {}, window, events).sessions[0]!.compaction;
+
+  test("a session with events reads recorded, each between the same two requests as the ledger rule", () => {
+    const result = session(rows(1_100, 1_200, 1_300, 1_400), [captured, compact(1_250), compact(1_350, "manual"), compact(1_360, "weird")]);
+    expect(result).toMatchObject({ state: "recorded", auto: 1, manual: 1, other: 1, requestsUntilFirst: 2, requestsUntilFirstUnavailable: null });
+    expect(result.events.map(event => [event.position, event.requestsSincePrevious])).toEqual([[2, 2], [3, 1], [3, 0]]);
+    expect(requestsBefore([1, 2, 2, 3], 2)).toBe(1);
+  });
+
+  test("a captured session without events reads none recorded, and never infers one from an input drop", () => {
+    const dropped = [row("a", 1_100, { inputTokens: 500_000 }), row("b", 1_200, { inputTokens: 10 })];
+    expect(session(dropped, [captured])).toMatchObject({ state: "none recorded", events: [], requestsUntilFirst: null });
+  });
+
+  test("a session archived before event capture is unavailable, and Codex is never captured", () => {
+    expect(session(rows(1_100), [])).toMatchObject({ state: "unavailable", events: [] });
+    expect(session([row("a", 1_100, { protocol: "responses" })], [captured, compact(1_150)])).toMatchObject({ state: "unavailable", events: [] });
+  });
+
+  test("events survive the transcript: the archive alone gives the state and the counts", () => {
+    expect(session(rows(1_100, 1_300), [compact(1_200)])).toMatchObject({ state: "recorded", requestsUntilFirst: 1 });
+  });
+
+  test("a clipped sequence keeps its events but not requests until first", () => {
+    const result = session([...rows(1_100, 1_300), row("before", 500)], [compact(1_200)]);
+    expect(result).toMatchObject({ requestsUntilFirst: null, requestsUntilFirstUnavailable: "the sequence starts before the window", auto: 1 });
+  });
+
+  test("an event outside the window is counted, not returned, and makes the first one unknown", () => {
+    const result = session(rows(1_100, 1_300), [compact(900), compact(1_200)]);
+    expect(result).toMatchObject({ outsideWindowEvents: 1, requestsUntilFirst: null });
+    expect(result.events.map(event => event.ts)).toEqual([1_200]);
+  });
+
+  test("missing recorded fields stay null, and a chain keeps its agent", () => {
+    const [event] = session(rows(1_100, 1_300), [compact(1_200, null, { preTokens: null, postTokens: null, durationMs: null, agentId: "a1" })]).events;
+    expect(event).toMatchObject({ trigger: null, preTokens: null, postTokens: null, durationMs: null, chain: "a1" });
+  });
+
+  test("the scope counts sessions per state, and a ratio needs enough events", () => {
+    const events = Array.from({ length: 9 }, (_, index) => compact(1_101 + index));
+    const data = (extra: never[]) => buildContextReplay(rows(1_100, 1_300), {}, window, [...events, ...extra]).coverage.compaction;
+    expect(data([])).toMatchObject({ recordedSessions: 1, events: 9, auto: 9, autoPerManual: null, medianRequestsUntilFirst: 1, requestsUntilFirstSessions: 1 });
+    expect(data([compact(1_250, "manual")]).autoPerManual).toBe(9);
+  });
+
+  test("the limitations hold the new position and no finding infers a compaction", () => {
+    const { limitations } = buildContextReplay(rows(1_100), {}, window, []);
+    expect(limitations.join(" ")).toContain("An input drop with no recorded event establishes nothing");
+    expect(limitations.join(" ")).toContain("No recorded compaction is not no compaction");
+  });
 });

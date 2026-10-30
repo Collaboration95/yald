@@ -199,27 +199,20 @@
 
 :root .relay-activity > div { border-top: 1px solid var(--line); padding: 16px 0 0; }
 :root .relay-activity p { margin: 0; font-size: 11px; line-height: 1.7; }
-:root .relay-activity .relay-activity-label { margin-bottom: 5px; font-size: 9px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
-:root .relay-activity > p { margin: 11px 0 0; padding: 6px 8px; font-size: 10px; line-height: 1.5; }
 
 :root .relay-workspace { min-width: 0; padding: 0 30px; }
 
 :root .relay-heading {
-  display: block;
-  margin-bottom: 25px;
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  /* Always room for the idle Yaldi, so hiding it or a page without it never moves the content. */
+  min-height: 72px;
+  margin-bottom: 18px;
   padding: 0;
   border: 0;
   background: transparent;
-}
-
-:root .relay-eyebrow {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: .015em;
 }
 
 :root .relay-heading h1 {
@@ -231,14 +224,63 @@
   line-height: 1.12;
 }
 
-:root .relay-heading p {
-  max-width: 70ch;
-  margin: 7px 0 0;
+:root .idle-yaldi {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:root .idle-yaldi button {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+:root .idle-yaldi button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:root .idle-yaldi button[data-moving] {
+  animation: idle-yaldi-step 1.4s ease-in-out;
+}
+
+:root .idle-yaldi-bubble {
+  max-width: 220px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 5px 10px;
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+@keyframes idle-yaldi-step {
+  0%, 100% { transform: translate(0, 0); }
+  30% { transform: translate(-5px, -3px); }
+  60% { transform: translate(3px, 0); }
+}
+
+/* No room beside the title: Yaldi goes, and the heading gives its space back. */
+@media (max-width: 860px) {
+  :root .idle-yaldi { display: none; }
+  :root .relay-heading { min-height: 0; }
+}
+
+:root .relay-updating-chip {
+  border-radius: 999px;
+  background: var(--surface-3);
+  padding: 2px 9px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 :root .relay-toolbar {
@@ -291,42 +333,6 @@
   align-items: start;
 }
 
-/* Independent stacks let the next widget follow its own column's content. */
-:root .overview-board {
-  display: grid;
-  grid-template-columns: minmax(0, 1.85fr) minmax(290px, .72fr);
-  align-items: start;
-  gap: 24px;
-}
-
-:root :is(.overview-main-stack, .overview-side-stack, .overview-signal-stack) {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  min-width: 0;
-}
-
-:root .overview-signals {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 24px;
-}
-
-:root .leaderboard-list { display: grid; gap: 20px; }
-:root .leaderboard-row { min-width: 0; }
-:root .leaderboard-topline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
-:root .leaderboard-model { max-width: 100%; font-size: 13.5px; line-height: 1.5; letter-spacing: 0; }
-:root .leaderboard-model > .truncate { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-weight: 650; }
-:root .leaderboard-totals { display: grid; gap: 2px; text-align: right; font-size: 11.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
-:root .leaderboard-volume { color: var(--text-soft); font-weight: 650; }
-:root .leaderboard-volume > span { color: var(--muted); font-size: 10px; font-weight: 500; }
-:root .leaderboard-cost { color: var(--muted); }
-:root .leaderboard-bar { margin-top: 9px; }
-:root .leaderboard-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 9px; }
-:root .leaderboard-metrics > div { min-width: 0; }
-:root .leaderboard-metrics dt { color: var(--muted); font-size: 10.5px; line-height: 1.5; letter-spacing: .015em; }
-:root .leaderboard-metrics dd { margin: 3px 0 0; color: var(--text-soft); font-size: 12px; font-weight: 650; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 :root .relay-content .grid:has(> .stat-card) {
   gap: 20px 0;
@@ -495,36 +501,6 @@
   box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
 }
 
-/* Secondary comparisons sit on the paper instead of adding another card wall. */
-:root .overview-open-panel,
-:root .relay-content[data-page="models"] > .space-y-3 > .grid:nth-child(2) > .widget-card,
-:root .relay-content[data-page="performance"] > .space-y-3 > .grid:nth-child(4) > .widget-card {
-  border-width: 1px 0 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 23px 0 0;
-  box-shadow: none;
-}
-
-:root .overview-cost,
-:root .relay-content[data-page="cost"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child {
-  background: var(--relay-peach);
-  border-color: transparent;
-  box-shadow: none;
-}
-
-:root .relay-content[data-page="quota"] > .space-y-3 > .grid:nth-child(2) > .widget-card:last-child {
-  background: var(--relay-lavender);
-  border-color: transparent;
-  box-shadow: none;
-}
-
-:root .relay-content[data-page="reliability"] > .space-y-3 > .grid:nth-child(2) > .widget-card:first-child {
-  background: var(--relay-mint);
-  border-color: transparent;
-  box-shadow: none;
-}
-
 /* Tables stay dense, locally scrollable and fully legible. No columns are removed. */
 :root .widget-card:has(.table-shell) {
   border-width: 1px 0 0;
@@ -659,52 +635,8 @@
   border-radius: 3px;
 }
 
-:root .relay-content[data-page="quota"] .widget-card .h-1\.5.w-full.overflow-hidden {
-  height: 12px;
-  background: var(--surface-3);
-}
-
-:root .relay-content[data-page="quota"] .widget-card .rounded-xl.border.p-2\.5 {
-  padding: 17px 10px 12px;
-  border-color: var(--line-strong);
-  border-radius: 10px;
-  background: var(--surface);
-}
-
 :root .relay-content :is([role="meter"], [role="progressbar"]) {
   border-radius: 4px;
-}
-
-:root .heatmap-slider::-webkit-slider-runnable-track {
-  height: 6px;
-  border-color: var(--line-strong);
-  background: var(--surface-2);
-}
-
-:root .heatmap-slider::-webkit-slider-thumb {
-  border-color: var(--relay-coral);
-  background: var(--relay-coral);
-  border-radius: 6px;
-  box-shadow: none;
-}
-
-:root .heatmap-slider::-moz-range-thumb {
-  border-color: var(--relay-coral);
-  background: var(--relay-coral);
-  border-radius: 6px;
-  box-shadow: none;
-}
-
-:root .relay-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px 20px;
-  margin-top: 33px;
-  padding: 15px 0 30px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
 }
 
 /* Wrapped metric rows start on the same editorial edge as the first row. */
@@ -729,6 +661,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root .idle-yaldi button[data-moving] { animation: none; }
   :root { scroll-behavior: auto; }
   :root .relay-app * { animation: none !important; transition: none !important; }
 }

@@ -8,7 +8,7 @@ All endpoints return JSON except `/api/export` and `/api/report?format=html`. Ea
 
 Every `/api/*` response, `304 Not Modified` included, carries `Server-Timing: build;dur=<ms>, compute;dur=<ms>`. `build` is the time spent getting the dataset (checking the files and rebuilding when they changed); `compute` is the time in the route itself. A body served from the memo adds `memo;desc="hit"`. The header holds durations only, never data.
 
-Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
+Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `agents` (`main`, `subagent`, `unlabelled`), `agentTypes`, `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `agent`, `agentType`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
 
 ## Time windows
 
@@ -110,6 +110,7 @@ The report `yald report` produces, from the running server: KPIs, a phase table,
 | `top` | Conversations to list: default 10, at most 100 (larger values are capped) |
 | `redact` | `1` (default) or `0`. Redaction cuts conversation ids to 8 characters, shows the home directory as `~` and replaces account labels, because the output is meant to be shared |
 | `title` | Heading; default `yald report · <window label>` |
+| `recap` | `1` adds the opt-in `workingStyle` block ([working style](metrics.md#working-style)). Default off |
 | `format` | `json` (default) or `html`; anything else is `invalid_format` |
 | `download` | `1` adds `Content-Disposition: attachment; filename="yald-report-<local from>.<ext>"`, e.g. `yald-report-2026-10-11T0900+0800.html` |
 
@@ -133,9 +134,9 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | Route | Additional query parameters | Response |
 | --- | --- | --- |
 | `GET /api/health` | — | `ok`, dataset `revision`, row count, parse timing, malformed-line count, pricing status |
-| `GET /api/meta` | — | Paths, file stats, parse info, totals, providers/models/efforts, quota and ledger summaries |
+| `GET /api/meta` | — | Paths, file stats, parse info, `versions` (`yald`, `opencodex`), totals, providers/models (`models` sorted by name, `modelsByUse` most used first)/efforts, quota and ledger summaries |
 | `GET /api/window` | Window parameters; repeated `phase` | The resolved window and phases; no data |
-| `GET /api/report` | Window parameters; repeated `phase`, `sources`, `projects`, `top`, `redact`, `title`, `format`, `download` | `{ ok, report }` (`ReportData`) or the standalone HTML report; see [`GET /api/report`](#get-apireport) |
+| `GET /api/report` | Window parameters; repeated `phase`, `sources`, `projects`, `top`, `redact`, `recap`, `title`, `format`, `download` | `{ ok, report }` (`ReportData`) or the standalone HTML report; see [`GET /api/report`](#get-apireport) |
 | `GET /api/overview` | Shared parameters | Window, summary, prior-period comparison (the equally long window just before, `[from − span, from)`), deltas, sparkline, series, compositions, leaders, heatmap, context, quota, recent rows |
 | `GET /api/timeseries` | Shared; `limit` | Window and grouped series |
 | `GET /api/models` | Shared | Model/provider/effort breakdowns, scatter points, effort matrix |
@@ -145,14 +146,19 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/cost` | Shared | Summary, cost composition (with `adjustment`), `pricedTokens`, cost series/cumulative totals, cache savings, breakdowns, the ten costliest sessions across all sessions |
 | `GET /api/cost/structure` | Shared; `bucket` | Session cost concentration, blended price by price tier over time and token-class cost mix per source, priced rows only; see [`GET /api/cost/structure`](#get-apicoststructure) |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
-| `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
+| `GET /api/subagents` | Shared | [Subagents](metrics.md#subagents): `claude` with `labelledShare`, `shares` per agent kind, `overTime`, `fanOut`, `byType`, `byDepth`, `startup` (capped `points`), `byProject` and `byModel`; `codex` with `rootThread` and `subagentThread` |
+| `GET /api/turns` | Shared | [Agent turns](metrics.md#agent-turns-and-tools), Claude Code only: `coverage`, `turns` (depth bins with share of turns and of priced cost, recorded ends), `autonomy` (null without prompt counts), `tools` (null without transcript structure), `overTime`, `stops`. Names and counts only |
+| `GET /api/style` | Shared | [Working style](metrics.md#working-style): `archetypes` with shares of sessions, requests and priced cost, `concurrency`, `activity` (days with data, streaks), `hours`, `night` and `totals` |
+| `GET /api/reliability` | Shared; `gapMinutes` (1-1440, default 10) | Outcome report, recent failures, [outage episodes](metrics.md#reliability-and-retries) in `episodes`, waste, metering, retry overhead |
 | `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |
 | `GET /api/ledger` | Window parameters, `sources`; other shared filters are declared ignored | Account-wide spend-ledger counts and selected-range buckets, send/token totals, account `scope` |
-| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Conversations ranked by `sort` across every session in the selection, then cut to `limit`; aggregate totals |
-| `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
+| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Sessions ranked by `sort` across every session in the selection, then cut to `limit`; each carries `project`, the folder it last ran in (or null). `totals.conversations` and the medians cover every session, not just the page returned |
+| `GET /api/session-titles` | None | `{ ok, titles }`: titles Claude Code recorded in transcripts still on disk, by session id. In memory only; served `no-store`, and absent from every other route, the archive, exports and reports |
+| `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests, [`anatomy`](metrics.md#session-anatomy) (chains with capped request ticks and context points, recorded compactions, stats) and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |
-| `GET /api/labs/evidence` | Fixed JSON `selector`, `investigation`, optional paired `priorSelector`/`period`, bounded `offset`/`limit` | Descriptive case, full-population totals and source-qualified request metadata; independent of toolbar mirrors |
+| `GET /api/labs/quota` | `sources`, `tz`; the window and request filters do not apply | Pace, forecast range and exchange rate per account and window; see below |
+| `GET /api/labs/evidence` | Fixed JSON `selector`, `investigation`, optional paired `priorSelector`/`period`, bounded `offset`/`limit`, optional `interval` for quota cases | Descriptive case, full-population totals and source-qualified request metadata; independent of toolbar mirrors |
 | `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present) that also carries `reasons`, the same breakdown as `coverage.attribution.unattributed.reasons`. With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
 | `GET /api/export` | Shared; `dataset` (`requests`, `models`, `conversations`) | CSV attachment for the filtered rows, named for the local window, e.g. `yald-requests-2026-10-11T0900+0800--2026-10-11T1700+0800.csv` |
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
@@ -212,9 +218,11 @@ session route only `sessionSource` remains because it identifies the open sessio
 Selecting both sources serializes as the default (no `sources` parameter).
 
 `/api/scope` gives the toolbar a consistent count and the existing project
-attribution coverage. No-match results show a reset action. Quota remains visible
-with an account-scope explanation even when no requests match; session detail
-shows its own matching and excluded counts.
+attribution coverage. No-match results show a reset action. The Overview plan-usage card is
+account-wide and is not narrowed by request filters; session detail shows its own
+matching and excluded counts. `models` lists the models with requests in the
+window under the other filters, with counts, most used first; the toolbar uses it
+for the Model filter.
 
 ### Account observations
 
@@ -308,6 +316,7 @@ Each scope/project `current` and `prior` period contains:
 | `sources` | `{source,...totals}` rows, request count descending, tokens descending, source ascending |
 | `models` | `{source,provider,model,...totals}` rows, request count descending, tokens descending, then source/provider/model ascending; equal model names from different sources/providers remain separate |
 | `evidence` | `{selector,href}` from shared `evidenceFor`; scope or exact project selection, with `eligibility: "all"` |
+| `branches` | On each project's `current` and `prior`: `rows` with `state` (`named`, `detached`, `unrecorded`), `name`, `bases`, `sources`, `sessions`, `requests`, `tokens`, priced totals, `firstTs`, `lastTs`, `activeDays`, `prs` (the first 8), `prCount` and `days` (costliest branches of the current period only), plus `namedBranches`, `requests` by state, `recordedShare` and per-source `coverage`. Rows sum to the project's totals; PR figures overlap and are not sums |
 
 `projects` includes the union of both periods' exact project identities and an
 always-present `(unattributed)` group (zero when a project filter excluded it).
@@ -470,7 +479,44 @@ coverage, lower-bound rates and write-TTL limitation. See
 [Net cache economics](metrics.md#net-cache-economics) for interpretation.
 The evidence href opens the `/labs/evidence` boundary, whose replay uses
 exported `cacheEligibility` from `server/src/labs/cache.ts`.
+
+`rebuilds` is the cache write bill and rebuild ledger, with its own population
+(see [Cache rebuild ledger](metrics.md#cache-rebuild-ledger)). Anthropic rows only;
+`notApplicableRequests` counts the rest, and `state` is `not-applicable` when there
+are no Anthropic rows, `insufficient` below `minChains` eligible chains, else `observed`.
+
+| `rebuilds` field | Meaning |
+| --- | --- |
+| `coverage` | Anthropic `totalRequests`, `eligibleRequests`, `excluded` by reason, `eligibleChains`, `totalChains` and `clippedChains` (first request outside the selection) |
+| `writeBill` | `tokenShare` and `costShare` by class, `tokens`, `cost`, `totalCostUsd`, and `ttl` write tokens by lifetime. Null without Anthropic rows; the class fields are absent without a priced row |
+| `ledger` | `session-start`, `subagent-start`, then each cause: `requests`, `label` (`first request`, `reported`, `inferred`, `no evidence`), `writeTokens`, `writeCostUsd`, `rewrittenTokens`, `premiumUsd`, `pricedRequests`, `unpricedRequests`, `borrowedRateRequests` and a fixed `evidence` selector. Rewritten, premium and priced are null on the start rows |
+| `totals` | Rebuild requests by reported, inferred and no evidence, rewritten tokens and the upper-bound premium. Never add this premium to `writePremiumUsd` |
+| `reasons` | Raw `cache_miss_reason` values with counts |
+| `warmByGap`, `warmMinRequests` | Requests and warm share per gap bucket; `warmShare` is null below the minimum |
+| `interleaving` | Apparent busts `bySession` and `byChain`, and how many `disappeared` |
+| `topChains` | Chains with the largest premium, each with a `chain` evidence selector |
+| `notes` | The basis and limits of these figures |
 `/api/conversations/:id` is not a substitute for case evidence.
+
+### `GET /api/labs/quota` — quota pace
+
+Returns `{ok,analysis:"quota-pace",version:1,entries,minimums,notes,scope}`. `scope`
+is the account scope with its `ignored` filters; a Claude-only selection has no
+entries. See [Quota pace](metrics.md#quota-pace) for the rules.
+
+| Entry field | Meaning |
+| --- | --- |
+| `account`, `window`, `lengthMs`, `sources` | The account label, window name, length and sample sources. `lengthMs` is null for an unknown name |
+| `state` | `current`, `expired`, `no-reset` or `unknown-length` |
+| `sampleCount`, `samplesWithoutReset`, `instanceCount` | History size. Samples without a reset belong to no instance |
+| `instance` | `startMs`, `resetAtMs`, `samples`, `sources` of the latest instance |
+| `age` | `sampleAt`, `ageMs`, and `fresh` within 24 hours |
+| `pace` | `usedPercent`, `evenPercent`, `deltaPoints`, `daysToReset`. Null unless `current` |
+| `otherOpenWindows` | Other unexpired instances under this label |
+| `forecast` | `state` (`range`, `insufficient`, `not-applicable`), `weekdays`, `history`, per-path `paths` dates, `runsOutIn`, and `earliestAt`/`latestAt`. `latestAt` is null unless all three paths run out |
+| `chart` | Even grid of `ts`, `used`, `even`, `low`, `typical`, `high` over the instance |
+| `exchange` | `state`, `reason` (`no-account-join`, `too-few-intervals`), interval and exclusion counts, and when available `tokensPerPoint`, `costPerPoint`, `spread`, `mix`, `ratios` |
+| `evidence` | Fixed `{selector,href}` for the instance |
 
 ### `GET /api/labs/evidence` — fixed case evidence
 
@@ -510,7 +556,31 @@ recorded-token, priced/unpriced, priced-USD and unattributed totals before
 pagination. Eligible and excluded counts/reasons partition the original population.
 Cache's evidence population contains only cache-accounting eligible rows, while
 its original population discloses the exclusions. Context/Radar list all selected
-rows. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
+rows. A Cache selector with `eligibility: "rebuild"` lists the rebuild ledger
+instead: every rebuild, or one ledger row with an optional `cause` (`session-start`,
+`subagent-start`, `reported`, `compaction`, `model-switch`, `idle-gap`, `no-evidence`).
+It also accepts the selection `{kind:"chain",source,conversationId,agentId}`, with
+`agentId: "main"` for the main agent. Its observation adds `rebuild` with the ledger
+totals for the fixed window and cohort, its priced subtotals are plain priced-row
+sums, and each row adds `rebuild` with `class`, `label`, `signals`, `reason`, `gapMs`,
+`agentId`, `rewrittenTokens`, `premiumUsd`, `borrowedRate` and the previous request's
+`id`, `model`, `cacheReadTokens` and `cacheWriteTokens`. A `cause` or a `chain` outside
+rebuild eligibility is a 400.
+
+Project Radar also accepts the selection `{kind:"branch",project,state,branch}`. `state`
+is `named`, `detached` or `unrecorded`, and `branch` is required for `named` and refused
+otherwise, so a branch literally named `unrecorded` cannot collide with the bucket. Both
+selectors of the pair carry the same selection, and each row includes `gitBranch`.
+
+A `quota-pace` case takes the selection `{kind:"account",account,window}`, must include
+source `ocx`, and has the instance `[start, reset)` as its window. Other cohort fields
+do not apply. It lists sample intervals, not requests: `observation.intervals` holds
+`index`, `fromTs`, `toTs`, `usedBefore`, `usedAfter`, `change`, `requests`, `tokens`,
+`costUsd` and `exclusion` (`reset`, `fell`, `no-change`, `gap`, or null), paged by
+`offset`/`limit` in `observation.intervalPage`. Request figures are null when the account
+is not joined. `interval=<index>` returns that interval's requests in `rows` instead,
+paged by `page`. An index outside the window is a 400, and so is `interval` on any other
+investigation. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
 `actualUsd`: exact eligible pricing amounts accumulated in original dataset order,
 then rounded once to six decimal USD places with ties away from zero.
 `population.original.pricedCostUsd` independently sums all selected priced row

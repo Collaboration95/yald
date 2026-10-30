@@ -1,7 +1,7 @@
 import { useChartStyle } from "../lib/chartStyle";
 import { clsx } from "clsx";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ChevronDown, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Info, Loader2 } from "lucide-react";
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
   return <section className={clsx("card widget-card min-w-0", padded && "p-4", className)}>{children}</section>;
@@ -16,6 +16,73 @@ export function CardHeader({ title, subtitle, action, className }: { title: Reac
       </div>
       {action ? <div className="widget-action flex shrink-0 items-center gap-1.5">{action}</div> : null}
     </header>
+  );
+}
+
+/** A small (i) that holds method, coverage and caveat text instead of a paragraph on the page. */
+export function InfoTip({ children, label = "More info", align = "left", className }: { children: ReactNode; label?: string; align?: "left" | "right"; className?: string }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  return (
+    <span className={clsx("info-tip relative inline-flex align-middle", className)} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-describedby={open ? id : undefined}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted transition hover:text-ink focus-visible:text-ink"
+      >
+        <Info size={12} strokeWidth={2} />
+      </button>
+      {open ? (
+        <span
+          id={id}
+          role="tooltip"
+          className={clsx("info-tip-body fade-in absolute top-full z-50 mt-1 w-[min(300px,calc(100vw-2rem))] rounded-lg border border-line bg-surface px-3 py-2 text-left text-[11.5px] font-normal normal-case leading-[1.45] tracking-normal text-ink-soft shadow-xl", align === "right" ? "right-0" : "left-0")}
+        >
+          {children}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Marks a metric or section that only covers some of the traffic, with the detail one hover away. */
+export function PartialBadge({ children, label = "Partial" }: { children: ReactNode; label?: string }) {
+  return <Badge tone="warn" className="gap-0.5">{label}<InfoTip label={`${label}: details`}>{children}</InfoTip></Badge>;
+}
+
+/** Tags a section whose numbers only exist for opencodex requests, so Claude Code is never shown as rows of "—". */
+export function CodexOnly({ className }: { className?: string }) {
+  return (
+    <span className={clsx("inline-flex items-center gap-1", className)}>
+      <Badge className="normal-case tracking-normal">Codex only</Badge>
+      <InfoTip label="About Codex-only numbers">Timing and outcomes come from the opencodex proxy. Claude Code transcripts do not record them, so those requests are left out.</InfoTip>
+    </span>
+  );
+}
+
+/** Says nothing at 95% coverage or better; below that, a "Partial" badge with the counts one hover away. */
+export function CoverageBadge({ sample, what = "measured" }: { sample: { eligibleRequests: number; totalRequests: number } | undefined; what?: string }) {
+  if (!sample || sample.totalRequests === 0 || sample.eligibleRequests / sample.totalRequests >= 0.95) return null;
+  return <PartialBadge>{sample.eligibleRequests.toLocaleString("en-US")} of {sample.totalRequests.toLocaleString("en-US")} requests {what}. The rest are left out.</PartialBadge>;
+}
+
+/** The first `limit` rows, then a "Show all" button: no inner-scroll boxes with half-cut rows. */
+export function Expandable<T>({ items, limit = 8, children }: { items: T[]; limit?: number; children: (rows: T[]) => ReactNode }) {
+  const [all, setAll] = useState(false);
+  const rows = all ? items : items.slice(0, limit);
+  return (
+    <>
+      {children(rows)}
+      {items.length > limit ? (
+        <button type="button" onClick={() => setAll(current => !current)} className="mt-2 text-[11.5px] font-medium text-accent hover:underline">
+          {all ? "Show fewer" : `Show all ${items.length.toLocaleString("en-US")}`}
+        </button>
+      ) : null}
+    </>
   );
 }
 
@@ -47,6 +114,8 @@ export function Stat({
   spark,
   icon,
   tone = "neutral",
+  info,
+  tag,
 }: {
   label: string;
   value: ReactNode;
@@ -56,6 +125,10 @@ export function Stat({
   spark?: number[];
   icon?: ReactNode;
   tone?: Tone;
+  /** Method or coverage detail, shown in an (i) next to the label. */
+  info?: ReactNode;
+  /** Short scope tag next to the label, e.g. "Codex only". */
+  tag?: string;
 }) {
   const deltaColor = delta === null || delta === undefined
     ? "text-muted"
@@ -78,15 +151,18 @@ export function Stat({
     <div className="card stat-card relative overflow-hidden p-3.5" data-stat={label} data-tone={tone}>
       <div className={clsx("stat-accent absolute left-0 top-0 h-full w-[3px]", accentBar[tone])} />
       <div className="flex items-start justify-between gap-2">
-        <p className="stat-label text-[11px] font-medium uppercase tracking-[0.04em] text-muted">{label}</p>
+        <p className="stat-label flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
+          {label}
+          {info ? <InfoTip label={`${label}: details`}>{info}</InfoTip> : null}
+        </p>
         {icon ? <span className="text-muted">{icon}</span> : null}
       </div>
       <p className="stat-value num mt-2 text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">{value}</p>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="stat-hint min-w-0 truncate text-[11px] text-muted">{hint}</div>
+        <div className="stat-hint flex min-w-0 items-center gap-1.5 truncate text-[11px] text-muted">{tag ? <Badge className="normal-case tracking-normal">{tag}</Badge> : null}{hint}</div>
         {delta !== undefined ? (
-          <span className={clsx("num shrink-0 text-[11px] font-semibold", deltaColor)}>
-            {delta === null ? "—" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(1)}%`}
+          <span title="vs the previous period of the same length" className={clsx("num shrink-0 text-[11px] font-semibold", deltaColor)}>
+            {delta === null ? "—" : `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(Math.abs(delta) >= 1 ? 0 : 1)}%`}
           </span>
         ) : null}
       </div>
@@ -133,7 +209,7 @@ export function Segmented<T extends string>({ value, options, onChange, size = "
   );
 }
 
-export function Popover({ label, children, active, width = 280, align = "right" }: { label: ReactNode; children: ReactNode; active?: boolean; width?: number; align?: "left" | "right" }) {
+export function Popover({ label, children, active, width = 280, align = "right", ariaLabel, chevron = true }: { label: ReactNode; children: ReactNode; active?: boolean; width?: number; align?: "left" | "right"; ariaLabel?: string; chevron?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -165,6 +241,7 @@ export function Popover({ label, children, active, width = 280, align = "right" 
         type="button"
         aria-expanded={open}
         aria-controls={id}
+        aria-label={ariaLabel}
         onClick={() => setOpen(current => !current)}
         className={clsx(
           "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11.5px] font-medium transition",
@@ -172,13 +249,13 @@ export function Popover({ label, children, active, width = 280, align = "right" 
         )}
       >
         {label}
-        <ChevronDown size={12} className={clsx("transition", open && "rotate-180")} />
+        {chevron ? <ChevronDown size={12} className={clsx("transition", open && "rotate-180")} /> : null}
       </button>
       {open ? (
         <div
           id={id}
           className={clsx("fade-in absolute z-40 mt-1.5 max-h-[380px] overflow-auto rounded-xl border border-line bg-surface p-2 shadow-xl", align === "right" ? "right-0" : "left-0")}
-          style={{ width }}
+          style={{ width, maxWidth: "calc(100vw - 1.5rem)" }}
         >
           {children}
         </div>
@@ -187,29 +264,57 @@ export function Popover({ label, children, active, width = 280, align = "right" 
   );
 }
 
-export function CheckList({ items, selected, onToggle, empty = "No options" }: { items: string[]; selected: string[]; onToggle: (value: string) => void; empty?: string }) {
+export function CheckList({ items, selected, onToggle, empty = "No options", labelFor, counts, searchable }: {
+  items: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  empty?: string;
+  /** Display text for an item whose stored value is not meant to be read. */
+  labelFor?: (item: string) => string;
+  counts?: Record<string, number>;
+  /** Show a search box; by default only lists longer than eight get one. */
+  searchable?: boolean;
+}) {
+  const [query, setQuery] = useState("");
   if (items.length === 0) return <p className="px-2 py-3 text-[11.5px] text-muted">{empty}</p>;
+  const label = (item: string) => labelFor?.(item) ?? item;
+  const needle = query.trim().toLowerCase();
+  const visible = needle ? items.filter(item => `${label(item)} ${item}`.toLowerCase().includes(needle)) : items;
   return (
-    <ul className="space-y-0.5">
-      {items.map(item => {
-        const checked = selected.includes(item);
-        return (
-          <li key={item}>
-            <button
-              type="button"
-              aria-pressed={checked}
-              onClick={() => onToggle(item)}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-ink-soft transition hover:bg-surface-3"
-            >
-              <span className={clsx("flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border", checked ? "border-accent bg-accent text-white" : "border-line-strong")}>
-                {checked ? <Check size={10} strokeWidth={3} /> : null}
-              </span>
-              <span className="truncate">{item}</span>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      {searchable ?? items.length > 8 ? (
+        <input
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          aria-label="Search options"
+          placeholder="Search…"
+          className="mb-1.5 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[11.5px] text-ink outline-none placeholder:text-muted focus:border-accent/50"
+        />
+      ) : null}
+      {visible.length === 0 ? <p className="px-2 py-3 text-[11.5px] text-muted">No match</p> : null}
+      <ul className="space-y-0.5">
+        {visible.map(item => {
+          const checked = selected.includes(item);
+          return (
+            <li key={item}>
+              <button
+                type="button"
+                aria-pressed={checked}
+                onClick={() => onToggle(item)}
+                title={label(item) === item ? undefined : item}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-ink-soft transition hover:bg-surface-3"
+              >
+                <span className={clsx("flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border", checked ? "border-accent bg-accent text-white" : "border-line-strong")}>
+                  {checked ? <Check size={10} strokeWidth={3} /> : null}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{label(item)}</span>
+                {counts && counts[item] !== undefined ? <span className="num shrink-0 text-muted">{counts[item]!.toLocaleString("en-US")}</span> : null}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
@@ -260,6 +365,7 @@ export function Th({ children, align = "left", className, onClick, active, asc }
     <th
       className={clsx(
         "whitespace-nowrap border-b border-line px-2 py-2 text-[10.5px] font-semibold uppercase tracking-[0.04em] text-muted",
+        align === "left" && "text-left",
         align === "right" && "text-right",
         align === "center" && "text-center",
         onClick && "cursor-pointer select-none hover:text-ink-soft",

@@ -73,17 +73,27 @@ const apiEvidence = (evidence: any, investigation: string, extra: Record<string,
 };
 
 test("demo help/invalid args exit before runtime/data; normal and report help still work", async () => {
-  for (const [args, code, text] of [
+  const cases = [
     [["demo", "--help"], 0, "--now ISO"], [["--help"], 0, "yald demo"], [["report", "--help"], 0, "yald report [window]"],
     [["demo", "--port", "0"], 2, "1 to 65535"], [["demo", "--port", "65536"], 2, "1 to 65535"],
     [["demo", "--port"], 2, "requires a value"], [["demo", "--now", "2026-10-20"], 2, "ISO timestamp"],
     [["demo", "--ocx-home", "/synthetic"], 2, "Unknown demo argument"], [["demo", "--open", "--open"], 2, "Duplicate"],
-  ] as const) {
-    const child = Bun.spawn(["node", join(root, "scripts/yald.mjs"), ...args], { stdout: "pipe", stderr: "pipe" });
-    const output = await new Response(child.stdout).text() + await new Response(child.stderr).text();
-    expect(await child.exited).toBe(code);
-    expect(output).toContain(text);
-    expect(output).not.toContain("Demo data:");
+  ] as const;
+  // Bound subprocess fan-out even when the outer suite runner has other workers.
+  for (let offset = 0; offset < cases.length; offset += 3) {
+    const batch = await Promise.all(cases.slice(offset, offset + 3).map(async ([args, code, text]) => {
+      const child = Bun.spawn([node, join(root, "scripts/yald.mjs"), ...args], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, actualCode] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      return { args, code, text, actualCode, output: stdout + stderr };
+    }));
+    // Reap every child before asserting, including when one argument case fails.
+    for (const { args, code, text, actualCode, output } of batch) {
+      expect(actualCode, args.join(" ")).toBe(code);
+      expect(output, args.join(" ")).toContain(text);
+      expect(output, args.join(" ")).not.toContain("Demo data:");
+    }
   }
   expect(parseDemoArgs(["--now", "2026-10-20T20:00:00+08:00"]).now).toBe(fixed);
 });
@@ -98,11 +108,18 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
     const meta = await get(base, "/api/meta"), overview = await get(base, "/api/overview");
     expect(meta.demo).toMatchObject({ synthetic: true, clock: "fixed", now: fixed, sampleAt: fixed });
     expect(meta.sources).toEqual(["claude-code", "ocx"]);
-    expect(meta.totals.requests).toBe(83);
+    expect(meta.totals.requests).toBe(188);
     expect(meta.pricing.detail).toContain("illustrative");
-    expect(overview.window).toMatchObject({ from: fixed - 30 * 86400000, to: fixed, requests: 42 });
+    expect(overview.window).toMatchObject({ from: fixed - 30 * 86400000, to: fixed, requests: 147 });
     expect(overview.prior.requests).toBe(40);
-    expect(overview.summary.unobserved).toBe(7); // Claude does not claim measured success.
+    const subagents = await get(base, "/api/subagents");
+    expect(subagents.claude.shares.map((entry: any) => [entry.kind, entry.requests])).toEqual([["main", 3], ["subagent", 10], ["unlabelled", 7]]);
+    expect(subagents.claude).toMatchObject({ labelledRequests: 13, fanOut: { withSubagents: 1, max: 3 }, startup: { spawns: 3, unavailableSpawns: 0 } });
+    const turns = await get(base, "/api/turns");
+    expect(turns).toMatchObject({ approximate: false, autonomy: { mainSteps: 3, humanPrompts: 1, overall: 3 } });
+    expect(turns.tools.groups.map((group: any) => group.name)).toEqual(expect.arrayContaining(["Read", "Agent"]));
+    expect(turns.stops.map((stop: any) => stop.name)).toEqual(expect.arrayContaining(["tool_use", "end_turn"]));
+    expect(overview.summary.unobserved).toBe(20); // Claude does not claim measured success.
     const radar = await get(base, "/api/labs/projects");
     expect(radar.priorWindow.to).toBe(radar.window.from);
     expect(radar.projects.find((p: any) => p.project.endsWith("synthetic-orbit")).folders.some((p: string) => p.endsWith("/server"))).toBe(true);
@@ -114,16 +131,29 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
       expect(ev.observation.comparison).toEqual(radar.comparison);
     }
     const cache = await get(base, "/api/labs/cache");
-    expect(cache.totals).toMatchObject({ totalRequests: 42, eligibleRequests: 37, netUsd: -0.03514, actualUsd: 0.83474 });
+    expect(cache.totals).toMatchObject({ totalRequests: 147, eligibleRequests: 50, netUsd: -0.12586, actualUsd: 1.21386 });
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-write-premium")).toMatchObject({ netUsd: -0.14, direction: "cost" });
     expect(cache.sessions.some((s: any) => s.netUsd > 0 && s.direction === "benefit")).toBe(true);
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-no-cache")).toMatchObject({ netUsd: 0, direction: "even" });
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-zero-price")).toMatchObject({ actualUsd: 0, eligibleRequests: 7, explicitFreeRequests: 7 });
-    expect(cache.totals.excluded).toMatchObject({ unpriced: 1, "cache-unknown": 1, "cache-unmeasured": 1, "input-missing": 1, "attempt-sum": 1 });
+    expect(cache.totals.excluded).toMatchObject({ unpriced: 1, "cache-unknown": 93, "cache-unmeasured": 1, "input-missing": 1, "attempt-sum": 1 });
+    const start = cache.rebuilds.ledger.find((row: { class: string }) => row.class === "subagent-start");
+    expect(start.requests).toBeGreaterThan(0);
+    expect(cache.rebuilds.coverage.eligibleChains).toBeGreaterThan(0);
+    const rebuilt = await get(base, apiEvidence(start.evidence, "cache-detective"));
+    expect(rebuilt.page.total).toBe(start.requests);
+    expect(rebuilt.rows[0].rebuild.label).toBe("first request");
     const ce = await get(base, apiEvidence(cache.totals.evidence, "cache-detective"));
     expect(ce.population.evidence.pricedCostUsd).toBe(cache.totals.actualUsd);
-    expect(ce.rows).toHaveLength(37);
-    expect(ce.population.original.requests).toBe(42);
+    expect(ce.rows).toHaveLength(50);
+    expect(ce.population.original.requests).toBe(147);
+    const pace = await get(base, "/api/labs/quota");
+    const weekly = pace.entries.find((entry: { window: string }) => entry.window === "weekly");
+    expect(weekly).toMatchObject({ state: "current", account: "synthetic-demo-account" });
+    expect(weekly.pace.usedPercent).toBeGreaterThan(0);
+    const intervals = await get(base, apiEvidence(weekly.evidence, "quota-pace"));
+    expect(intervals.observation.investigation).toBe("quota-pace");
+    expect(intervals.rows).toHaveLength(0);
     const context = await get(base, "/api/labs/context");
     const growing = context.sessions.find((s: any) => s.excludedRequests === 2);
     expect(growing.growth).toMatchObject({ ranked: true, baseline: 2000, latest: 7000, absoluteChange: 5000 });
@@ -281,7 +311,7 @@ test("contaminated caller homes/.env/config/global pricing and retained Claude a
   try {
     await demo.ready();
     const meta = await get(`http://127.0.0.1:${n}`, "/api/meta");
-    expect(meta.totals.requests).toBe(83);
+    expect(meta.totals.requests).toBe(188);
     expect(meta.ocxHome.startsWith(demo.directory())).toBe(true);
     expect(existsSync(join(meta.ocxHome, "yald-claude-usage.jsonl"))).toBe(true);
     await get(`http://127.0.0.1:${n}`, "/api/labs/projects");

@@ -21,7 +21,15 @@ export interface RowFilter {
   search?: string;
   /** Folder globs; a row matches when its cwd or an ancestor does. Rows without a cwd never match. */
   projects?: string[];
+  /** `main`, `subagent` or `unlabelled`; a row with no marker is only ever `unlabelled`. A Codex row is `subagent` only where its rollout names a parent thread. */
+  agents?: AgentKind[];
+  agentTypes?: string[];
 }
+
+export type AgentKind = "main" | "subagent" | "unlabelled";
+
+export const agentKind = (row: RequestRow): AgentKind => row.details?.agent ?? (row.codexSession?.parentThreadId ? "subagent" : "unlabelled");
+export const agentTypeOf = (row: RequestRow): string => row.details?.agentType ?? row.codexSession?.agentRole ?? (row.details?.agent === "main" ? "main" : "unknown");
 
 const DAY_MS = 86_400_000;
 
@@ -73,7 +81,7 @@ function filterKey(filter: RowFilter): string {
   const everySource = sources !== null && ALL_SOURCES.every(source => sources.includes(source));
   return JSON.stringify([
     filter.from ?? null, filter.to ?? null, set(filter.providers), everySource ? null : sources, set(filter.models), set(filter.efforts),
-    set(filter.statuses), set(filter.routeKinds), filter.conversationId || null, filter.search?.toLowerCase().trim() || null, set(filter.projects),
+    set(filter.statuses), set(filter.routeKinds), filter.conversationId || null, filter.search?.toLowerCase().trim() || null, set(filter.projects), set(filter.agents), set(filter.agentTypes),
   ]);
 }
 
@@ -112,6 +120,8 @@ function scanRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
   const statusSet = filter.statuses?.length ? new Set(filter.statuses) : null;
   const routeSet = filter.routeKinds?.length ? new Set(filter.routeKinds) : null;
   const inProject = filter.projects?.length ? projectMatcher(filter.projects) : null;
+  const agentSet = filter.agents?.length ? new Set<string>(filter.agents) : null;
+  const agentTypeSet = filter.agentTypes?.length ? new Set(filter.agentTypes) : null;
   return rows.filter(row => {
     if (filter.from !== undefined && row.ts < filter.from) return false;
     if (filter.to !== undefined && row.ts >= filter.to) return false; // half-open: a row at `to` belongs to the next window
@@ -122,6 +132,8 @@ function scanRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
     if (routeSet && !routeSet.has(row.routeKind ?? "unrouted")) return false;
     if (filter.conversationId && row.conversationId !== filter.conversationId) return false;
     if (inProject && !inProject(row.cwd)) return false;
+    if (agentSet && !agentSet.has(agentKind(row))) return false;
+    if (agentTypeSet && !agentTypeSet.has(agentTypeOf(row))) return false;
     if (statusSet) {
       const kind = outcome(row);
       if (!statusSet.has(kind)) return false;
@@ -464,6 +476,8 @@ export function groupKey(row: RequestRow, groupBy: string): string {
     case "outcome": return outcome(row);
     case "account": return row.account ?? "unattributed";
     case "serviceTier": return row.serviceTier ?? "default";
+    case "agent": return agentKind(row);
+    case "agentType": return agentTypeOf(row);
     case "none":
     default: return "all";
   }
@@ -858,6 +872,13 @@ export function reliability(rows: RequestRow[], tz: string): {
   };
 }
 
+/** A request open longer than this was a stalled stream, not a slow answer: it would bury every real tail. */
+export const STALLED_REQUEST_MS = 10 * 60_000;
+
+export function slowestRequests(rows: RequestRow[], limit = 10): RequestRow[] {
+  return topN(rows.filter(row => row.measurements.duration && row.durationMs <= STALLED_REQUEST_MS), limit, (a, b) => b.durationMs - a.durationMs);
+}
+
 export interface ConversationRow {
   id: string;
   /** A conversation id is only unique within its source, so sessions group by `(source, id)`. */
@@ -877,6 +898,8 @@ export interface ConversationRow {
   outputTokens: number;
   avgDurationMs: number;
   intensity: number;
+  /** Where the session last ran (a working directory), or null when it cannot be attributed. */
+  project: string | null;
 }
 
 export type ConversationSort = "tokens" | "cost" | "requests" | "recent" | "errors";
@@ -892,6 +915,11 @@ const CONVERSATION_ORDER: Record<ConversationSort, (a: ConversationRow, b: Conve
 
 /** Sessions ranked by `order` across every session in `rows`, then cut to `limit`: the cut never decides the ranking. */
 export function conversations(rows: RequestRow[], limit = 200, order: ConversationSort = "tokens"): ConversationRow[] {
+  return allConversations(rows, order).slice(0, limit);
+}
+
+/** Every session in `rows`, ranked: the list a page shows is cut from this, but counts and medians cover all of it. */
+export function allConversations(rows: RequestRow[], order: ConversationSort = "tokens"): ConversationRow[] {
   const map = new Map<string, RequestRow[]>();
   for (const row of rows) {
     if (!row.conversationId) continue;
@@ -914,7 +942,10 @@ export function conversations(rows: RequestRow[], limit = 200, order: Conversati
     let duration = 0;
     let started = Infinity;
     let ended = 0;
+    let project: string | null = null;
+    let projectAt = -Infinity;
     for (const row of list) {
+      if (row.cwd && row.ts >= projectAt) { project = row.cwd; projectAt = row.ts; }
       models.add(row.model);
       providers.add(row.provider);
       tokens += row.totalTokens;
@@ -946,9 +977,10 @@ export function conversations(rows: RequestRow[], limit = 200, order: Conversati
       outputTokens: output,
       avgDurationMs: Math.round(duration / list.length),
       intensity: round(tokens / (spanMs / 3_600_000), 1),
+      project,
     });
   }
-  return result.sort(CONVERSATION_ORDER[order]).slice(0, limit);
+  return result.sort(CONVERSATION_ORDER[order]);
 }
 
 export function conversationTimeline(rows: RequestRow[], id: string): {
@@ -1009,6 +1041,15 @@ export interface QuotaView {
   updatedAt: number | null;
   window: { from: number | null; to: number | null };
   observed: { samples: number; first: number | null; last: number | null };
+}
+
+const QUOTA_CHART_POINTS = 500;
+
+/** Evenly spaced points, first and last kept. Only for the response: burn is measured on every point first. */
+function thinPoints<T>(points: T[]): T[] {
+  if (points.length <= QUOTA_CHART_POINTS) return points;
+  const step = (points.length - 1) / (QUOTA_CHART_POINTS - 1);
+  return Array.from({ length: QUOTA_CHART_POINTS }, (_, index) => points[Math.round(index * step)]!);
 }
 
 /** Groups quota samples into series, optionally trimmed to a time window. `now` dates the exhaustion projection. */
@@ -1073,7 +1114,7 @@ export function quotaView(dataset: Pick<Dataset, "quota">, selected?: { from?: n
   const observed = dataset.quota.samples.filter(sample => inWindow(sample.observedAt));
   return {
     windows: dataset.quota.windows,
-    series,
+    series: series.map(entry => ({ ...entry, points: thinPoints(entry.points) })),
     burn,
     updatedAt: dataset.quota.updatedAt,
     window: { from: from ?? null, to: to ?? null },

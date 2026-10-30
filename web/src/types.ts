@@ -182,6 +182,8 @@ export interface ConversationRow {
   outputTokens: number;
   avgDurationMs: number;
   intensity: number;
+  /** Where the session last ran, or null when it cannot be attributed. */
+  project: string | null;
 }
 
 export interface QuotaWindowSnapshot {
@@ -237,11 +239,12 @@ export interface QuotaResponse extends QuotaView {
 
 export interface MetaResponse {
   sources: Source[];
-  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean }>;
+  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean; effort: boolean; agents: boolean }>;
   ok: boolean;
   ocxHome: string;
   timeZone: string;
   pricing: { available: boolean; modulePath: string | null; packageDir: string | null; detail: string };
+  versions: { yald: string | null; opencodex: string | null };
   files: Record<string, { path: string; bytes: number; mtimeMs: number; lines?: number } | null>;
   parse: { malformedLines: number; durationMs: number };
   builtAt: number;
@@ -251,6 +254,8 @@ export interface MetaResponse {
   totals: { requests: number; tokens: number; cost: number };
   providers: string[];
   models: string[];
+  /** Models most used first. */
+  modelsByUse: string[];
   modelsByProvider: Record<string, string[]>;
   efforts: string[];
   routeKinds: string[];
@@ -313,6 +318,38 @@ export interface PerformanceResponse {
   context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
 }
 
+export interface OutageEpisode {
+  start: number;
+  end: number;
+  durationMs: number | null;
+  size: number;
+  share: number;
+  statuses: { name: string; value: number; class: string }[];
+  errorCodes: { name: string; value: number }[];
+  dominantClass: string;
+  providers: string[];
+  models: string[];
+  successesInside: number;
+  clippedStart: boolean;
+  ongoing: boolean;
+  usage: { reportedRows: number; failedRows: number; tokens: number | null; costUsd: number | null };
+}
+
+export interface EpisodePersistence {
+  afterError: { errors: number; total: number; rate: number | null };
+  base: { errors: number; total: number; rate: number | null };
+}
+
+export interface OutageEpisodes {
+  gapMs: number;
+  episodes: OutageEpisode[];
+  concentration: { episodes: number; errors: number; share: number }[];
+  marks: { p50: number | null; p75: number | null };
+  persistence: EpisodePersistence & { byProvider: (EpisodePersistence & { provider: string })[] };
+  classMix: { name: string; value: number }[];
+  coverage: { totalRequests: number; observedRequests: number; unobservedRequests: number; errors: number; cancelled: number };
+}
+
 export interface ReliabilityResponse {
   measurementCoverage: MeasurementCoverage;
   successRate: number | null;
@@ -325,6 +362,7 @@ export interface ReliabilityResponse {
   attempts: { name: string; value: number }[];
   failureByModel: { name: string; failures: number; requests: number; rate: number }[];
   recentFailures: RequestRow[];
+  episodes: OutageEpisodes;
   waste: Summary["waste"];
   metering: Summary["metering"];
   retryOverhead: Summary["retryOverhead"];
@@ -405,6 +443,8 @@ export interface ScopeResponse {
   matched: { requests: number; tokens: number };
   windowTotal: { requests: number; tokens: number };
   sources: { source: Source; requests: number; tokens: number }[];
+  /** Models with requests in the window under the other filters, most used first. */
+  models: { model: string; requests: number }[];
   coverage?: ProjectCoverage;
   account: AccountScope;
 }
@@ -425,6 +465,47 @@ export interface ConversationDetailResponse {
   summary: Summary;
   models: { name: string; value: number }[];
   requests: RequestRow[];
+  anatomy: SessionAnatomy;
+}
+
+export interface AnatomyChain {
+  key: string;
+  kind: AgentKind;
+  agentId: string | null;
+  agentType: string | null;
+  model: string | null;
+  depth: number | null;
+  parent: string | null;
+  spawn: { ts: number; requestId: string } | null;
+  firstAt: number;
+  lastAt: number;
+  requests: number;
+  tokens: number;
+  costUsd: number;
+  unpricedRequests: number;
+  startupCostUsd: number | null;
+  firstRequestMissing: boolean;
+  ticks: number[];
+  context: { ts: number; tokens: number }[];
+  contextEligible: number;
+}
+
+export interface AnatomyCompaction { ts: number; chain: string; trigger: string | null; preTokens: number | null; postTokens: number | null; durationMs: number | null }
+
+export interface SessionAnatomy {
+  split: boolean;
+  note: string | null;
+  chains: AnatomyChain[];
+  compactions: AnatomyCompaction[];
+  stats: {
+    chains: number;
+    subagents: number;
+    maxDepth: number | null;
+    subagentShare: { requests: number | null; tokens: number | null; cost: number | null } | null;
+    startupCostUsd: number | null;
+    startupsUnavailable: number;
+    coverage: { labelled: number | null; priced: number | null; context: number | null };
+  };
 }
 
 export interface CompositionPoint {
@@ -528,8 +609,11 @@ export interface RadarEvidence {
     window: RadarWindow;
     cohort: RadarCohort;
     selection: { kind: "scope" } | { kind: "project"; project: string }
-      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source };
-    eligibility: "all" | "cache" | "context";
+      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+      | { kind: "account"; account: string; window: string }
+      | { kind: "branch"; project: string; state: "named"; branch: string } | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
+    eligibility: "all" | "cache" | "context" | "rebuild";
+    cause?: LedgerRow["class"];
   };
   href: string;
 }
@@ -584,6 +668,33 @@ export interface RadarComparison {
   tokens: RadarChange;
   pricedCostUsd: RadarChange;
 }
+export interface BranchRow {
+  state: "named" | "detached" | "unrecorded";
+  name: string | null;
+  bases: ("request time" | "session start")[];
+  sources: { source: Source; requests: number }[];
+  sessions: number;
+  requests: number;
+  tokens: number;
+  pricedRequests: number;
+  unpricedRequests: number;
+  pricedCostUsd: number;
+  firstTs: number;
+  lastTs: number;
+  activeDays: number;
+  /** `owner/repo#N`, the first few of `prCount`. Overlapping: never summed. */
+  prs: string[];
+  prCount: number;
+  /** Sent for the costliest branches only. */
+  days: { ts: number; date: string; costUsd: number }[] | null;
+}
+export interface BranchBreakdown {
+  rows: BranchRow[];
+  namedBranches: number;
+  requests: { total: number; recorded: number; onMain: number; detached: number; unrecorded: number };
+  recordedShare: number | null;
+  coverage: { source: Source; requests: number; recorded: number }[];
+}
 export interface ProjectRadarResponse {
   ok: true;
   window: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
@@ -605,13 +716,13 @@ export interface ProjectRadarResponse {
     project: string;
     gitRoot: boolean;
     folders: string[];
-    current: RadarPeriod;
-    prior: RadarPeriod;
+    current: RadarPeriod & { branches: BranchBreakdown };
+    prior: RadarPeriod & { branches: BranchBreakdown };
     comparison: RadarComparison;
   }[];
 }
 
-export type { ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
+export type { CompactionState, ContextChain, ContextCompaction, ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
 
 /** Resolved bounds carried by Labs findings and their evidence intents (epoch milliseconds). */
 export interface AnalysisWindow {
@@ -644,14 +755,18 @@ export type EvidenceSelection =
   | { kind: "scope" }
   | { kind: "project"; project: string }
   | { kind: "session"; source: Source; conversationId: string }
-  | { kind: "unnamed"; source?: Source };
+  | { kind: "unnamed"; source?: Source }
+  | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+  | { kind: "account"; account: string; window: string }
+  | { kind: "branch"; project: string; state: "named"; branch: string }
+  | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
 
 export interface EvidenceSelector {
   version: 1;
   window: AnalysisWindow;
   cohort: AnalysisCohort;
   selection: EvidenceSelection;
-  eligibility: "all" | "cache" | "context";
+  eligibility: "all" | "cache" | "context" | "rebuild";
 }
 
 export type CacheExclusion =
@@ -711,6 +826,110 @@ export interface CacheEconomicsResponse {
   sessionsTruncated: boolean;
   unnamed: CacheEconomicsTotals;
   notes: string[];
+  rebuilds: CacheRebuilds;
+}
+
+type TokenClassShares = Record<"freshInput" | "cacheRead" | "cacheWrite" | "output", number | null>;
+export interface LedgerRow {
+  class: "session-start" | "subagent-start" | "reported" | "compaction" | "model-switch" | "idle-gap" | "no-evidence";
+  label: "first request" | "reported" | "inferred" | "no evidence";
+  requests: number;
+  writeTokens: number;
+  writeCostUsd: number;
+  /** Null on the two start rows: a first request is not a rebuild. */
+  rewrittenTokens: number | null;
+  /** Upper bound, never added to the write premium. Null when no request in the row has a rate. */
+  premiumUsd: number | null;
+  pricedRequests: number | null;
+  unpricedRequests: number;
+  borrowedRateRequests: number;
+  evidence: CacheEconomicsTotals["evidence"];
+}
+export interface CacheRebuildTotals {
+  requests: number; reported: number; inferred: number; noEvidence: number;
+  afterCompaction: number; atModelSwitch: number; afterIdleGap: number;
+  rewrittenTokens: number; premiumUsd: number; unpricedRequests: number; borrowedRateRequests: number;
+}
+export interface CacheRebuildCoverage {
+  totalRequests: number; eligibleRequests: number;
+  excluded: Record<"cache-unmeasured" | "no-session" | "no-agent-marker", number>;
+  eligibleChains: number; totalChains: number; clippedChains: number;
+}
+export interface CacheRebuilds {
+  state: "observed" | "insufficient" | "not-applicable";
+  minChains: number;
+  notApplicableRequests: number;
+  coverage: CacheRebuildCoverage;
+  writeBill: {
+    pricedRequests?: number; totalCostUsd?: number;
+    tokenShare?: TokenClassShares; costShare?: TokenClassShares;
+    ttl: { fiveMinuteTokens: number; oneHourTokens: number; unsplitTokens: number };
+  } | null;
+  ledger: LedgerRow[];
+  totals: CacheRebuildTotals;
+  reasons: { reason: string; requests: number }[];
+  warmByGap: { label: string; requests: number; warmShare: number | null }[];
+  warmMinRequests: number;
+  interleaving: { bySession: number; byChain: number; disappeared: number };
+  topChains: { key: string; source: Source; conversationId: string; agentId: string; requests: number; rewrittenTokens: number; premiumUsd: number; unpricedRequests: number; evidence: CacheEconomicsTotals["evidence"] }[];
+  evidence: CacheEconomicsTotals["evidence"];
+  notes: string[];
+}
+
+export type QuotaBurn = { p25: number; median: number; p75: number };
+export interface QuotaForecast {
+  state: "range" | "insufficient" | "not-applicable";
+  weekdays: { weekday: string; days: number; instances: number; usesPooled: boolean; burn: QuotaBurn | null }[];
+  history: { instances: number; days: number; samples: number; excludedGaps: number };
+  paths: { low: number | null; typical: number | null; high: number | null } | null;
+  /** How many of the three paths run out before the reset. */
+  runsOutIn: number | null;
+  earliestAt: number | null;
+  /** Null unless every path runs out: the range then ends at "not before reset". */
+  latestAt: number | null;
+}
+export interface QuotaExchange {
+  state: "available" | "unavailable";
+  reason: "no-account-join" | "too-few-intervals" | null;
+  intervals: number;
+  totalIntervals: number;
+  excluded: Record<"reset" | "fell" | "no-change" | "gap", number>;
+  points: number;
+  minIntervals: number;
+  minPoints: number;
+  tokensPerPoint: number | null;
+  costPerPoint: number | null;
+  spread: { p25: number; p75: number } | null;
+  mix: { freshInput: number; cacheRead: number; output: number } | null;
+  ratios: { ts: number; tokensPerPoint: number }[];
+}
+export interface QuotaPaceEntry {
+  key: string;
+  account: string;
+  window: string;
+  lengthMs: number | null;
+  sources: string[];
+  sampleCount: number;
+  samplesWithoutReset: number;
+  instanceCount: number;
+  state: "current" | "expired" | "no-reset" | "unknown-length";
+  instance: { startMs: number | null; resetAtMs: number; samples: number; sources: string[] } | null;
+  age: { sampleAt: number; ageMs: number; fresh: boolean } | null;
+  pace: { usedPercent: number; evenPercent: number; deltaPoints: number; daysToReset: number } | null;
+  otherOpenWindows: number;
+  forecast: QuotaForecast | null;
+  chart: { ts: number; used: number | null; even: number; low: number | null; typical: number | null; high: number | null }[];
+  exchange: QuotaExchange;
+  evidence: CacheEconomicsTotals["evidence"] | null;
+}
+export interface QuotaPaceResponse {
+  ok: true;
+  analysis: "quota-pace";
+  version: 1;
+  entries: QuotaPaceEntry[];
+  minimums: { forecastInstances: number; weekdayInstances: number; exchangeIntervals: number; exchangePoints: number };
+  notes: string[];
+  scope: { available: boolean; ignored: string[]; note: string };
 }
 
 export interface ContextSpread {
@@ -917,4 +1136,95 @@ export interface SpendChangesResponse {
     baselineDays: { date: string; pricedCostUsd: number; pricedRequests: number; requests: number }[];
     evidence: { selector: unknown; priorSelector: unknown; href: string } | null; limitations: string[];
   };
+}
+
+export interface ArchetypeRow {
+  name: "poke" | "quick" | "deep" | "marathon";
+  sessions: number;
+  requests: number;
+  costUsd: number;
+  sessionShare: number | null;
+  requestShare: number | null;
+  costShare: number | null;
+  medianRequests: number | null;
+  medianSpanMs: number | null;
+  unpricedRequests: number;
+  clippedSessions: number;
+}
+
+export interface WorkingStyleResponse {
+  ok: boolean;
+  archetypes: ArchetypeRow[];
+  totals: { sessions: number; requests: number; requestsWithoutSession: number; costUsd: number; unpricedRequests: number };
+  concurrency: {
+    binMinutes: number;
+    days: { date: string; peak: number }[];
+    medianPeak: number | null;
+    p90Peak: number | null;
+    maxPeak: number;
+    busiestDay: string | null;
+    busiestSeries: { ts: number; sessions: number }[];
+    peakHistogram: { peak: number; days: number }[];
+  };
+  activity: { days: { date: string; requests: number }[]; activeDays: number; windowDays: number; longestStreak: number; currentStreak: number };
+  hours: { hour: number; requests: number }[];
+  night: { requests: number; share: number | null };
+}
+
+export interface ToolTableRow { key: string; requests: number; calls: number; groups: Record<string, number> }
+
+export interface TurnsResponse {
+  ok: boolean;
+  window: { bucket: string };
+  approximate: boolean;
+  coverage: { steps: number; excludedRequests: number; stepsWithStopReason: number; stopReasonShare: number | null; stepsWithStructure: number; structureShare: number | null; pricedSteps: number; pricedShare: number | null; clippedTurns: number };
+  turns: {
+    total: number;
+    medianDepth: number | null;
+    p90Depth: number | null;
+    bins: { label: string; turns: number; steps: number; turnShare: number | null; costUsd: number; costShare: number | null }[];
+    deep: { turnShare: number | null; costShare: number | null };
+    ends: { name: string; count: number }[];
+  };
+  autonomy: { mainSteps: number; humanPrompts: number; overall: number; sessions: number; median: number | null; p90: number | null; weeks: { ts: number; label: string; sessions: number; median: number | null; p90: number | null }[] } | null;
+  tools: {
+    groups: { name: string; count: number }[];
+    stepsWithTools: number;
+    stepsWithToolsShare: number | null;
+    top: { name: string; group: string; calls: number; steps: number; stepShare: number | null }[];
+    byProject: ToolTableRow[];
+    byModel: ToolTableRow[];
+  } | null;
+  overTime: { ts: number; label: string; steps: number; groups: Record<string, number>; stops: Record<string, number> }[];
+  stops: { name: string; count: number }[];
+}
+
+export interface AgentTally { requests: number; tokens: number; inputTokens: number; costUsd: number; pricedRequests: number }
+export type AgentKind = "main" | "subagent" | "unlabelled";
+export type AgentSplit = Record<AgentKind, AgentTally>;
+
+export interface SubagentsResponse {
+  ok: boolean;
+  window: { bucket: string };
+  claude: {
+    requests: number;
+    labelledRequests: number;
+    labelledShare: number | null;
+    shares: (AgentTally & { kind: AgentKind; requestShare: number | null; tokenShare: number | null; inputShare: number | null; costShare: number | null; pricedShare: number | null })[];
+    overTime: { ts: number; label: string; split: AgentSplit; labelledShare: number | null }[];
+    fanOut: { sessions: number; unlabelledSessions: number; withSubagents: number; withSubagentsShare: number | null; median: number | null; p90: number | null; max: number | null; bins: { label: string; sessions: number }[]; topSessions: { id: string; source: "claude-code"; project: string | null; subagents: number }[] };
+    byType: { type: string; spawns: number; requests: number; tokens: number; costUsd: number; costShare: number | null; medianRequestsPerSpawn: number | null; model: string | null; startupCostUsd: number }[];
+    byDepth: (AgentTally & { depth: string; requestShare: number | null; costShare: number | null })[];
+    startup: { spawns: number; unavailableSpawns: number; unpricedSpawns: number; cacheWriteTokens: number; costUsd: number; medianCostUsd: number | null; shortSpawnShare: number | null; points: { requests: number; costShare: number }[]; pointsOmitted: number };
+    byProject: { key: string; split: AgentSplit; unattributed: boolean }[];
+    byModel: { key: string; split: AgentSplit }[];
+  };
+  codex: { requests: number; tokens: number; costUsd: number; rootThread: AgentTally; subagentThread: AgentTally & { threads: number } };
+}
+
+export interface RecapNote { text: string; n: number; identifying?: boolean; money?: boolean }
+
+export interface RecapResponse {
+  ok: boolean;
+  report: { meta: { window: { label: string } }; kpis: { requests: number }; workingStyle?: { notes: RecapNote[] } };
 }

@@ -21,8 +21,8 @@ export function parseSource(name: string): Source | null {
 
 /** Source support is independent of whether an individual row has a measurement. */
 export const SOURCE_CAPABILITIES = {
-  "claude-code": { outcomes: false, retries: false, timing: false, quota: false, cache: true },
-  ocx: { outcomes: true, retries: true, timing: true, quota: true, cache: true },
+  "claude-code": { outcomes: false, retries: false, timing: false, quota: false, cache: true, effort: true, agents: true },
+  ocx: { outcomes: true, retries: true, timing: true, quota: true, cache: true, effort: true, agents: false },
 } as const;
 
 export interface Measurements {

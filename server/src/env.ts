@@ -19,6 +19,9 @@ export const CLAUDE_PROJECTS = process.env.CLAUDE_PROJECTS_DIR ?? join(homedir()
 /** Every Claude Code entry yald has seen, so usage outlives Claude Code deleting old transcripts. */
 export const CLAUDE_ARCHIVE = join(OCX_HOME, "yald-claude-usage.jsonl");
 
+/** Claude Code records that are not requests: compactions, API errors, prompt times, agent types. No text. */
+export const CLAUDE_EVENT_ARCHIVE = join(OCX_HOME, "yald-claude-events.jsonl");
+
 /** Codex rollouts, read only for the working directory of each session. Missing is fine. */
 export const CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), ".codex");
 

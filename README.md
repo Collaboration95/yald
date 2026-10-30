@@ -8,7 +8,7 @@ Yald turns the usage records already on your machine into a desktop dashboard fo
 estimated cost, cache use and submitted context.
 
 **Meet Yaldi**, Yald's small detective companion. Yaldi appears in Labs findings and in loading
-and empty states, and you can hide the artwork from the sidebar.
+and empty states, and you can hide the artwork from the settings menu.
 
 Dollar amounts are **API list-price equivalents**: what the same tokens would cost at list price.
 They don't reflect your subscription bill and don't prove savings. Missing input or price is
@@ -68,19 +68,18 @@ opencodex stays `ocx`. Sessions are keyed by `(source, conversationId)`. A capab
 guarantee that every row has a measurement
 ([coverage definitions](docs/metrics.md#source-capabilities-and-measurement-coverage)).
 
-## Ask Yaldi three questions
+## Ask Yaldi four questions
 
-Turn on **Labs** in the sidebar (it's already on in the demo). Each question has its own view:
+Turn on **Labs** in the settings menu (it's already on in the demo). Labs opens on a board of four cases, each a finding and one number:
 
-- **Project Radar:** Which projects drive activity and priced cost, and what changed
-  since the previous window of the same length?
-- **Cache Detective:** For the same recorded workload, do cache-read discounts
-  outweigh cache-write premiums?
-- **Context Replay:** How did the input you submitted grow or shrink within a session?
+- **Spikes:** Which days cost unusually much against your own recent history, and what drove them?
+- **Projects:** Which projects cost more or less than the period right before?
+- **Cache savings:** For the same recorded workload, what did caching save?
+- **Context growth:** How did the input you submitted grow within a session?
 
-Each finding opens a **fixed evidence case** with its original window, complete cohort, source
-identity, coverage and request metadata. Toolbar changes don't move the case, and Radar keeps both
-original periods. See the [investigation guide](docs/guide.md#labs-investigations) and
+Each finding opens a **fixed list of its requests** (time, model, project, tokens and cost) with its
+original window and cohort. Toolbar changes don't move the case, and Projects keeps both original
+periods. See the [investigation guide](docs/guide.md#labs-investigations) and
 [case evidence](docs/labs-evidence.md).
 
 ![Installed Cache Detective demo in dark theme, showing write premiums exceeding read discounts](docs/screenshots/meet-yaldi-0.2.0/cache-detective-dark.png)

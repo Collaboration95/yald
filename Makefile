@@ -8,8 +8,8 @@ help: ## Show common development commands
 	  'make hooks        Install Git hooks in an existing checkout' \
 	  'make run          Build and run yald at http://127.0.0.1:4318' \
 	  'make dev          Run the API and Vite development server' \
-	  'make test         Run unit and API tests' \
-	  'make test-fast    Run quick unit and API tests, stopping on failure' \
+	  'make test         Run all tests in bounded process batches' \
+	  'make test-fast    Run quick server, demo, chart and UI tests' \
 	  'make lint         Run Oxlint' \
 	  'make typecheck    Typecheck web and server' \
 	  'make build        Build the web app' \
@@ -32,10 +32,10 @@ run: ## Build and run yald
 dev: ## Run the API and Vite development server
 	./scripts/dev.sh
 
-test: ## Run unit and API tests
-	scripts/bun test
+test: ## Run all tests in bounded process batches
+	scripts/bun run test
 
-test-fast: ## Run quick unit and API tests
+test-fast: ## Run quick server, demo, chart and UI tests
 	scripts/bun run test:fast
 
 lint: ## Run Oxlint

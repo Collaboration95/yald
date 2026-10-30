@@ -3,6 +3,7 @@ import type { RequestRow } from "../ocx/store";
 import { ALL_SOURCES, contextEligible, sourceOf } from "../report/source";
 import type { Source } from "../report/types";
 import { isoInZone } from "../time/window";
+import type { LedgerClass } from "./evidence-intent";
 
 /** An analysis resolves a rolling range once, then carries these exact bounds to evidence. */
 export interface AnalysisWindow {
@@ -28,9 +29,13 @@ export type EvidenceSelection =
   | { kind: "scope" }
   | { kind: "project"; project: string }
   | { kind: "session"; source: Source; conversationId: string }
-  | { kind: "unnamed"; source?: Source };
+  | { kind: "unnamed"; source?: Source }
+  | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+  | { kind: "account"; account: string; window: string }
+  | { kind: "branch"; project: string; state: "named"; branch: string }
+  | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
 
-export type EvidenceEligibility = "all" | "cache" | "context";
+export type EvidenceEligibility = "all" | "cache" | "context" | "rebuild";
 
 export interface EvidenceSelector {
   version: 1;
@@ -38,6 +43,7 @@ export interface EvidenceSelector {
   cohort: AnalysisCohort;
   selection: EvidenceSelection;
   eligibility: EvidenceEligibility;
+  cause?: LedgerClass;
 }
 
 export function analysisScope(filter: RowFilter, window: AnalysisWindow) {
@@ -69,8 +75,8 @@ export function evidenceParams(selector: EvidenceSelector): URLSearchParams {
     // Structured arrays preserve literal commas, and the embedded window stays pinned after range changes.
     selector: JSON.stringify(selector),
   });
-  if (selection.kind === "project") params.set("projectKey", selection.project);
-  if (selection.kind === "session") {
+  if (selection.kind === "project" || selection.kind === "branch") params.set("projectKey", selection.project);
+  if (selection.kind === "session" || selection.kind === "chain") {
     params.set("sessionSource", selection.source);
     params.set("sessionId", selection.conversationId);
   }
@@ -78,9 +84,9 @@ export function evidenceParams(selector: EvidenceSelector): URLSearchParams {
   return params;
 }
 
-export function evidenceFor(filter: RowFilter, window: AnalysisWindow, selection: EvidenceSelection = { kind: "scope" }, eligibility: EvidenceEligibility = "all") {
+export function evidenceFor(filter: RowFilter, window: AnalysisWindow, selection: EvidenceSelection = { kind: "scope" }, eligibility: EvidenceEligibility = "all", cause?: LedgerClass) {
   const { cohort } = analysisScope(filter, window);
-  const selector: EvidenceSelector = { version: 1, window: { from: window.from, to: window.to, tz: window.tz, label: window.label }, cohort, selection, eligibility };
+  const selector: EvidenceSelector = { version: 1, window: { from: window.from, to: window.to, tz: window.tz, label: window.label }, cohort, selection, eligibility, ...(cause ? { cause } : {}) };
   return { selector, href: `/labs/evidence?${evidenceParams(selector)}` };
 }
 
@@ -93,6 +99,25 @@ export function orderedRequests(rows: RequestRow[]): RequestRow[] {
 }
 
 export const sessionKey = (source: Source, conversationId: string): string => JSON.stringify([source, conversationId]);
+
+/** One agent's sequence within a session. A session stays `(source, conversationId)`; `agentId` only splits it. */
+export const chainKey = (source: Source, conversationId: string, agentId: string | null | undefined): string => JSON.stringify([source, conversationId, agentId ?? "main"]);
+
+/**
+ * Where an event sits in a sequence: the count of requests strictly before it, so it falls between
+ * request `n - 1` and request `n`. Context Replay and the Cache Detective ledger share this rule, so
+ * both views put a recorded event between the same pair of requests. `timestamps` is ascending.
+ */
+export function requestsBefore(timestamps: readonly number[], ts: number): number {
+  let low = 0;
+  let high = timestamps.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (timestamps[middle]! < ts) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
 
 /**
  * How many of the named sessions have a loaded request outside [from, to): the window clipped them, so only
