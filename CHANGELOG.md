@@ -4,6 +4,26 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Changed
+
+- **A leaner dashboard.** Pages no longer open with a "Dashboard selection" box or a "09 / DASHBOARD" label. A small "Filtered: 2 projects · Reset" chip appears only when a filter narrows your data, with the project-exclusion note beside it when a project filter leaves requests out. The sidebar footer keeps only when the data was last updated and the opencodex and Yald versions, and the Labs and Hide artwork switches moved into a settings menu next to the theme toggle. Picking a range like 24h or 90d no longer counts as a filter, and Reset keeps your range ([#94](https://github.com/Collaboration95/yald/issues/94), [#121](https://github.com/Collaboration95/yald/issues/121), [#123](https://github.com/Collaboration95/yald/issues/123), [#132](https://github.com/Collaboration95/yald/issues/132)).
+- **Six pages instead of nine.** Models, Quota and Reliability are gone and their links redirect: model costs live on Cost, speed and failures on Performance (tagged "Codex only" once instead of rows of dashes for Claude Code), and plan usage is a card on Overview that marks old readings as stale. Conversations is now **Sessions** at `/sessions` ([#128](https://github.com/Collaboration95/yald/issues/128), [#125](https://github.com/Collaboration95/yald/issues/125)).
+- **Each chart lives on one page.** Context pressure is on Context only, the activity heatmap on Usage only, token mix on Usage and per-model costs on Cost. The Cost page drops the price-tier, Gini and Pareto blocks and keeps "Top 10 sessions = 35% of spend"; models with no price fold into "+N unpriced". Long tables show the top few rows with "Show all" ([#127](https://github.com/Collaboration95/yald/issues/127)).
+- **Less explaining, more answering.** Coverage captions, method notes and caveats moved into small (i) tooltips, and a "Partial" badge appears only when under 95% of requests were measured. Internal words like "unobserved", "metered" and "eligible" are gone, and Claude Code and Codex are named plainly ([#124](https://github.com/Collaboration95/yald/issues/124), [#125](https://github.com/Collaboration95/yald/issues/125)).
+- **One number format everywhere:** dollars as $12.34 or $1.59k (two significant figures under a cent, never six decimals), tokens as 117.7M, ratios with at most two decimals, and dates as "Oct 13" with full times in tooltips ([#126](https://github.com/Collaboration95/yald/issues/126)).
+- **Labs leads with the answer.** It opens on four cases, each a finding and one number, with tabs for Spikes, Projects, Cache savings and Context growth. Every investigation has a one-line verdict, one chart, a top-five list with short names, a "See the requests" button and an (i) for its rule and coverage. Spend spikes opens on the biggest day (click a bar to change it) and on Model when most of the change is unattributed; Cache savings leads with "Caching saved $X"; Projects compares 7 days with the 7 before; the case file is a plain request table. The "Labs is on" card is gone, and project names show their last two folders ([#122](https://github.com/Collaboration95/yald/issues/122), [#129](https://github.com/Collaboration95/yald/issues/129)).
+- **Sessions are identifiable.** Rows show the project and start date instead of a hash. The session page puts context size on its own chart, hides the scope sentence when nothing is excluded, and highlights requests that missed the cache ([#130](https://github.com/Collaboration95/yald/issues/130)).
+- The Model filter lists only models in the window, with counts and a search box; long Project lists get a search box and show the last two folders. Updating shows a small "Updating…" chip and dimming instead of a banner ([#132](https://github.com/Collaboration95/yald/issues/132)).
+
+### Fixed
+
+- **The Sessions count was capped at 200.** It and the medians now cover every session in your selection ([#130](https://github.com/Collaboration95/yald/issues/130)).
+- Chart legends no longer overlap axis labels or bars: they sit in one scrolling row under the plot ([#94](https://github.com/Collaboration95/yald/issues/94)).
+- The cache hit rate is plotted on a percent axis instead of the dollar axis (it was a flat line), and a chart colour is never shared between "Other" and a model ([#131](https://github.com/Collaboration95/yald/issues/131)).
+- Context Replay's axis ticks no longer read "600.000000k", and the session page's context line is no longer flattened by the cumulative axis.
+- Slowest requests no longer fill up with multi-hour stalled streams: anything open for over ten minutes is left out.
+- Removed the context-tax "Cancel rate" column, which always read 0.0% because cancelled requests carry no measured context.
+
 ## [0.3.0] - 2026-10-23 — Faster pages, Context and spend insights
 
 ### Changed

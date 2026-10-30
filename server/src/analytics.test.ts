@@ -265,6 +265,29 @@ test("blended price per model divides priced cost by priced tokens only", () => 
   expect(model).toMatchObject({ tokens: 10_000_000, pricedTokens: 1_000_000, costPer1MTokens: 1, costPer1kTokens: 0.001 });
 });
 
+test("the slowest list leaves out stalled streams that stayed open for hours", () => {
+  const list = [
+    row({ id: "stalled", durationMs: 5 * 3_600_000 }),
+    row({ id: "slow", durationMs: 90_000 }),
+    row({ id: "fast", durationMs: 800 }),
+  ];
+  expect(analytics.slowestRequests(list, 5).map(r => r.id)).toEqual(["slow", "fast"]);
+});
+
+test("a session reports where it last ran, and allConversations is not cut", () => {
+  const list = [
+    row({ id: "a", conversationId: "s1", ts: 1000, cwd: "/work/old" }),
+    row({ id: "b", conversationId: "s1", ts: 2000, cwd: "/work/app" }),
+    row({ id: "c", conversationId: "s1", ts: 3000, cwd: null }),
+    row({ id: "d", conversationId: "s2", ts: 1000, cwd: null }),
+  ];
+  const all = analytics.allConversations(list);
+  expect(all).toHaveLength(2);
+  expect(all.find(c => c.id === "s1")!.project).toBe("/work/app");
+  expect(all.find(c => c.id === "s2")!.project).toBeNull();
+  expect(analytics.conversations(list, 1)).toHaveLength(1);
+});
+
 test("conversations rank by the requested order across every session before the cut", () => {
   const list = [
     ...Array.from({ length: 5 }, (_, i) => row({ id: `t${i}`, conversationId: `t${i}`, totalTokens: 1000 + i, cost: 0.01 })),

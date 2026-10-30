@@ -1,15 +1,14 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Coins, Percent, PiggyBank, Zap } from "lucide-react";
+import { Coins, Trophy } from "lucide-react";
 import { conversationLink, exportUrl, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
-import { Card, CardHeader, Legend, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { Card, CardHeader, Expandable, InfoTip, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
-import { barChart, donutChart, lineChart, stackedBarChart } from "../components/chartOptions";
-import { COMPOSITION_COLORS } from "../lib/palette";
-import { formatCompact, formatInteger, formatPercent, formatUsd, formatUsdPrecise, shortId } from "../lib/format";
-import { ClassMixSection, ConcentrationCard, PriceDriftCard, TiersCard, useInView } from "./CostStructure";
+import { lineChart, stackedBarChart } from "../components/chartOptions";
+import { formatCompact, formatInteger, formatPercent, formatShortDate, formatUsd, formatUsdAxis, sessionLabel } from "../lib/format";
+import { TokenClassCard, useInView } from "./CostStructure";
 import type { CostResponse, SpendStructureResponse } from "../types";
 
 export function CostPage() {
@@ -24,6 +23,7 @@ export function CostPage() {
   const [sentinel, inView] = useInView<HTMLDivElement>();
   const structure = useEndpoint<SpendStructureResponse>("/api/cost/structure", { ...filters, groupBy: "", metric: "" }, {}, { enabled: inView });
   const section = { data: structure.data, loading: structure.isLoading && inView, error: structure.error };
+  const top10 = structure.data?.concentration.top10Sessions;
 
   const costSeriesOption = useMemo(() => {
     if (!data) return null;
@@ -32,155 +32,76 @@ export function CostPage() {
       name: group.name,
       data: data.series.buckets.map(bucket => bucket.groups[group.name] ?? 0),
     }));
-    return stackedBarChart(chartTheme, labels, series, { formatter: value => formatUsdPrecise(value) });
+    return stackedBarChart(chartTheme, labels, series, { formatter: value => formatUsd(value) });
   }, [data, chartTheme]);
 
   const cumulativeOption = useMemo(() => {
     if (!data) return null;
     return lineChart(chartTheme, data.cumulative.map(point => point.label), [
       { name: "Cumulative cost", data: data.cumulative.map(point => point.cumulative), area: true },
-      { name: "Per bucket", data: data.cumulative.map(point => point.value), dashed: true },
-    ], { formatter: value => formatUsd(value) });
+    ], { formatter: value => formatUsdAxis(value), showLegend: false });
   }, [data, chartTheme]);
 
-  const compositionOption = useMemo(() => {
-    if (!data) return null;
-    const entries = [
-      { name: "Fresh input", value: data.composition.freshInput },
-      { name: "Cache read", value: data.composition.cacheRead },
-      { name: "Cache write", value: data.composition.cacheWrite },
-      { name: "Output", value: data.composition.output },
-    ].filter(entry => entry.value > 0);
-    return donutChart(chartTheme, entries, {
-      formatter: value => formatUsdPrecise(value),
-      colors: COMPOSITION_COLORS,
-      centerValue: formatUsd(data.composition.total),
-      centerLabel: "estimated",
-    });
-  }, [data, chartTheme]);
-
-  const perModelOption = useMemo(() => {
-    if (!data) return null;
-    const models = data.byModel.filter(model => model.costPer1MTokens !== null).slice(0, 10);
-    return barChart(chartTheme, models.map(model => model.key), models.map(model => model.costPer1MTokens ?? 0), {
-      formatter: value => `$${value.toFixed(2)}`,
-      horizontal: true,
-      showLabels: true,
-    });
-  }, [data, chartTheme]);
-
-  const savingsOption = useMemo(() => {
-    if (!data) return null;
-    return lineChart(chartTheme, data.cache.map(point => point.label), [
-      { name: "Cache savings", data: data.cache.map(point => point.savingsUsd), area: true },
-    ], { formatter: value => formatUsd(value), showLegend: false });
-  }, [data, chartTheme]);
-
+  // Models with nothing priced (free routes, test names) would pad the table with $0 rows: they fold into "+N unpriced".
+  const priced = data?.byModel.filter(model => model.pricedRequests > 0) ?? [];
+  const unpriced = data?.byModel.filter(model => model.pricedRequests === 0) ?? [];
   const unpricedShare = summary ? summary.unpricedRequests / Math.max(1, summary.requests) : 0;
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <Stat
           label="Estimated cost"
           value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cost) : "—"}
-          hint={data ? `${formatInteger(summary?.pricedRequests ?? 0)} priced requests` : undefined}
-          delta={undefined}
+          info={`API list-price equivalents, not a bill.${unpricedShare >= 0.05 && summary ? ` ${formatInteger(summary.unpricedRequests)} of ${formatInteger(summary.requests)} requests have no list price (subscription or free routes) and add no dollars.` : ""}`}
           tone="good"
           icon={<Coins size={13} />}
         />
-        <Stat label="Cost / 1M tokens" value={summary && data && summary.pricedRequests > 0 && data.pricedTokens > 0 ? `$${(summary.cost / data.pricedTokens * 1e6).toFixed(2)}` : "—"} hint="Priced cost over priced tokens, every token class" tone="info" />
-        <Stat label="Cache savings" value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cache.savingsUsd) : "—"} hint={summary ? `vs paying full input price` : undefined} tone="good" icon={<PiggyBank size={13} />} />
-        <Stat label="Output spend" value={data && data.summary.pricedRequests > 0 ? formatUsd(data.composition.output) : "—"} hint={data ? `${formatPercent(data.composition.output / Math.max(1, data.composition.total), 1)} of total` : undefined} tone="warn" icon={<Zap size={13} />} />
-        <Stat
-          label="Unpriced share"
-          value={summary ? formatPercent(unpricedShare) : "—"}
-          hint="Requests on subscription or free routes"
-          tone={unpricedShare > 0.2 ? "warn" : "neutral"}
-          icon={<Percent size={13} />}
-        />
+        <Stat label="Cost / 1M tokens" value={summary && data && summary.pricedRequests > 0 && data.pricedTokens > 0 ? formatUsd(summary.cost / data.pricedTokens * 1e6) : "—"} info="Priced cost over priced tokens, every token class." tone="info" />
+        <Stat label="Top 10 sessions" value={top10 ? formatPercent(top10.share, 0) : "—"} hint="of spend" icon={<Trophy size={13} />} />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader
-            title="Spend over time"
-            subtitle="Stacked by the selected dimension"
-            action={
-              <Segmented
-                size="sm"
-                value={groupBy}
-                options={[
-                  { id: "model", label: "Model" },
-                  { id: "provider", label: "Provider" },
-                  { id: "effort", label: "Effort" },
-                ]}
-                onChange={groupBy => set({ groupBy })}
-              />
-            }
-          />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
-            {costSeriesOption ? <Chart option={costSeriesOption} height={268} /> : null}
-          </StateBlock>
-        </Card>
-        <Card>
-          <CardHeader title="Where the dollars go" subtitle="Split by token class" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.composition.total === 0}>
-            <div className="flex flex-col items-center gap-3">
-              {compositionOption ? <Chart option={compositionOption} height={196} className="max-w-[220px]" /> : null}
-              {data ? (
-                <div className="w-full">
-                  <Legend
-                    items={[
-                      { label: "Fresh input", color: COMPOSITION_COLORS["Fresh input"]!, value: formatUsd(data.composition.freshInput) },
-                      { label: "Cache read", color: COMPOSITION_COLORS["Cache read"]!, value: formatUsd(data.composition.cacheRead) },
-                      { label: "Cache write", color: COMPOSITION_COLORS["Cache write"]!, value: formatUsd(data.composition.cacheWrite) },
-                      { label: "Output", color: COMPOSITION_COLORS.Output!, value: formatUsd(data.composition.output) },
-                    ].filter(entry => entry.value !== formatUsd(0))}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </StateBlock>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader
+          title="Spend over time"
+          action={
+            <Segmented
+              size="sm"
+              value={groupBy}
+              options={[
+                { id: "model", label: "Model" },
+                { id: "provider", label: "Provider" },
+                { id: "effort", label: "Effort" },
+              ]}
+              onChange={groupBy => set({ groupBy })}
+            />
+          }
+        />
+        <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
+          {costSeriesOption ? <Chart option={costSeriesOption} height={288} /> : null}
+        </StateBlock>
+      </Card>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Cumulative spend" subtitle="Running total for the selected window" />
+          <CardHeader title="Cumulative spend" />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
             {cumulativeOption ? <Chart option={cumulativeOption} height={236} /> : null}
           </StateBlock>
         </Card>
         <Card>
-          <CardHeader title="Cache savings over time" subtitle="What caching returned to you" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {savingsOption ? <Chart option={savingsOption} height={236} /> : null}
-          </StateBlock>
-        </Card>
-      </div>
-
-      <div ref={sentinel} aria-hidden="true" />
-      <PriceDriftCard {...section} />
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <ConcentrationCard {...section} />
-        <Card>
-          <CardHeader title="Most expensive sessions" subtitle="Conversations ranked by spend" />
+          <CardHeader title="Most expensive sessions" action={<Link to={{ pathname: "/sessions", search }} className="text-[11px] font-medium text-accent">All sessions</Link>} />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
             <ul className="space-y-2.5">
-              {data?.topConversations.map(conversation => (
-                <li key={JSON.stringify([conversation.source, conversation.id])}>
+              {data?.topConversations.slice(0, 6).map(session => (
+                <li key={JSON.stringify([session.source, session.id])}>
                   <div className="flex items-center justify-between gap-2">
-                    <Link to={conversationLink(conversation, search)} className="min-w-0 truncate font-mono text-[11px] text-info hover:underline" title={sourceLabel(conversation.source)}>
-                      {shortId(conversation.id, 12)}
+                    <Link to={conversationLink(session, search)} className="min-w-0 truncate text-[11.5px] text-info hover:underline" title={`${session.project ?? session.id} · ${sourceLabel(session.source)}`}>
+                      {sessionLabel(session)} <span className="text-[10.5px] text-muted">· {formatShortDate(session.startedAt)}</span>
                     </Link>
-                    <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{conversation.pricedRequests > 0 ? formatUsd(conversation.cost) : "unpriced"}</span>
+                    <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{session.pricedRequests > 0 ? formatUsd(session.cost) : "—"}</span>
                   </div>
-                  <ProgressBar value={conversation.cost} max={data.topConversations[0]?.cost ?? 1} className="mt-1.5" />
-                  <p className="mt-1 text-[10.5px] text-muted">
-                    {sourceLabel(conversation.source)} · {formatInteger(conversation.requests)} requests · {formatCompact(conversation.tokens)} tokens
-                  </p>
+                  <ProgressBar value={session.cost} max={data.topConversations[0]?.cost ?? 1} className="mt-1.5" />
                 </li>
               ))}
             </ul>
@@ -188,23 +109,13 @@ export function CostPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader title="Blended price per 1M tokens" subtitle="Priced cost over priced tokens, cheapest to most expensive model actually used" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.byModel.length === 0}>
-            {perModelOption ? <Chart option={perModelOption} height={Math.max(180, (data?.byModel.filter(m => m.costPer1MTokens !== null).slice(0, 10).length ?? 0) * 26 + 40)} /> : null}
-          </StateBlock>
-          <p className="mt-2 text-[10.5px] leading-4 text-muted">Unpriced requests carry no dollars, so their tokens are left out of each model's price; a model with mixed pricing would otherwise read low.</p>
-        </Card>
-        <TiersCard {...section} />
-      </div>
-
-      <ClassMixSection {...section} />
+      <div ref={sentinel} aria-hidden="true" />
+      <TokenClassCard {...section} />
 
       <Card>
         <CardHeader
-          title="Cost by model"
-          subtitle="Blended rates come from opencodex's own pricing engine, including any overlays you set with ocx models set-price"
+          title={<span className="inline-flex items-center gap-1.5">Cost by model
+            <InfoTip label="About model prices">Rates come from opencodex's own pricing engine, including any overlays you set with <code>ocx models set-price</code>.</InfoTip></span>}
           action={
             <a href={exportUrl(filters, "models")} className="rounded-lg border border-line px-2.5 py-1.5 text-[11.5px] font-medium text-ink-soft transition hover:border-line-strong">
               Export CSV
@@ -212,32 +123,42 @@ export function CostPage() {
           }
         />
         <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.byModel.length === 0}>
-          <TableShell>
-            <thead>
-              <tr>
-                <Th>Model</Th>
-                <Th align="right">Requests</Th>
-                <Th align="right">Tokens</Th>
-                <Th align="right">Cost</Th>
-                <Th align="right">Cost / 1M</Th>
-                <Th align="right">Share</Th>
-                <Th align="right">Unpriced</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.byModel.map(model => (
-                <tr key={model.key} className="transition hover:bg-surface-2">
-                  <Td className="max-w-[220px] truncate font-medium text-ink">{model.key}</Td>
-                  <Td align="right">{formatInteger(model.requests)}</Td>
-                  <Td align="right">{formatCompact(model.tokens)}</Td>
-                  <Td align="right">{model.pricedRequests > 0 ? formatUsd(model.cost) : "unpriced"}</Td>
-                  <Td align="right">{model.costPer1MTokens !== null ? `$${model.costPer1MTokens.toFixed(2)}` : "—"}</Td>
-                  <Td align="right">{formatPercent(model.costShare)}</Td>
-                  <Td align="right">{model.unpricedRequests > 0 ? formatInteger(model.unpricedRequests) : "—"}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </TableShell>
+          <Expandable items={priced}>
+            {rows => (
+              <TableShell>
+                <thead>
+                  <tr>
+                    <Th>Model</Th>
+                    <Th align="right">Requests</Th>
+                    <Th align="right">Tokens</Th>
+                    <Th align="right">Cost</Th>
+                    <Th align="right">Per 1M tokens</Th>
+                    <Th align="right">Share</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(model => (
+                    <tr key={model.key} className="transition hover:bg-surface-2">
+                      <Td className="max-w-[260px]"><ModelTag model={model.key} /></Td>
+                      <Td align="right">{formatInteger(model.requests)}</Td>
+                      <Td align="right">{formatCompact(model.tokens)}</Td>
+                      <Td align="right">{formatUsd(model.cost)}</Td>
+                      <Td align="right">{model.costPer1MTokens !== null ? formatUsd(model.costPer1MTokens) : "—"}</Td>
+                      <Td align="right">{formatPercent(model.costShare, 0)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableShell>
+            )}
+          </Expandable>
+          {unpriced.length > 0 ? (
+            <details className="mt-2 text-[11.5px] text-muted">
+              <summary className="cursor-pointer font-medium text-accent">+{unpriced.length} unpriced model{unpriced.length === 1 ? "" : "s"}</summary>
+              <p className="mt-1.5 leading-5">
+                {unpriced.map(model => `${model.key} (${formatCompact(model.tokens)})`).join(" · ")}
+              </p>
+            </details>
+          ) : null}
         </StateBlock>
       </Card>
     </div>

@@ -1,21 +1,39 @@
 import { useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Timer, Waves, Zap } from "lucide-react";
+import { Timer, Zap } from "lucide-react";
 import { useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
-import { Badge, Card, CardHeader, ModelTag, OutcomeDot, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { Card, CardHeader, CodexOnly, Expandable, ModelTag, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
-import { barChart, lineChart, scatterChart } from "../components/chartOptions";
-import { formatCoverage, formatCompact, formatDateTime, formatDuration } from "../lib/format";
-import type { PerformanceResponse } from "../types";
+import { lineChart, scatterChart, stackedBarChart } from "../components/chartOptions";
+import { formatCompact, formatDuration, formatInteger, formatNumber, formatPercent, formatRelative, formatShortDate } from "../lib/format";
+import type { PerformanceResponse, ReliabilityResponse, RequestRow } from "../types";
+
+/** Failures that share a model and an error, as one line: "gpt-5.6-luna · upstream_server_error · 23×, 02:54–08:18". */
+function groupFailures(rows: RequestRow[]) {
+  const groups = new Map<string, { model: string; error: string; count: number; first: number; last: number }>();
+  for (const row of rows) {
+    const error = row.errorCode ?? (row.outcome === "cancelled" ? "cancelled" : row.closeReason ?? "unknown");
+    const key = `${row.model}\u0000${error}`;
+    const group = groups.get(key);
+    if (group) {
+      group.count++;
+      group.first = Math.min(group.first, row.ts);
+      group.last = Math.max(group.last, row.ts);
+    } else groups.set(key, { model: row.model, error, count: 1, first: row.ts, last: row.ts });
+  }
+  return [...groups.values()].sort((a, b) => b.last - a.last);
+}
+
+const clock = (ts: number) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
 
 export function PerformancePage() {
-  const { search } = useLocation();
   const { filters } = useFilters();
   const { chartTheme } = useTheme();
   const query = useEndpoint<PerformanceResponse>("/api/performance", filters);
+  const reliability = useEndpoint<ReliabilityResponse>("/api/reliability", filters);
   const data = query.data;
+  const outcomes = reliability.data;
 
   const latencyOption = useMemo(() => {
     if (!data) return null;
@@ -25,29 +43,14 @@ export function PerformancePage() {
       { name: "Latency p95", data: data.timeline.points.map(point => point.p95) },
       { name: "TTFT p50", data: data.timeline.points.map(point => point.ttftP50) },
       { name: "TTFT p95", data: data.timeline.points.map(point => point.ttftP95), dashed: true },
-    ], { formatter: value => `${(value / 1000).toFixed(1)}s` });
+    ], { formatter: value => `${formatNumber(value / 1000, 1)}s` });
   }, [data, chartTheme]);
 
   const throughputOption = useMemo(() => {
     if (!data) return null;
     return lineChart(chartTheme, data.timeline.points.map(point => point.label), [
       { name: "Output tokens/sec p50", data: data.timeline.points.map(point => point.throughputP50), area: true },
-    ], { formatter: value => value.toFixed(0), showLegend: false });
-  }, [data, chartTheme]);
-
-  const durationHistogram = useMemo(() => {
-    if (!data) return null;
-    return barChart(chartTheme, data.histogram.duration.map(bucket => bucket.name), data.histogram.duration.map(bucket => bucket.value), { formatter: value => formatCompact(value, 0), color: "#2563eb" });
-  }, [data, chartTheme]);
-
-  const ttftHistogram = useMemo(() => {
-    if (!data) return null;
-    return barChart(chartTheme, data.histogram.ttft.map(bucket => bucket.name), data.histogram.ttft.map(bucket => bucket.value), { formatter: value => formatCompact(value, 0), color: "#7c3aed" });
-  }, [data, chartTheme]);
-
-  const throughputHistogram = useMemo(() => {
-    if (!data) return null;
-    return barChart(chartTheme, data.histogram.throughput.map(bucket => bucket.name), data.histogram.throughput.map(bucket => bucket.value), { formatter: value => formatCompact(value, 0), color: "#16a34a" });
+    ], { formatter: value => formatNumber(value, 0), showLegend: false });
   }, [data, chartTheme]);
 
   const scatter = useMemo(() => {
@@ -63,7 +66,7 @@ export function PerformancePage() {
       .slice(0, 6)
       .map(([name, points]) => ({ name, points }));
     return scatterChart(chartTheme, series, {
-      xFormatter: value => `${(value / 1000).toFixed(1)}s`,
+      xFormatter: value => `${formatNumber(value / 1000, 1)}s`,
       yFormatter: value => formatCompact(value, 0),
       xName: "TTFT",
       yName: "output tokens",
@@ -71,167 +74,179 @@ export function PerformancePage() {
     });
   }, [data, chartTheme]);
 
+  const failuresOption = useMemo(() => {
+    if (!outcomes || outcomes.errorTimeline.length === 0) return null;
+    return stackedBarChart(chartTheme, outcomes.errorTimeline.map(point => point.label), [
+      { name: "Failed", data: outcomes.errorTimeline.map(point => point.error) },
+      { name: "Cancelled", data: outcomes.errorTimeline.map(point => point.cancelled) },
+    ], { formatter: value => formatCompact(value, 0) });
+  }, [outcomes, chartTheme]);
+
   const percentiles = data?.percentiles;
+  const failedByModel = new Map(outcomes?.failureByModel.map(entry => [entry.name, entry]) ?? []);
+  // Claude Code requests have no timing: they are not rows of "—", the section says Codex only.
+  const timedModels = data?.byModel.filter(model => model.ttftP50 !== null || model.p50DurationMs !== null || model.outputTokensPerSecond) ?? [];
+  const failed = outcomes?.outcomes.find(entry => entry.name === "error")?.value ?? 0;
+  const cancelled = outcomes?.outcomes.find(entry => entry.name === "cancelled")?.value ?? 0;
+  const grouped = useMemo(() => groupFailures(outcomes?.recentFailures ?? []), [outcomes]);
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Stat label="TTFT p50" value={formatDuration(percentiles?.ttft.p50)} hint={data ? formatCoverage(data.measurementCoverage.ttft) : undefined} tone="info" icon={<Timer size={13} />} />
-        <Stat label="TTFT p95" value={formatDuration(percentiles?.ttft.p95)} hint="Slowest 5% of first tokens" tone="warn" />
-        <Stat label="Latency p50" value={formatDuration(percentiles?.duration.p50)} hint={data ? formatCoverage(data.measurementCoverage.duration) : undefined} />
-        <Stat label="Latency p95" value={formatDuration(percentiles?.duration.p95)} hint="Tail behaviour" tone="warn" />
-        <Stat label="Latency p99" value={formatDuration(percentiles?.duration.p99)} hint="Worst case" tone="bad" />
-        <Stat label="Output tok/s p50" value={percentiles?.throughput.p50?.toFixed(1) ?? "—"} hint={percentiles?.throughput.mean ? `mean ${percentiles.throughput.mean.toFixed(1)}` : undefined} tone="good" icon={<Zap size={13} />} />
+      <div className="flex items-center gap-2 px-1 text-[11.5px] text-muted">
+        <span>Speed and reliability</span> <CodexOnly />
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <Stat label="TTFT p50" value={formatDuration(percentiles?.ttft.p50)} info="Time to first token. p95 is the slowest 5% of first tokens." hint={percentiles ? `p95 ${formatDuration(percentiles.ttft.p95)}` : undefined} tone="info" icon={<Timer size={13} />} />
+        <Stat label="Latency p50" value={formatDuration(percentiles?.duration.p50)} hint={percentiles ? `p95 ${formatDuration(percentiles.duration.p95)}` : undefined} />
+        <Stat label="Latency p99" value={formatDuration(percentiles?.duration.p99)} tone="warn" />
+        <Stat label="Output tok/s" value={percentiles?.throughput.p50 ? formatNumber(percentiles.throughput.p50, 1) : "—"} hint="median" tone="good" icon={<Zap size={13} />} />
+        <Stat label="Success rate" value={formatPercent(outcomes?.successRate ?? null)} hint={outcomes ? `${formatInteger(failed)} failed · ${formatInteger(cancelled)} cancelled` : undefined} tone={outcomes?.successRate != null && outcomes.successRate < 0.95 ? "warn" : "neutral"} />
       </div>
 
       <Card>
-        <CardHeader
-          title="Latency and first-token timeline"
-          subtitle="Dashed lines are TTFT; solid lines are full request duration"
-          action={<Badge tone="info">{data?.timeline.bucket ?? "day"} buckets</Badge>}
-        />
+        <CardHeader title="Latency and first token over time" />
         <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.timeline.points.length === 0}>
           {latencyOption ? <Chart option={latencyOption} height={280} /> : null}
         </StateBlock>
       </Card>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader title="Generation speed over time" subtitle="Median output tokens per second per bucket" />
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <Card>
+          <CardHeader title="Generation speed" />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {throughputOption ? <Chart option={throughputOption} height={220} /> : null}
+            {throughputOption ? <Chart option={throughputOption} height={230} /> : null}
           </StateBlock>
         </Card>
         <Card>
-          <CardHeader title="Latency distribution" subtitle="Share of requests per duration bucket" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {durationHistogram ? <Chart option={durationHistogram} height={220} /> : null}
-          </StateBlock>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card>
-          <CardHeader title="TTFT distribution" subtitle="How fast the first token arrives" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {ttftHistogram ? <Chart option={ttftHistogram} height={188} /> : null}
-          </StateBlock>
-        </Card>
-        <Card>
-          <CardHeader title="Throughput distribution" subtitle="Output tokens per second" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {throughputHistogram ? <Chart option={throughputHistogram} height={188} /> : null}
-          </StateBlock>
-        </Card>
-        <Card>
-          <CardHeader title="TTFT vs output length" subtitle="Each dot is a request, sampled to 2k" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {scatter ? <Chart option={scatter} height={188} /> : null}
+          <CardHeader title="First token vs output length" />
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.ttftVsOutput.length === 0}>
+            {scatter ? <Chart option={scatter} height={230} /> : null}
           </StateBlock>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Slowest requests" subtitle="Where the tail actually lives" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.slowest.length === 0}>
-            <TableShell>
-              <thead>
-                <tr>
-                  <Th>When</Th>
-                  <Th>Model</Th>
-                  <Th align="right">TTFT</Th>
-                  <Th align="right">Total</Th>
-                  <Th align="right">Out</Th>
-                  <Th align="center">Status</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.slowest.map(row => (
-                  <tr key={row.id} className="transition hover:bg-surface-2">
-                    <Td className="whitespace-nowrap text-muted">{formatDateTime(row.ts)}</Td>
-                    <Td><ModelTag model={row.model} provider={row.provider} className="max-w-[200px]" /></Td>
-                    <Td align="right">{formatDuration(row.measurements.ttft ? row.ttftMs : null)}</Td>
-                    <Td align="right" className="font-semibold text-ink">{formatDuration(row.measurements.duration ? row.durationMs : null)}</Td>
-                    <Td align="right">{formatCompact(row.measurements.output ? row.outputTokens : null)}</Td>
-                    <Td align="center"><OutcomeDot outcome={row.outcome} /></Td>
-                  </tr>
-                ))}
-              </tbody>
-            </TableShell>
+          <CardHeader title="By model" />
+          <StateBlock loading={query.isLoading} error={query.error} empty={timedModels.length === 0}>
+            <Expandable items={timedModels}>
+              {rows => (
+                <TableShell>
+                  <thead>
+                    <tr>
+                      <Th>Model</Th>
+                      <Th align="right">Requests</Th>
+                      <Th align="right">TTFT p50</Th>
+                      <Th align="right">Latency p50</Th>
+                      <Th align="right">tok/s</Th>
+                      <Th align="right">Failed</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(model => {
+                      const failures = failedByModel.get(model.key);
+                      return (
+                        <tr key={model.key} className="transition hover:bg-surface-2">
+                          <Td className="max-w-[220px]"><ModelTag model={model.key} /></Td>
+                          <Td align="right">{formatInteger(model.requests)}</Td>
+                          <Td align="right">{formatDuration(model.ttftP50)}</Td>
+                          <Td align="right">{formatDuration(model.p50DurationMs)}</Td>
+                          <Td align="right">{model.outputTokensPerSecond ? formatNumber(model.outputTokensPerSecond, 1) : "—"}</Td>
+                          <Td align="right">{failures && failures.failures > 0 ? `${formatInteger(failures.failures)} (${formatPercent(failures.rate, 1)})` : "—"}</Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </TableShell>
+              )}
+            </Expandable>
           </StateBlock>
         </Card>
 
         <Card>
-          <CardHeader title="Performance by model" subtitle="Median latency, TTFT and generation speed" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.byModel.length === 0}>
-            <TableShell>
-              <thead>
-                <tr>
-                  <Th>Model</Th>
-                  <Th align="right">Req</Th>
-                  <Th align="right">TTFT p50</Th>
-                  <Th align="right">p50</Th>
-                  <Th align="right">p95</Th>
-                  <Th align="right">tok/s</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.byModel.slice(0, 12).map(model => (
-                  <tr key={model.key} className="transition hover:bg-surface-2">
-                    <Td className="max-w-[200px] truncate font-medium text-ink">{model.key}</Td>
-                    <Td align="right">{formatCompact(model.requests, 0)}</Td>
-                    <Td align="right">{formatDuration(model.ttftP50)}</Td>
-                    <Td align="right">{formatDuration(model.p50DurationMs)}</Td>
-                    <Td align="right">{formatDuration(model.p95DurationMs)}</Td>
-                    <Td align="right">{model.outputTokensPerSecond ? model.outputTokensPerSecond.toFixed(1) : "—"}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </TableShell>
+          <CardHeader title="Slowest requests" />
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.slowest.length === 0}>
+            <Expandable items={data?.slowest ?? []} limit={6}>
+              {rows => (
+                <TableShell>
+                  <thead>
+                    <tr>
+                      <Th>When</Th>
+                      <Th>Model</Th>
+                      <Th align="right">TTFT</Th>
+                      <Th align="right">Total</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(row => (
+                      <tr key={row.id} className="transition hover:bg-surface-2">
+                        <Td className="whitespace-nowrap text-muted" >{formatShortDate(row.ts)}, {clock(row.ts)}</Td>
+                        <Td className="max-w-[200px]"><ModelTag model={row.model} /></Td>
+                        <Td align="right">{formatDuration(row.measurements.ttft ? row.ttftMs : null)}</Td>
+                        <Td align="right" className="font-semibold text-ink">{formatDuration(row.measurements.duration ? row.durationMs : null)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableShell>
+              )}
+            </Expandable>
           </StateBlock>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader title="Context pressure" subtitle="Input tokens per request — long context prices differently" action={<Link to={{ pathname: "/context", search }} className="text-[11px] font-medium text-accent">Details</Link>} />
-        <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
-            <div className="flex items-end gap-2">
-              {data?.context.buckets.map(bucket => {
-                const total = data.context.buckets.reduce((sum, entry) => sum + entry.value, 0) || 1;
-                const height = Math.max(4, (bucket.value / total) * 140);
-                return (
-                  <div key={bucket.name} className="flex flex-1 flex-col items-center gap-1">
-                    <span className="num text-[10px] text-muted">{formatCompact(bucket.value, 0)}</span>
-                    <div className="w-full rounded-t bg-info/70" style={{ height }} />
-                    <span className="text-[10px] text-muted">{bucket.name}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="grid grid-cols-3 gap-2 self-center lg:grid-cols-1">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.04em] text-muted">p50 input</p>
-                <p className="num text-[14px] font-semibold text-ink">{formatCompact(data?.context.p50Input ?? 0)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.04em] text-muted">p95 input</p>
-                <p className="num text-[14px] font-semibold text-ink">{formatCompact(data?.context.p95Input ?? 0)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.04em] text-muted">max input</p>
-                <p className="num text-[14px] font-semibold text-ink">{formatCompact(data?.context.maxInput ?? 0)}</p>
-              </div>
-            </div>
+      {failed + cancelled > 0 ? (
+        <>
+          <Card>
+            <CardHeader title="Failures over time" />
+            <StateBlock loading={reliability.isLoading} error={reliability.error} empty={!failuresOption}>
+              {failuresOption ? <Chart option={failuresOption} height={220} /> : null}
+            </StateBlock>
+          </Card>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <Card>
+              <CardHeader title="Error breakdown" />
+              <StateBlock loading={reliability.isLoading} error={reliability.error} empty={!outcomes || outcomes.errors.length === 0}>
+                <Expandable items={outcomes?.errors ?? []} limit={6}>
+                  {rows => (
+                    <TableShell>
+                      <thead>
+                        <tr><Th>Error</Th><Th align="right">Count</Th><Th align="right">Models</Th><Th align="right">Last seen</Th></tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(error => (
+                          <tr key={error.name} className="transition hover:bg-surface-2">
+                            <Td className="font-medium text-ink">{error.name}</Td>
+                            <Td align="right">{formatInteger(error.value)}</Td>
+                            <Td align="right">{error.models}</Td>
+                            <Td align="right" className="text-muted">{formatRelative(error.lastSeen)}</Td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </TableShell>
+                  )}
+                </Expandable>
+              </StateBlock>
+            </Card>
+            <Card>
+              <CardHeader title="Recent failures" />
+              <StateBlock loading={reliability.isLoading} error={reliability.error} empty={grouped.length === 0}>
+                <Expandable items={grouped} limit={6}>
+                  {rows => (
+                    <ul className="space-y-2">
+                      {rows.map(group => (
+                        <li key={`${group.model}|${group.error}`} className="text-[11.5px] leading-5 text-ink-soft">
+                          <span className="font-medium text-ink">{group.model}</span> · <span className="text-bad">{group.error}</span> · {formatInteger(group.count)}×
+                          <span className="text-muted"> · {formatShortDate(group.first)}{group.count > 1 ? `, ${clock(group.first)}–${clock(group.last)}` : `, ${clock(group.first)}`}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Expandable>
+              </StateBlock>
+            </Card>
           </div>
-        </StateBlock>
-      </Card>
-
-      <p className="px-1 text-[10.5px] text-muted">
-        <Waves size={11} className="mr-1 inline" />
-        Percentiles are computed over the filtered window; TTFT only exists for streaming responses, so coverage is shown next to it.
-      </p>
+        </>
+      ) : null}
     </div>
   );
 }

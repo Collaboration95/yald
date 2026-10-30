@@ -133,7 +133,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | Route | Additional query parameters | Response |
 | --- | --- | --- |
 | `GET /api/health` | — | `ok`, dataset `revision`, row count, parse timing, malformed-line count, pricing status |
-| `GET /api/meta` | — | Paths, file stats, parse info, totals, providers/models/efforts, quota and ledger summaries |
+| `GET /api/meta` | — | Paths, file stats, parse info, `versions` (`yald`, `opencodex`), totals, providers/models (`models` sorted by name, `modelsByUse` most used first)/efforts, quota and ledger summaries |
 | `GET /api/window` | Window parameters; repeated `phase` | The resolved window and phases; no data |
 | `GET /api/report` | Window parameters; repeated `phase`, `sources`, `projects`, `top`, `redact`, `title`, `format`, `download` | `{ ok, report }` (`ReportData`) or the standalone HTML report; see [`GET /api/report`](#get-apireport) |
 | `GET /api/overview` | Shared parameters | Window, summary, prior-period comparison (the equally long window just before, `[from − span, from)`), deltas, sparkline, series, compositions, leaders, heatmap, context, quota, recent rows |
@@ -148,7 +148,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
 | `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |
 | `GET /api/ledger` | Window parameters, `sources`; other shared filters are declared ignored | Account-wide spend-ledger counts and selected-range buckets, send/token totals, account `scope` |
-| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Conversations ranked by `sort` across every session in the selection, then cut to `limit`; aggregate totals |
+| `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Sessions ranked by `sort` across every session in the selection, then cut to `limit`; each carries `project`, the folder it last ran in (or null). `totals.conversations` and the medians cover every session, not just the page returned |
 | `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |
@@ -212,9 +212,11 @@ session route only `sessionSource` remains because it identifies the open sessio
 Selecting both sources serializes as the default (no `sources` parameter).
 
 `/api/scope` gives the toolbar a consistent count and the existing project
-attribution coverage. No-match results show a reset action. Quota remains visible
-with an account-scope explanation even when no requests match; session detail
-shows its own matching and excluded counts.
+attribution coverage. No-match results show a reset action. The Overview plan-usage card is
+account-wide and is not narrowed by request filters; session detail shows its own
+matching and excluded counts. `models` lists the models with requests in the
+window under the other filters, with counts, most used first; the toolbar uses it
+for the Model filter.
 
 ### Account observations
 
