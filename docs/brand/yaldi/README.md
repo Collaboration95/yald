@@ -43,6 +43,10 @@ and are not part of the package.
 | [`qa/sheet-light.png`](qa/sheet-light.png), [`qa/sheet-dark.png`](qa/sheet-dark.png) | 1460×520 | — | Reference: every shipped vector at real sizes on the app's surfaces. |
 | [`build-assets.mjs`](build-assets.mjs) | — | — | Source of truth that generates all shipped assets, the manifest and QA sheets. |
 
+## Idle Yaldi
+
+Each page heading shows a small Yaldi (`web/src/components/IdleYaldi.tsx`) using the static state poses at 72 px. Roughly every 40 seconds, while the tab is visible, it changes between `resting`, `investigating` and `analysing` with one short step. Its button (click, Enter or Space) wakes it with a short plain-text quip. It is hidden by **Hide artwork**, below 860 px wide and while any query on the page has failed. Under reduced motion it stays in the `resting` pose and the button still shows the quip. It never uses `clue-found`, which stays reserved for evidence-backed findings.
+
 ## State artwork
 
 All states share one 160×160 transparent canvas, centred on x = 80 with the
@@ -126,5 +130,5 @@ shared baseline drawn as a dashed line.
 
 ## Follow-up
 
-Animation is follow-up work. Future motion should respond to state changes,
-respect reduced motion, and be hideable.
+The [idle Yaldi](#idle-yaldi) is the only motion so far. Further motion should
+respond to state changes, respect reduced motion, and be hideable.

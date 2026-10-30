@@ -3,7 +3,7 @@
 Yald remains the product; Yaldi is its detective companion. The live `Yald.`
 wordmark stays beside the 32 px mark in the existing sidebar. Product descriptions
 cover opencodex **and** Claude Code; source capability and pricing limitations
-remain in the data views. No brand font, external image, animation or service is added.
+remain in the data views. No brand font, external image or service is added. The only motion is the [idle Yaldi](README.md#idle-yaldi).
 
 `web/src/components/YaldiArtwork.tsx` exports:
 

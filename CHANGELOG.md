@@ -15,6 +15,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 - **Sessions are identifiable.** Rows show the project and start date instead of a hash. The session page puts context size on its own chart, hides the scope sentence when nothing is excluded, and highlights requests that missed the cache ([#130](https://github.com/Collaboration95/yald/issues/130)).
 - The Model filter lists only models in the window, with counts and a search box; long Project lists get a search box and show the last two folders. Updating shows a small "Updating…" chip and dimming instead of a banner ([#132](https://github.com/Collaboration95/yald/issues/132)).
 
+### Added
+
+- **A small Yaldi in the page heading.** Yaldi idles slowly on wide screens and wakes with a quip on click, Enter or Space. It respects Hide artwork and reduced motion, pauses in hidden tabs and leaves when a request fails ([#94](https://github.com/Collaboration95/yald/issues/94)).
+
 ### Fixed
 
 - **The Sessions count was capped at 200.** It and the medians now cover every session in your selection ([#130](https://github.com/Collaboration95/yald/issues/130)).

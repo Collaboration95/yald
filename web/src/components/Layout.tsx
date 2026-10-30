@@ -28,6 +28,7 @@ import type { ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
 import { DEMO } from "../lib/demo";
 import { YaldiDemoArtwork } from "./YaldiArtwork";
+import { IdleYaldi } from "./IdleYaldi";
 import { isLabsAnalysis } from "../lib/labsFilters";
 
 const NAV = [
@@ -194,6 +195,7 @@ export function Layout() {
           <div className="relay-heading">
             <h1>{title}<span className="relay-title-stop">.</span></h1>
             {updating ? <span role="status" data-updating-notice className="relay-updating-chip">Updating…</span> : null}
+            <IdleYaldi page={page} />
           </div>
           <FilterNotes data={scopeData} error={scope.error} />
           {saved ? <p role="status" data-saved-notice className="mb-3 text-[11.5px] leading-5 text-muted">
