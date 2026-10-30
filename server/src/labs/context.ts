@@ -1,4 +1,4 @@
-import { filterRows, projectCoverage, type RowFilter } from "../analytics";
+import { agentKind, filterRows, projectCoverage, type RowFilter } from "../analytics";
 import type { RequestRow } from "../ocx/store";
 import { contextEligible, sourceOf } from "../report/source";
 import { analysisScope, evidenceFor, orderedRequests, sessionGrowth, sessionKey, type AnalysisWindow } from "./scope";
@@ -36,6 +36,7 @@ function observation(row: RequestRow, ordinal: number) {
   const eligible = contextEligible(row);
   return {
     id: row.id, ordinal, ts: row.ts, source: sourceOf(row), protocol: row.protocol,
+    ...(row.details?.agent ? { chain: chainOf(row) } : {}),
     provider: row.provider, model: row.model, requestedModel: row.requestedModel,
     resolvedModel: row.resolvedModel, effort: row.effort,
     inputTokens: eligible ? row.inputTokens : null,
@@ -52,6 +53,24 @@ function observation(row: RequestRow, ordinal: number) {
     usageStatus: row.usageStatus, cacheProvenance: row.cacheProvenance,
     eligible, exclusionReason: contextExclusionReason(row),
   };
+}
+
+const chainOf = (row: RequestRow): string => row.details?.agentId ?? agentKind(row);
+
+/** One entry per agent within a session, main first, so a reader can follow one sequence. Null with no markers at all. */
+function sessionChains(requests: RequestRow[]) {
+  if (!requests.some(row => row.details?.agent)) return null;
+  const chains = new Map<string, RequestRow[]>();
+  for (const row of requests) {
+    const key = chainOf(row);
+    const chain = chains.get(key);
+    if (chain) chain.push(row);
+    else chains.set(key, [row]);
+  }
+  return [...chains].map(([key, list]) => {
+    const { ranked, baseline, latest, ratio } = sessionGrowth(list);
+    return { key, agent: agentKind(list[0]!), agentType: list[0]!.details?.agentType ?? null, requests: list.length, growth: { ranked, baseline, latest, ratio } };
+  }).sort((a, b) => Number(b.agent === "main") - Number(a.agent === "main") || b.requests - a.requests || a.key.localeCompare(b.key));
 }
 
 /** Context observations, never reconstructed turns. Only loaded rows support history notes. */
@@ -99,6 +118,7 @@ export function buildContextReplay(datasetRows: RequestRow[], filter: RowFilter,
         outsideCohortRequests, rangeLimited, cohortLimited: outsideCohortRequests > 0, loadedHistoryOnly: true as const,
       },
       growth: { ranked, baseline, latest, absoluteChange, ratio },
+      chains: sessionChains(requests),
       requests: requests.map(observation),
       evidence: evidenceFor(filter, window, { kind: "session", source, conversationId }, "all"),
     };
@@ -116,7 +136,7 @@ export function buildContextReplay(datasetRows: RequestRow[], filter: RowFilter,
     },
     sessions, unnamedRequests,
     limitations: [
-      "Sequences contain requests, which may include concurrent or interleaved agents; they do not reconstruct turns.",
+      "Sequences contain requests, not turns. A session's requests interleave its agents: where Claude Code recorded markers the chart shows one chain at a time, and without markers, including all Codex threads, one sequence can still mix agents.",
       "Input changes, model changes and costs are observations; they do not establish compaction, waste, quality or cause.",
       "History coverage describes loaded data only. Window and cohort filters can limit the sequence; outside requests are counted, not returned.",
       "Costs are API list-price equivalents, not subscription bills. Reasoning tokens are part of output and are not added again.",

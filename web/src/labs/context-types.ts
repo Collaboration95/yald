@@ -53,6 +53,8 @@ export interface ContextObservation {
   ts: number;
   source: Source;
   protocol: string | null;
+  /** The session chain this request belongs to; absent without an agent marker. */
+  chain?: string;
   provider: string;
   model: string;
   requestedModel: string | null;
@@ -77,6 +79,15 @@ export interface ContextObservation {
   cacheProvenance: string | null;
   eligible: boolean;
   exclusionReason: ContextExclusion | null;
+}
+
+export interface ContextChain {
+  /** The `agentId`, or the agent kind for requests without one. */
+  key: string;
+  agent: "main" | "subagent" | "unlabelled";
+  agentType: string | null;
+  requests: number;
+  growth: { ranked: boolean; baseline: number | null; latest: number | null; ratio: number | null };
 }
 
 export interface ContextSession extends ContextCounts {
@@ -104,6 +115,8 @@ export interface ContextSession extends ContextCounts {
     /** Latest median / baseline median; null for zero baseline or <6 eligible. */
     ratio: number | null;
   };
+  /** The session's agents, main first; null when no request carries a marker. */
+  chains: ContextChain[] | null;
   requests: ContextObservation[];
   evidence: ContextEvidence;
 }

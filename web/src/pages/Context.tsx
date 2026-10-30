@@ -179,7 +179,7 @@ export function ContextPage() {
       <Card>
         <CardHeader
           title={<span className="inline-flex items-center gap-1.5">What longer contexts coincide with
-            <InfoTip label="About these numbers">These are associations in your data, not causes: a long context coincides with a higher cost per request, but that does not show that trimming it would save money. Costs are API list-price equivalents for priced requests. Bands have fixed edges, so they do not move with your selection. Bands with fewer than {data?.minimums.band ?? 10} requests are greyed. Claude Code subagent requests are not labelled yet, so Claude numbers can mix a main conversation with its subagents' smaller contexts.</InfoTip></span>}
+            <InfoTip label="About these numbers">These are associations in your data, not causes: a long context coincides with a higher cost per request, but that does not show that trimming it would save money. Costs are API list-price equivalents for priced requests. Bands have fixed edges, so they do not move with your selection. Bands with fewer than {data?.minimums.band ?? 10} requests are greyed. Claude numbers mix a main conversation with its subagents' smaller contexts unless the Agent filter narrows them.</InfoTip></span>}
         />
         <StateBlock loading={query.isLoading} error={query.error} empty={!hasData}>
           <TableShell>

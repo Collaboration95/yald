@@ -94,6 +94,9 @@ export function orderedRequests(rows: RequestRow[]): RequestRow[] {
 
 export const sessionKey = (source: Source, conversationId: string): string => JSON.stringify([source, conversationId]);
 
+/** One agent's sequence within a session. A session stays `(source, conversationId)`; `agentId` only splits it. */
+export const chainKey = (source: Source, conversationId: string, agentId: string | null | undefined): string => JSON.stringify([source, conversationId, agentId ?? "main"]);
+
 /**
  * How many of the named sessions have a loaded request outside [from, to): the window clipped them, so only
  * their in-window part is analysed. `named` maps each source to the conversation ids of interest.

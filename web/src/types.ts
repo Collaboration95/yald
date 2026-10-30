@@ -651,7 +651,7 @@ export interface ProjectRadarResponse {
   }[];
 }
 
-export type { ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
+export type { ContextChain, ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
 
 /** Resolved bounds carried by Labs findings and their evidence intents (epoch milliseconds). */
 export interface AnalysisWindow {
@@ -990,6 +990,29 @@ export interface WorkingStyleResponse {
   activity: { days: { date: string; requests: number }[]; activeDays: number; windowDays: number; longestStreak: number; currentStreak: number };
   hours: { hour: number; requests: number }[];
   night: { requests: number; share: number | null };
+}
+
+export interface AgentTally { requests: number; tokens: number; inputTokens: number; costUsd: number; pricedRequests: number }
+export type AgentKind = "main" | "subagent" | "unlabelled";
+export type AgentSplit = Record<AgentKind, AgentTally>;
+
+export interface SubagentsResponse {
+  ok: boolean;
+  window: { bucket: string };
+  claude: {
+    requests: number;
+    labelledRequests: number;
+    labelledShare: number | null;
+    shares: (AgentTally & { kind: AgentKind; requestShare: number | null; tokenShare: number | null; inputShare: number | null; costShare: number | null; pricedShare: number | null })[];
+    overTime: { ts: number; label: string; split: AgentSplit; labelledShare: number | null }[];
+    fanOut: { sessions: number; unlabelledSessions: number; withSubagents: number; withSubagentsShare: number | null; median: number | null; p90: number | null; max: number | null; bins: { label: string; sessions: number }[] };
+    byType: { type: string; spawns: number; requests: number; tokens: number; costUsd: number; costShare: number | null; medianRequestsPerSpawn: number | null; model: string | null; startupCostUsd: number }[];
+    byDepth: (AgentTally & { depth: string; requestShare: number | null; costShare: number | null })[];
+    startup: { spawns: number; unavailableSpawns: number; unpricedSpawns: number; cacheWriteTokens: number; costUsd: number; medianCostUsd: number | null; shortSpawnShare: number | null; points: { requests: number; costShare: number }[]; pointsOmitted: number };
+    byProject: { key: string; split: AgentSplit; unattributed: boolean }[];
+    byModel: { key: string; split: AgentSplit }[];
+  };
+  codex: { requests: number; tokens: number; costUsd: number; rootThread: AgentTally; subagentThread: AgentTally & { threads: number } };
 }
 
 export interface RecapNote { text: string; n: number; identifying?: boolean; money?: boolean }

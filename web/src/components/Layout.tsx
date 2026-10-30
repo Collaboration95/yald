@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  Bot,
   CalendarDays,
   CircleDollarSign,
   Layers,
@@ -23,7 +24,7 @@ import { useTheme } from "../lib/theme";
 import { CheckList, Popover, Segmented } from "./ui";
 import { Wordmark } from "./Wordmark";
 import { Delight } from "./Delight";
-import { FilterNotes, ModelFilter, NoScopeMatches, OUTCOME_LABELS, ProjectFilter, SourceFilter, effortLabel } from "./ScopeControls";
+import { AgentFilter, FilterNotes, ModelFilter, NoScopeMatches, OUTCOME_LABELS, ProjectFilter, SourceFilter, effortLabel } from "./ScopeControls";
 import { formatDateTime, formatRelative } from "../lib/format";
 import type { ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
@@ -39,6 +40,7 @@ const NAV = [
   { to: "/performance", label: "Performance", icon: Timer },
   { to: "/context", label: "Context", icon: Layers },
   { to: "/sessions", label: "Sessions", icon: MessagesSquare },
+  { to: "/subagents", label: "Subagents", icon: Bot },
   { to: "/style", label: "Working style", icon: CalendarDays },
 ];
 
@@ -49,6 +51,7 @@ const TITLES: Record<string, string> = {
   "/performance": "Performance",
   "/context": "Context",
   "/sessions": "Sessions",
+  "/subagents": "Subagents",
   "/style": "Working style",
 };
 
@@ -155,6 +158,7 @@ export function Layout() {
                 />
               </Popover> : null}
               <ModelFilter scope={scopeData} />
+              {showRequestFilters ? <AgentFilter /> : null}
               {showRequestFilters ? <><Popover label={filters.efforts.length ? `Effort · ${filters.efforts.length}` : "Effort"} active={filters.efforts.length > 0} width={200}>
                 <CheckList items={meta.data?.efforts ?? []} selected={filters.efforts} onToggle={value => toggleIn("efforts", value)} labelFor={effortLabel} />
               </Popover>

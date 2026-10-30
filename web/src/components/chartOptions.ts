@@ -435,7 +435,7 @@ export function boxplotChart(
 export function scatterChart(
   theme: ThemeTokens,
   series: { name: string; points: [number, number, number?][]; color?: string }[],
-  options: { xFormatter?: (value: number) => string; yFormatter?: (value: number) => string; xName?: string; yName?: string; scaleSize?: number } = {},
+  options: { xFormatter?: (value: number) => string; yFormatter?: (value: number) => string; xName?: string; yName?: string; scaleSize?: number; xLog?: boolean; yMax?: number } = {},
 ): ChartOption {
   const xFormatter = options.xFormatter ?? ((value: number) => String(value));
   const yFormatter = options.yFormatter ?? ((value: number) => String(value));
@@ -453,8 +453,8 @@ export function scatterChart(
       },
     },
     legend: series.length > 1 ? legendCommon(theme) : { show: false },
-    xAxis: { type: "value", ...axisCommon(theme), name: options.xName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => xFormatter(value) } },
-    yAxis: { type: "value", ...axisCommon(theme), name: options.yName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => yFormatter(value) } },
+    xAxis: { type: options.xLog ? "log" : "value", ...axisCommon(theme), name: options.xName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => xFormatter(value) } },
+    yAxis: { type: "value", ...(options.yMax !== undefined ? { max: options.yMax } : {}), ...axisCommon(theme), name: options.yName, nameTextStyle: { color: theme.axis, fontSize: 11 }, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => yFormatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
       type: "scatter",

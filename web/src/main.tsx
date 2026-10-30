@@ -21,6 +21,7 @@ const PerformancePage = lazy(() => import("./pages/Performance").then(m => ({ de
 const ConversationsPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationsPage })));
 const ConversationDetailPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationDetailPage })));
 const WorkingStylePage = lazy(() => import("./pages/WorkingStyle").then(m => ({ default: m.WorkingStylePage })));
+const SubagentsPage = lazy(() => import("./pages/Subagents").then(m => ({ default: m.SubagentsPage })));
 const LabsPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsPage })));
 const LabsInvestigationPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsInvestigationPage })));
 const EvidenceCase = lazy(() => import("./pages/labs/EvidenceCase").then(m => ({ default: m.EvidenceCase })));
@@ -76,6 +77,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="quota" element={<MovedTo to="/" />} />
                 <Route path="sessions" element={<ConversationsPage />} />
                 <Route path="sessions/:id" element={<ConversationDetailPage />} />
+                <Route path="subagents" element={<SubagentsPage />} />
                 <Route path="style" element={<WorkingStylePage />} />
                 <Route path="conversations" element={<MovedTo to="/sessions" />} />
                 <Route path="conversations/:id" element={<MovedSession />} />

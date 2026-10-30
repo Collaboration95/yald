@@ -179,3 +179,19 @@ test("empty and fully excluded scopes are serializable and satisfy the frontend 
     expect(response.sessions.reduce((n, s) => n + s.inWindowRequests, 0) + response.unnamedRequests).toBe(rows.length);
   }
 });
+
+test("a session with agent markers lists its chains, main first, each with its own growth", () => {
+  const base = { protocol: "claude-code", conversationId: "chains", provider: "anthropic", model: "m", totalTokens: 10, outputTokens: 0, measurements: { usage: "logical", input: true, output: true, cacheRead: true, cacheWrite: true } };
+  const rows = [
+    ...[1, 2, 3, 4, 5, 6].map(index => ({ ...base, id: `m${index}`, ts: index * 2, inputTokens: index * 100, details: { agent: "main", agentId: null, agentType: null } })),
+    ...[1, 2].map(index => ({ ...base, id: `s${index}`, ts: index * 2 + 1, inputTokens: 5, details: { agent: "subagent", agentId: "a1", agentType: "Explore" } })),
+  ] as never[];
+  const { sessions } = buildContextReplay(rows, {}, { from: 0, to: 100, tz: "UTC", label: "t" });
+  expect(sessions[0]!.chains!.map(chain => [chain.key, chain.requests, chain.growth.ranked])).toEqual([["main", 6, true], ["a1", 2, false]]);
+  expect(sessions[0]!.requests.find(request => request.id === "s1")).toMatchObject({ chain: "a1" });
+});
+
+test("a session with no markers has no chains to pick", () => {
+  const rows = [{ id: "r", ts: 1, protocol: "responses", conversationId: "x", provider: "p", model: "m", inputTokens: 1, outputTokens: 0, totalTokens: 1, measurements: { usage: "logical", input: true, output: true, cacheRead: true, cacheWrite: true } }] as never[];
+  expect(buildContextReplay(rows, {}, { from: 0, to: 100, tz: "UTC", label: "t" }).sessions[0]!.chains).toBeNull();
+});

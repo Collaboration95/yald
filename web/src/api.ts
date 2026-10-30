@@ -45,6 +45,8 @@ export interface Filters {
   sources: string[];
   /** Folder globs matched against a request's working directory or any ancestor; empty means every project. */
   projects: string[];
+  /** `main`, `subagent`, `unlabelled`; empty means every request. */
+  agents: string[];
   groupBy: string;
   metric: string;
   bucket: string;
@@ -66,6 +68,7 @@ export const DEFAULT_FILTERS: Filters = {
   conversationId: "",
   sources: [],
   projects: [],
+  agents: [],
   groupBy: "model",
   metric: "tokens",
   bucket: "auto",
@@ -83,7 +86,7 @@ export function filtersFromParams(params: URLSearchParams): Filters {
     ...Object.fromEntries(["range", "groupBy", "metric", "bucket", "search", "from", "to", "tz", "last", "conversationId"]
       .map(key => [key, params.get(key) ?? DEFAULT_FILTERS[key as keyof Filters]])),
     providers: list("providers"), models: list("models"), efforts: list("efforts"), statuses: list("statuses"),
-    routeKinds: list("routeKinds"), projects: list("projects"), sources: canonicalSources(list("sources")),
+    routeKinds: list("routeKinds"), projects: list("projects"), agents: list("agents"), sources: canonicalSources(list("sources")),
   };
 }
 
@@ -96,7 +99,7 @@ export function conversationLink(conversation: { id: string; source: Source }, s
 
 /** True for a selection that narrows beyond the time window: anything the scope strip and no-match state report on. */
 export function hasScope(filters: Filters): boolean {
-  return Boolean(filters.sources.length || filters.projects.length || filters.providers.length || filters.models.length
+  return Boolean(filters.sources.length || filters.projects.length || filters.agents.length || filters.providers.length || filters.models.length
     || filters.efforts.length || filters.statuses.length || filters.routeKinds.length || filters.conversationId || filters.search.trim());
 }
 
@@ -104,7 +107,7 @@ export const hasCustomWindow = (filters: Filters): boolean => Boolean(filters.fr
 
 /** How many request filters narrow the data. The time range, a custom window and the time zone are not filters. */
 export function activeFilterCount(filters: Filters): number {
-  return filters.sources.length + filters.projects.length + filters.providers.length + filters.models.length
+  return filters.sources.length + filters.projects.length + filters.agents.length + filters.providers.length + filters.models.length
     + filters.efforts.length + filters.statuses.length + filters.routeKinds.length + Number(Boolean(filters.search.trim()))
     + Number(Boolean(filters.conversationId));
 }
@@ -124,6 +127,7 @@ export function filtersToParams(filters: Filters, extra: Record<string, unknown>
   const sources = canonicalSources(filters.sources);
   if (sources.length) params.set("sources", sources.join(","));
   if (filters.projects.length) params.set("projects", filters.projects.join(","));
+  if (filters.agents.length) params.set("agents", filters.agents.join(","));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.tz) params.set("tz", filters.tz);

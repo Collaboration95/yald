@@ -21,15 +21,15 @@ export interface RowFilter {
   search?: string;
   /** Folder globs; a row matches when its cwd or an ancestor does. Rows without a cwd never match. */
   projects?: string[];
-  /** `main`, `subagent` or `unlabelled`; a row with no marker is only ever `unlabelled`. */
+  /** `main`, `subagent` or `unlabelled`; a row with no marker is only ever `unlabelled`. A Codex row is `subagent` only where its rollout names a parent thread. */
   agents?: AgentKind[];
   agentTypes?: string[];
 }
 
 export type AgentKind = "main" | "subagent" | "unlabelled";
 
-export const agentKind = (row: RequestRow): AgentKind => row.details?.agent ?? "unlabelled";
-export const agentTypeOf = (row: RequestRow): string => row.details?.agentType ?? (row.details?.agent === "main" ? "main" : "unknown");
+export const agentKind = (row: RequestRow): AgentKind => row.details?.agent ?? (row.codexSession?.parentThreadId ? "subagent" : "unlabelled");
+export const agentTypeOf = (row: RequestRow): string => row.details?.agentType ?? row.codexSession?.agentRole ?? (row.details?.agent === "main" ? "main" : "unknown");
 
 const DAY_MS = 86_400_000;
 
