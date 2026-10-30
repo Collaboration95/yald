@@ -3,7 +3,7 @@ import { normalizeRow } from "../ocx/store";
 import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectEntries, readClaudeEntries, toAgentEvent, toEvent } from "./transcripts";
+import { claudeSessionTitles, collectEntries, readClaudeEntries, toAgentEvent, toEvent } from "./transcripts";
 
 const usage = {
   input_tokens: 2,
@@ -274,6 +274,38 @@ test("external archive appends, same-size rewrites and deletion refresh entries 
   expect(removed.entries).toEqual([]);
   expect(removed.signature).not.toBe(appended.signature);
   await Promise.all([dir, archiveDir].map(path => rm(path, { recursive: true })));
+});
+
+test("recorded session titles stay in memory: ranked, capped, and never in the archive", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-titles-"));
+  try {
+    const archive = join(dir, "archive.jsonl");
+    const usageLine = JSON.stringify({ type: "assistant", requestId: "req_title", sessionId: "s-title", timestamp: "2026-10-04T16:44:49.068Z", message: { model: "claude-opus-5-5", usage } });
+    await writeFile(join(dir, "s-title.jsonl"), [
+      JSON.stringify({ type: "summary", summary: "SECRET summary title", leafUuid: "u" }),
+      JSON.stringify({ type: "ai-title", aiTitle: "SECRET generated title", sessionId: "s-title" }),
+      JSON.stringify({ type: "user", sessionId: "s-title", message: { content: "ai-title is only a word in this prompt" } }),
+      usageLine, "",
+    ].join("\n"));
+    await writeFile(join(dir, "s-long.jsonl"), JSON.stringify({ type: "custom-title", customTitle: `SECRET ${"x".repeat(200)}`, sessionId: "s-long" }) + "\n");
+    await writeFile(join(dir, "s-summary.jsonl"), JSON.stringify({ type: "summary", summary: "SECRET from the file name" }) + "\n");
+    await readClaudeEntries(dir, archive);
+    const titles = claudeSessionTitles();
+    expect(titles.get("s-title")).toBe("SECRET generated title");
+    expect(titles.get("s-summary")).toBe("SECRET from the file name");
+    expect(titles.get("s-long")!.length).toBe(120);
+
+    await appendFile(join(dir, "s-title.jsonl"), JSON.stringify({ type: "custom-title", customTitle: "SECRET chosen title", sessionId: "s-title" }) + "\n");
+    await readClaudeEntries(dir, archive);
+    expect(claudeSessionTitles().get("s-title")).toBe("SECRET chosen title");
+    expect(await readFile(archive, "utf8")).not.toContain("SECRET");
+
+    await rm(join(dir, "s-title.jsonl"));
+    await readClaudeEntries(dir, archive);
+    expect(claudeSessionTitles().has("s-title")).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 const SECRET = "SECRET-TEXT";
