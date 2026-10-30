@@ -2,7 +2,7 @@
 // each subagent's first request cost. Describes structure and list-price equivalents only: a share
 // is not waste, and a request counts once, under its own agent kind. An unlabelled row is its own
 // slice and never main. Codex is reported apart: its root threads can hold subagent traffic.
-import { agentKind, bucketer, bucketLabel, bucketStarts, classCost, percentile, round, type AgentKind, type Bucket } from "./analytics";
+import { agentKind, bucketer, bucketLabel, bucketStarts, classCost, percentile, round, topN, type AgentKind, type Bucket } from "./analytics";
 import { chainKey, sessionKey } from "./labs/scope";
 import type { RequestRow } from "./ocx/store";
 import { createProjectIdentity, UNATTRIBUTED } from "./projects";
@@ -157,13 +157,13 @@ export function subagentBreakdown(rows: readonly RequestRow[], options: {
   const subagentCost = split.subagent.costUsd;
 
   // Fan-out: a session counts only if a row of it is labelled, so "0" means a session with no recorded subagent.
-  const perSession = new Map<string, { labelled: boolean; agents: Set<string> }>();
+  const perSession = new Map<string, { id: string; project: string | null; labelled: boolean; agents: Set<string> }>();
   let unlabelledSessions = 0;
   for (const row of (options.sessionRows ?? rows)) {
     if (sourceOf(row) !== "claude-code" || !row.conversationId) continue;
     const key = sessionKey("claude-code", row.conversationId);
     let session = perSession.get(key);
-    if (!session) perSession.set(key, session = { labelled: false, agents: new Set() });
+    if (!session) perSession.set(key, session = { id: row.conversationId, project: row.cwd, labelled: false, agents: new Set() });
     if (row.details?.agent) session.labelled = true;
     if (row.details?.agentId) session.agents.add(row.details.agentId);
   }
@@ -206,6 +206,8 @@ export function subagentBreakdown(rows: readonly RequestRow[], options: {
         withSubagentsShare: share(counts.filter(value => value > 0).length, counts.length),
         median: percentile(counts, 0.5), p90: percentile(counts, 0.9), max: counts.length ? Math.max(...counts) : null,
         bins: FAN_OUT_BINS.map(bin => ({ label: bin.label, sessions: counts.filter(value => value >= bin.min && value <= bin.max).length })),
+        topSessions: topN([...perSession.values()].filter(session => session.agents.size > 0), TOP_ROWS, (a, b) => b.agents.size - a.agents.size || a.id.localeCompare(b.id))
+          .map(session => ({ id: session.id, source: "claude-code" as const, project: session.project, subagents: session.agents.size })),
       },
       byType: [...types.values()].sort((a, b) => b.costUsd - a.costUsd || a.type.localeCompare(b.type)).map(entry => ({
         type: entry.type, spawns: entry.spawns.length, requests: entry.requests, tokens: entry.tokens, costUsd: round(entry.costUsd, 4),

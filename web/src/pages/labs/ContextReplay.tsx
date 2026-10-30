@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { filtersKey, sourceLabel, useContextReplay } from "../../api";
+import { Link } from "react-router-dom";
+import { conversationLink, filtersKey, sourceLabel, useContextReplay } from "../../api";
 import { Chart } from "../../components/Chart";
 import { Card, CardHeader } from "../../components/ui";
 import { formatCompact, formatInteger, formatRatio, formatShortDate, shortId } from "../../lib/format";
@@ -39,10 +40,10 @@ function SessionChart({ session, tz }: { session: ContextSession; tz: string }) 
     <CardHeader
       title={`Input per request · ${sessionName(session)}`}
       subtitle={`${sourceLabel(session.source)} · ${formatInteger(shown.requests.filter(row => row.eligible).length)} measured requests${chain?.growth.ratio != null ? ` · ${formatRatio(chain.growth.ratio)} growth in this chain` : ""}`}
-      action={chains.length > 1 ? <select aria-label="Chain" value={picked} onChange={event => setPicked(event.target.value)} className="max-w-[220px] rounded-lg border border-line bg-surface px-2 py-1 text-[11.5px] text-ink-soft">
+      action={<><Link to={conversationLink({ id: session.conversationId, source: session.source }, "")} className="text-[11px] font-medium text-accent">Open session</Link>{chains.length > 1 ? <select aria-label="Chain" value={picked} onChange={event => setPicked(event.target.value)} className="max-w-[220px] rounded-lg border border-line bg-surface px-2 py-1 text-[11.5px] text-ink-soft">
         {chains.map(item => <option key={item.key} value={item.key}>{chainLabel(item)} ({formatInteger(item.requests)})</option>)}
         <option value="">All requests, interleaved</option>
-      </select> : undefined}
+      </select> : null}</>}
     />
     <Chart option={option} height={260} />
   </Card>;

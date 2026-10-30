@@ -352,6 +352,16 @@ Where Claude Code usage ran, by agent. A request counts once, under its own agen
 - **Codex.** Subagent traffic often reuses the parent thread's id, so it cannot be split. Rows are reported as `root thread (may include subagents)` and `subagent thread`, the latter only where a rollout names a parent thread. Such a row is `subagent` in the `agents` filter; a root-thread row is `unlabelled`, never main.
 - **Interpretation.** A share is where usage was recorded, not waste or overhead. A first-request write is the cost of that request, not a penalty. Older archive lines cannot be back-filled.
 
+## Session anatomy
+
+The shape of one session, built from the same rows as its detail response, so chain totals add up to the session's. A chain is one agent's requests within the session: `main`, one per `agentId`, and `unlabelled` for requests with no marker, which are never folded into main.
+
+- **Cost tree.** Each chain is sized by list-price cost, tokens or requests, and nested under the chain that spawned it. The parent comes from a subagent's recorded `spawnToolUseId` matching a request's `tool_use` id. A chain with no recorded link sits at the top level and reads "spawn point not recorded"; nothing is guessed. A partly priced chain shows its priced subtotal as a lower bound.
+- **Timeline.** A lane per chain from its first to its last request, with a tick per request (at most 300 per chain, evenly spaced, first and last kept) and a connector from the spawning request where one is recorded.
+- **Context line.** Input tokens per measured request, one chain at a time, main by default (at most 800 points, or 200 for a subagent). Recorded compactions are marked with Claude Code's own pre and post token counts. An event without an agent id is drawn on the main line: a transcript does not say more. These counts are not API usage counters.
+- **Stats.** Chains, maximum recorded depth, subagent share of requests, tokens and cost, the first-request cache write (same definition as [Subagents](#subagents)), and coverage: labelled, priced and context-measured shares. A first request outside the selection is unavailable, not zero.
+- **Codex** sessions and unmarked Claude sessions read as one chain with a note. Codex subagent traffic often reuses the parent thread's id, so it cannot be split.
+
 ## Working style
 
 Describes how sessions are shaped and when requests happened. A label is about size and span, not value, and a session is not a task. Nothing here measures productivity, overtime or health.
