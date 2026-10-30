@@ -4,7 +4,7 @@ import { useTheme } from "../lib/theme";
 export type YaldiArtworkState = "investigating" | "analysing" | "empty" | "insufficient" | "error" | "resting";
 export interface YaldiArtworkProps {
   state: YaldiArtworkState;
-  size?: 48 | 80 | 120 | 160;
+  size?: 48 | 72 | 80 | 120 | 160;
   className?: string;
 }
 

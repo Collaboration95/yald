@@ -203,9 +203,12 @@
 :root .relay-workspace { min-width: 0; padding: 0 30px; }
 
 :root .relay-heading {
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: 12px;
+  /* Always room for the idle Yaldi, so hiding it or a page without it never moves the content. */
+  min-height: 72px;
   margin-bottom: 18px;
   padding: 0;
   border: 0;
@@ -219,6 +222,56 @@
   font-weight: 800;
   letter-spacing: -.065em;
   line-height: 1.12;
+}
+
+:root .idle-yaldi {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:root .idle-yaldi button {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+:root .idle-yaldi button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:root .idle-yaldi button[data-moving] {
+  animation: idle-yaldi-step 1.4s ease-in-out;
+}
+
+:root .idle-yaldi-bubble {
+  max-width: 220px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 5px 10px;
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+@keyframes idle-yaldi-step {
+  0%, 100% { transform: translate(0, 0); }
+  30% { transform: translate(-5px, -3px); }
+  60% { transform: translate(3px, 0); }
+}
+
+/* No room beside the title: Yaldi goes, and the heading gives its space back. */
+@media (max-width: 860px) {
+  :root .idle-yaldi { display: none; }
+  :root .relay-heading { min-height: 0; }
 }
 
 :root .relay-updating-chip {
@@ -608,6 +661,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root .idle-yaldi button[data-moving] { animation: none; }
   :root { scroll-behavior: auto; }
   :root .relay-app * { animation: none !important; transition: none !important; }
 }
