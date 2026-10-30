@@ -11,6 +11,7 @@ import {
 } from "../analytics";
 import type { Dataset, RequestRow } from "../ocx/store";
 import { formatInZone, isoInZone, makeBucketer, type Instant } from "../time/window";
+import { inferFolders, inferredCoverage, type SessionSpan } from "./infer";
 import { ALL_SOURCES, sourceOf } from "./source";
 import type { ReportData, ReportSpec, Source, Totals } from "./types";
 
@@ -18,6 +19,8 @@ import type { ReportData, ReportSpec, Source, Totals } from "./types";
 export type ReportDataset = Pick<Dataset, "rows" | "quota" | "ledger" | "files">;
 
 export interface ReportContext {
+  /** Codex sessions a project-filtered report may infer a folder from (#47). Absent: nothing is inferred. */
+  sessionSpans?: readonly SessionSpan[];
   /** meta.generatedAt; also dates quota projections. Never read from the clock here. */
   now: Instant;
   yaldVersion: string;
@@ -153,10 +156,14 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
 
   // Rows: half-open window, then sources, then projects. Coverage counts the
   // in-window, in-source rows the project filter dropped for lack of a folder.
-  const sourced = filterRows(dataset.rows, { from, to }).filter(row => sources.includes(sourceOf(row)));
+  const inWindow = filterRows(dataset.rows, { from, to }).filter(row => sources.includes(sourceOf(row)));
   const projectFilter: RowFilter = { projects: spec.projects.length ? spec.projects.map(glob => expandHome(glob, ctx.home)) : undefined };
+  // A folder only changes a project-filtered report, so nothing is inferred without a filter.
+  const inferred = projectFilter.projects && spec.infer !== false ? inferFolders(inWindow, ctx.sessionSpans ?? []) : null;
+  const sourced = inferred?.rows ?? inWindow;
   const rows = projectFilter.projects ? filterRows(sourced, projectFilter) : sourced;
   const projectCounts = projectCoverage(sourced, projectFilter);
+  const kept = new Set(rows);
 
   const summary = summarize(rows);
   const total = accumulate(rows);
@@ -376,6 +383,7 @@ export function buildReport(dataset: ReportDataset, spec: ReportSpec, ctx: Repor
       unattributedRows: projectCounts ? projectCounts.unattributedRows : null,
       unattributedTokens: projectCounts ? projectCounts.unattributedTokens : null,
       attribution: projectCounts ? projectCounts.attribution : null,
+      ...(inferred && inferred.basis.size ? { inferred: inferredCoverage(inferred, row => kept.has(row)) } : {}),
     },
   };
 }

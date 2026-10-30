@@ -123,6 +123,8 @@ Each request carries the working directory (`cwd`) it was made from, or none whe
 
 A project filter (`projects`) is a list of folder globs. A request matches when its `cwd`, or any folder above it, matches a glob, so `~/work/app-a` covers `~/work/app-a/server` and `~/work/app-a*` also covers `~/work/app-a-api`. `~` is the home directory and a trailing `/` is ignored. On macOS, `/tmp/...` and `/private/tmp/...` (and `/var/...` and `/private/var/...`) are treated as the same folder, so `/tmp/app-a-*` and `/private/var/folders/**/T/app-a-*` match Codex SDK runs started in temp folders. Unattributed requests never match a project filter: they are excluded and reported as `coverage.unattributedRows` and `coverage.unattributedTokens`, so a filtered total can be read as a lower bound.
 
+Reports go one step further than the dashboard: under `--project`, `yald report` and `GET /api/report` give an opencodex row with no folder the folder of exactly one Codex session, by timing. A row whose id matched no rollout (usually a client's title or setup call) takes the rollout that starts within 5 seconds after it. A row with no conversation id takes the only session active at that moment, between the rollout's `session_meta` time and its file modification time. Several candidates leave the row unattributed. These folders are inferred, not recorded: `coverage.inferred` counts them by basis (`sideCall`, `overlap`), the report's coverage note says so, and `--no-infer` (`infer=0`) turns it off. Dashboard pages, Labs and CSV exports never infer a folder.
+
 `coverage.attribution` explains the exclusions for the same source and window. Rows are split into `matched` (kept), `outsideProjects` (a known folder that no glob matches) and `unattributed`, and these add up to every row that matched the other filters. Unattributed rows are broken down by reason, each with rows, tokens and the models involved (the report's coverage note prints the same numbers):
 
 - `noConversationId`: an opencodex row without a conversation id (for example image generation or realtime calls). No rollout can match it.
@@ -242,7 +244,7 @@ Radar groups normalized requests by the same nearest git root as the project
 list, with cwd fallback for non-repositories/deleted folders and an explicit
 `(unattributed)` group for missing cwd. Nested repositories/worktrees retain their
 nearest identity. Both current and prior groups use one per-analysis root cache.
-No attribution is inferred from timing or neighboring requests.
+Radar infers no attribution from timing or neighboring requests.
 
 Named groups plus unattributed reconcile to strict scoped logical requests,
 normalized total tokens and **priced** USD sums, with floating-point tolerance.

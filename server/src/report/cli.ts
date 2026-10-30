@@ -30,6 +30,7 @@ Window (grammar from #33; naive times are read in --tz):
 Scope:
   --source <list>             claude-code,ocx (default both). Aliases: claude, codex.
   --project <glob>            Repeatable. Folder or ancestor match (#35).
+  --no-infer                  Under --project, use recorded folders only: no folder from timing.
 
 Output:
   --out <path|->              HTML path, or - for stdout. Default: ./yald-report-<local from>.html
@@ -64,7 +65,7 @@ const OPTIONS = {
   source: { type: "string", multiple: true },
   project: { type: "string", multiple: true },
   out: { type: "string" }, json: { type: "string" }, title: { type: "string" }, top: { type: "string" },
-  "no-redact": { type: "boolean" }, open: { type: "boolean" }, "dry-run": { type: "boolean" },
+  "no-redact": { type: "boolean" }, "no-infer": { type: "boolean" }, open: { type: "boolean" }, "dry-run": { type: "boolean" },
   "ocx-home": { type: "string" }, "claude-projects": { type: "string" }, "codex-home": { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
@@ -132,6 +133,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       projects: many("project"),
       top: str("top"),
       redact: values["no-redact"] !== true,
+      infer: values["no-infer"] !== true,
       title: str("title"),
     },
     out: str("out"),

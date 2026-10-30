@@ -39,6 +39,8 @@ export interface ReportSpecInput {
   top?: number | string;
   /** Default true. Strings "false", "0", "no" and "off" turn it off. */
   redact?: boolean | string;
+  /** Default true: a project-filtered report may infer folders from timing. Same false strings as `redact`. */
+  infer?: boolean | string;
   title?: string;
 }
 
@@ -69,7 +71,7 @@ function readTop(value: number | string | undefined): number {
   return Math.min(top, MAX_TOP);
 }
 
-function readRedact(value: boolean | string | undefined): boolean {
+function readSwitch(value: boolean | string | undefined): boolean {
   if (typeof value === "boolean") return value;
   if (value === undefined) return true;
   return !["false", "0", "no", "off"].includes(value.trim().toLowerCase());
@@ -108,7 +110,8 @@ export function buildReportSpec(input: ReportSpecInput, ctx: { now: Instant; fir
     sources: readSources(input.sources),
     projects: list(input.projects),
     top: readTop(input.top),
-    redact: readRedact(input.redact),
+    redact: readSwitch(input.redact),
+    infer: readSwitch(input.infer),
     ...(title ? { title } : {}),
   };
 }

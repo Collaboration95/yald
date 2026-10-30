@@ -3,6 +3,7 @@
 // Imports env.ts, so callers that redirect data paths set process.env first.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { codexSessionSpans } from "../codex/sessions";
 import { CLAUDE_PROJECTS } from "../env";
 import { pricingStatus } from "../ocx/pricing";
 import { gitRoot } from "../projects";
@@ -19,5 +20,6 @@ export function liveReportContext(now: number): ReportContext {
     home: process.env.HOME || homedir(),
     projectOf: cwd => gitRoot(cwd) ?? cwd,
     claudeProjectsDir: CLAUDE_PROJECTS,
+    sessionSpans: codexSessionSpans(),
   };
 }

@@ -345,6 +345,8 @@ function exclusionSentences(c: ReportData["coverage"]): string[] {
     const more = r.models.length > 3 ? `, and ${integer(r.models.length - 3)} more` : "";
     sentences.push(`${integer(r.rows)} of them (${compact(r.tokens)} tokens) ${REASON_TEXT[r.reason]}: ${models}${more}.`);
   }
+  const inferred = c.inferred;
+  if (inferred) sentences.push(`${integer(inferred.rows)} ${noun(inferred.rows)} (${compact(inferred.tokens)} tokens) got a folder by inference, not from a record: ${integer(inferred.sideCall.rows)} from a Codex session starting within 5 seconds after, ${integer(inferred.overlap.rows)} from the only Codex session active at the time. ${integer(inferred.matchedRows)} of them are in the selected projects. Run with --no-infer to leave them out.`);
   const out = attribution.outsideProjects;
   if (out.rows > 0) sentences.push(`${integer(out.rows)} other ${noun(out.rows)} (${compact(out.tokens)} tokens) ran in folders outside the selected projects and ${out.rows === 1 ? "is" : "are"} excluded.`);
   return sentences;

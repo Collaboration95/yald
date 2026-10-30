@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- **Project reports recover side calls.** Under `--project`, `yald report` and `GET /api/report` now give an opencodex request with no folder the folder of the one Codex session that fits by timing: a title or setup call just before a rollout starts, or a call with no id during the only active session. These are counted apart as `coverage.inferred`, named in the report's coverage note, and `--no-infer` turns them off. Dashboard pages never infer a folder ([#47](https://github.com/Collaboration95/yald/issues/47)).
+
 ### Changed
 
 - **A leaner dashboard.** Pages no longer open with a "Dashboard selection" box or a "09 / DASHBOARD" label. A small "Filtered: 2 projects · Reset" chip appears only when a filter narrows your data, with the project-exclusion note beside it when a project filter leaves requests out. The sidebar footer keeps only when the data was last updated and the opencodex and Yald versions, and the Labs and Hide artwork switches moved into a settings menu next to the theme toggle. Picking a range like 24h or 90d no longer counts as a filter, and Reset keeps your range ([#94](https://github.com/Collaboration95/yald/issues/94), [#121](https://github.com/Collaboration95/yald/issues/121), [#123](https://github.com/Collaboration95/yald/issues/123), [#132](https://github.com/Collaboration95/yald/issues/132)).

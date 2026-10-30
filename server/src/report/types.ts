@@ -3,6 +3,7 @@
 // and the endpoint (#39) stay compatible.
 
 import type { AttributionCoverage } from "../attribution";
+import type { InferredCoverage } from "./infer";
 import type { Instant, Phase, TimeWindow } from "../time/window";
 
 export type Source = "claude-code" | "ocx";
@@ -14,6 +15,7 @@ export interface ReportSpec {
   projects: string[];            // globs; [] = no project filter
   top: number;                   // default 10
   redact: boolean;               // default true
+  infer?: boolean;               // default true; false keeps recorded folders only (#47)
   title?: string;
 }
 
@@ -72,5 +74,7 @@ export interface ReportData {
     unattributedTokens: number | null;       // same population as unattributedRows
     /** Additive (#55): kept / elsewhere / no-folder split, with reasons and models for the last. Null without a project filter. */
     attribution: AttributionCoverage | null;
+    /** Additive (#47): present only when a project-filtered report inferred at least one folder. */
+    inferred?: InferredCoverage;
   };
 }

@@ -935,7 +935,7 @@ api.get("/api/report", async c => {
     from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz,
     phases: c.req.queries("phase") ?? [],
     sources: joined("sources"), projects: joined("projects"),
-    top: query.top, redact: query.redact, title: query.title,
+    top: query.top, redact: query.redact, infer: query.infer, title: query.title,
   }, { now, first: dataset.rows[0]?.ts ?? now });
   const report = buildReport(dataset, spec, liveReportContext(now));
   const stable = { ...report, meta: { ...report.meta, generatedAt: 0 } };

@@ -85,7 +85,7 @@ async function listRollouts(codexHome: string): Promise<string[]> {
 }
 
 interface HomeCache {
-  files: Map<string, { signature: string; meta: RolloutMeta | null }>;
+  files: Map<string, { signature: string; meta: RolloutMeta | null; mtimeMs: number }>;
   index: Map<string, CodexSession>;
 }
 
@@ -130,19 +130,19 @@ export async function readCodexSessionIndex(codexHome = CODEX_HOME): Promise<Map
     return EMPTY;
   }
   const files: HomeCache["files"] = new Map();
-  const stale: { path: string; signature: string }[] = [];
+  const stale: { path: string; signature: string; mtimeMs: number }[] = [];
   await Promise.all(paths.map(async path => {
     const info = await stat(path, { bigint: true }).catch(() => null);
     if (!info) return;
     const signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
     const cached = cache?.files.get(path);
     if (cached?.signature === signature) files.set(path, cached);
-    else stale.push({ path, signature });
+    else stale.push({ path, signature, mtimeMs: Number(info.mtimeMs) });
   }));
   let changed = !cache;
   // Bounded, so a cold start over thousands of rollouts cannot run out of file descriptors.
   for (let start = 0; start < stale.length; start += READ_BATCH) {
-    await Promise.all(stale.slice(start, start + READ_BATCH).map(async ({ path, signature }) => {
+    await Promise.all(stale.slice(start, start + READ_BATCH).map(async ({ path, signature, mtimeMs }) => {
       let line: string | null;
       try {
         line = await readFirstLine(path);
@@ -151,7 +151,7 @@ export async function readCodexSessionIndex(codexHome = CODEX_HOME): Promise<Map
         return;
       }
       const meta = line ? parseSessionMeta(line) : null;
-      files.set(path, { signature, meta });
+      files.set(path, { signature, meta, mtimeMs });
       // Live rollouts are appended to constantly; their first line, and so the index, stays put.
       if (!sameMeta(cache?.files.get(path)?.meta, meta)) changed = true;
     }));
@@ -165,4 +165,16 @@ export async function readCodexSessionIndex(codexHome = CODEX_HOME): Promise<Map
   const index = buildIndex(paths.flatMap(path => files.has(path) ? [files.get(path)!.meta] : []));
   homes.set(codexHome, { files, index });
   return index;
+}
+
+/**
+ * Every rollout's folder and active span, from the last index read of this Codex home: its
+ * start from `session_meta`, its end the file's modification time. For timing inference only.
+ */
+export function codexSessionSpans(codexHome = CODEX_HOME): { cwd: string; startedAt: number; lastActiveAt: number }[] {
+  const spans: { cwd: string; startedAt: number; lastActiveAt: number }[] = [];
+  for (const { meta, mtimeMs } of homes.get(codexHome)?.files.values() ?? []) {
+    if (meta?.startedAt != null) spans.push({ cwd: meta.cwd, startedAt: meta.startedAt, lastActiveAt: mtimeMs });
+  }
+  return spans;
 }

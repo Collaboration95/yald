@@ -110,6 +110,7 @@ The report `yald report` produces, from the running server: KPIs, a phase table,
 | `top` | Conversations to list: default 10, at most 100 (larger values are capped) |
 | `redact` | `1` (default) or `0`. Redaction cuts conversation ids to 8 characters, shows the home directory as `~` and replaces account labels, because the output is meant to be shared |
 | `title` | Heading; default `yald report · <window label>` |
+| `infer` | Default on. `0`, `false`, `no` or `off` keeps recorded folders only under `projects` ([project attribution](metrics.md#project-attribution)) |
 | `format` | `json` (default) or `html`; anything else is `invalid_format` |
 | `download` | `1` adds `Content-Disposition: attachment; filename="yald-report-<local from>.<ext>"`, e.g. `yald-report-2026-10-11T0900+0800.html` |
 
@@ -135,7 +136,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/health` | — | `ok`, dataset `revision`, row count, parse timing, malformed-line count, pricing status |
 | `GET /api/meta` | — | Paths, file stats, parse info, `versions` (`yald`, `opencodex`), totals, providers/models (`models` sorted by name, `modelsByUse` most used first)/efforts, quota and ledger summaries |
 | `GET /api/window` | Window parameters; repeated `phase` | The resolved window and phases; no data |
-| `GET /api/report` | Window parameters; repeated `phase`, `sources`, `projects`, `top`, `redact`, `title`, `format`, `download` | `{ ok, report }` (`ReportData`) or the standalone HTML report; see [`GET /api/report`](#get-apireport) |
+| `GET /api/report` | Window parameters; repeated `phase`, `sources`, `projects`, `top`, `redact`, `infer`, `title`, `format`, `download` | `{ ok, report }` (`ReportData`) or the standalone HTML report; see [`GET /api/report`](#get-apireport) |
 | `GET /api/overview` | Shared parameters | Window, summary, prior-period comparison (the equally long window just before, `[from − span, from)`), deltas, sparkline, series, compositions, leaders, heatmap, context, quota, recent rows |
 | `GET /api/timeseries` | Shared; `limit` | Window and grouped series |
 | `GET /api/models` | Shared | Model/provider/effort breakdowns, scatter points, effort matrix |
