@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { CLAUDE_ARCHIVE, CLAUDE_PROJECTS } from "../env";
 import { readTail, type TailCursor } from "../ingest/tail";
 
@@ -120,6 +120,33 @@ function collectInto(byRequest: Map<string, Record<string, unknown>>, text: stri
   }
 }
 
+const TITLE_LIMIT = 120;
+/** Later kinds outrank earlier ones: a title the user set beats a generated one. */
+const TITLE_KINDS = [["summary", "summary"], ["ai-title", "aiTitle"], ["custom-title", "customTitle"]] as const;
+
+interface SessionTitle { rank: number; title: string }
+
+/**
+ * Titles Claude Code recorded, by session. Local display only: they stay in this process, are
+ * never written to the archive and never join a usage entry, so a deleted transcript takes its
+ * title with it. `summary` lines carry no session id, so they belong to the file's session.
+ */
+function collectTitles(titles: Map<string, SessionTitle>, text: string, path: string): void {
+  for (const raw of text.split("\n")) {
+    if (!TITLE_KINDS.some(([kind]) => raw.includes(`"${kind}"`))) continue;
+    try {
+      const line = JSON.parse(raw);
+      const rank = TITLE_KINDS.findIndex(([kind]) => kind === line?.type);
+      const value = rank === -1 ? null : line[TITLE_KINDS[rank]![1]];
+      if (typeof value !== "string" || !value.trim()) continue;
+      const session = typeof line.sessionId === "string" && line.sessionId ? line.sessionId : basename(path, ".jsonl");
+      if ((titles.get(session)?.rank ?? -1) <= rank) titles.set(session, { rank, title: value.trim().slice(0, TITLE_LIMIT) });
+    } catch {
+      // Live sessions can leave a torn tail line.
+    }
+  }
+}
+
 export function collectEntries(texts: string[]): Record<string, unknown>[] {
   const byRequest = new Map<string, Record<string, unknown>>();
   for (const text of texts) collectInto(byRequest, text);
@@ -136,7 +163,17 @@ const fileCache = new Map<string, {
   entries: Record<string, unknown>[];
   cursor: TailCursor;
   committed: ReadonlyMap<string, Record<string, unknown>>;
+  titles: ReadonlyMap<string, SessionTitle>;
 }>();
+
+/** Recorded session titles from the transcripts still on disk, by session id. */
+export function claudeSessionTitles(): Map<string, string> {
+  const best = new Map<string, SessionTitle>();
+  for (const { titles } of fileCache.values()) {
+    for (const [session, title] of titles) if ((best.get(session)?.rank ?? -1) <= title.rank) best.set(session, title);
+  }
+  return new Map([...best].map(([session, { title }]) => [session, title]));
+}
 
 let transcriptBytes = 0;
 /** Transcript bytes read since the process started; for diagnostics and tests. */
@@ -215,13 +252,15 @@ export async function readClaudeEntries(dir = CLAUDE_PROJECTS, archivePath = CLA
     // into a copy of what the complete lines held, in order, exactly as a whole-file pass would.
     const committed = new Map<string, Record<string, unknown>>(read.reset || !cached ? [] : cached.committed);
     collectInto(committed, read.complete);
+    const titles = new Map<string, SessionTitle>(read.reset || !cached ? [] : cached.titles);
+    collectTitles(titles, read.complete, path);
     let byRequest = committed;
     if (read.partial) {
       byRequest = new Map(committed);
       collectInto(byRequest, read.partial);
     }
     const entries = [...byRequest.values()];
-    fileCache.set(path, { signature, entries, cursor: read.cursor, committed });
+    fileCache.set(path, { signature, entries, cursor: read.cursor, committed, titles });
     return entries;
   }));
   // Files that disappeared drop out of the cache.

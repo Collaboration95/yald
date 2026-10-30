@@ -66,7 +66,7 @@ See [source coverage](metrics.md#source-capabilities-and-measurement-coverage).
 
 The Claude archive is append-only, deduplicated on read and has **no automatic
 retention expiry**. It retains normalized usage metadata (including IDs and cwd),
-not prompt/response bodies. More complete live records can fill gaps in older
+not prompt/response bodies or session titles. More complete live records can fill gaps in older
 entries. Usage remains after transcripts are deleted or `CLAUDE_PROJECTS_DIR`
 is changed to an empty directory. Source filtering changes the displayed
 population; it neither deletes this archive nor stops ingestion from the
@@ -76,9 +76,14 @@ The dashboard keeps the last successful response for each view and selection in
 this browser profile's IndexedDB (database `yald`, at most 40 responses, none
 older than 7 days or from another Yald build). The responses are the same JSON the
 local API returns, so they include project folder names, model names and
-conversation ids, but no prompt or response text. They never leave the browser
+conversation ids, but no prompt or response text and no session titles. They never leave the browser
 profile; clearing the site's data for the Yald address removes them. Error
 responses and the demo's synthetic data are never stored.
+
+Session titles that Claude Code recorded in its transcripts are read into memory
+and shown on the Sessions pages. A generated title is drawn from your prompt, so
+titles are never archived, saved in the browser, exported or put in reports, and a
+title goes when its transcript does. Yald reads no prompt text to make one.
 
 To run without previously archived Claude usage, choose a **new, separate
 `OCX_HOME`** as well as an empty transcript directory. This also selects a
