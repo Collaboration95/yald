@@ -48,6 +48,7 @@ import { ALL_SOURCES, parseSource, SOURCE_CAPABILITIES, sourceOf, throughputElig
 import { OCX_HOME, PATHS, TIME_ZONE } from "./env";
 import { buildContextReplay } from "./labs/context";
 import { contextBreakdown } from "./contextView";
+import { EPISODE_GAP_MS, outageEpisodes } from "./episodes";
 import { spendStructure } from "./spendStructure";
 import { buildCacheEconomics } from "./labs/cache";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
@@ -661,6 +662,8 @@ api.get("/api/reliability", async c => {
   const report = reliability(rows, query.tz);
   const summary = summarize(rows);
   const failureRows = rows.filter(row => outcome(row) === "error" || outcome(row) === "cancelled").slice(-500);
+  const gapMinutes = numberParam(c.req.query("gapMinutes"));
+  const gapMs = gapMinutes !== undefined && gapMinutes >= 1 && gapMinutes <= 1_440 ? gapMinutes * 60_000 : EPISODE_GAP_MS;
   return c.json({
     ok: true,
     ...coverageField(dataset.rows, query.filter),
@@ -669,6 +672,7 @@ api.get("/api/reliability", async c => {
     successRate: summary.successRate,
     measurementCoverage: summary.measurementCoverage,
     recentFailures: topN(failureRows, 40, newestFirst).map(publicRow),
+    episodes: outageEpisodes(rows, { from: query.from, to: query.to, gapMs }),
     waste: summary.waste,
     metering: summary.metering,
     retryOverhead: summary.retryOverhead,

@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- **Outage episodes on Performance.** Errors less than 10 minutes apart group into episodes, on a timeline and in a table with their status mix, the successes inside them, how concentrated they are and how often an error follows an error. Classes are inferred from status codes, episodes at the window's edge are marked, and tokens appear only where failed requests reported them ([#109](https://github.com/Collaboration95/yald/issues/109)).
+
 ### Changed
 
 - **A leaner dashboard.** Pages no longer open with a "Dashboard selection" box or a "09 / DASHBOARD" label. A small "Filtered: 2 projects · Reset" chip appears only when a filter narrows your data, with the project-exclusion note beside it when a project filter leaves requests out. The sidebar footer keeps only when the data was last updated and the opencodex and Yald versions, and the Labs and Hide artwork switches moved into a settings menu next to the theme toggle. Picking a range like 24h or 90d no longer counts as a filter, and Reset keeps your range ([#94](https://github.com/Collaboration95/yald/issues/94), [#121](https://github.com/Collaboration95/yald/issues/121), [#123](https://github.com/Collaboration95/yald/issues/123), [#132](https://github.com/Collaboration95/yald/issues/132)).

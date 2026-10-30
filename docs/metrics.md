@@ -114,6 +114,17 @@ savings and should not be compared as if they had the same eligible population.
 
 Success rate uses observed logical request outcomes, not physical sends or Claude transcript compatibility statuses. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.
 
+**Outage episodes** group errors (`outcome = error`, so never cancelled or unobserved requests) in time order: a gap of 10 minutes or more (`gapMinutes`) starts a new episode. Only requests with an observed outcome count, which today means opencodex rows; `episodes.coverage` gives the numbers.
+
+- An episode lists its first and last error, its status and error-code mix, providers, models, and the successful requests inside its span, which separate a hard outage from a partial one. A single error has no duration.
+- `clippedStart` and `ongoing` mark an episode within one gap of the window's start or end. Its size and length are then lower bounds.
+- Concentration is the cumulative share of errors in the largest episodes, with the episode counts reaching 50% and 75%.
+- Persistence compares how often the next observed request failed after an error with the base error rate, overall and per provider, with the counts behind both. It does not show a retry loop.
+- Status classes are inferred from the code alone, since yald sees no response bodies: `upstream or capacity` (429, 500, 502, 503, 504), `configuration or request` (400, 401, 403, 404, 422) and `other`. The raw status stays visible.
+- Tokens and dollars come only from failed rows that reported usage, with the reporting fraction. With none, they are unavailable, not 0.
+
+Clustering is an observation and says nothing about why errors cluster. Episodes do not treat any request as a retry.
+
 ## Project attribution
 
 Each request carries the working directory (`cwd`) it was made from, or none when that is unknown.

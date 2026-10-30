@@ -1,13 +1,15 @@
 import { useMemo } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Timer, Zap } from "lucide-react";
 import { useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
-import { Card, CardHeader, CodexOnly, Expandable, ModelTag, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { Badge, Card, CardHeader, CodexOnly, Expandable, InfoTip, ModelTag, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
-import { lineChart, scatterChart, stackedBarChart } from "../components/chartOptions";
+import { laneTimelineChart, lineChart, scatterChart, stackedBarChart } from "../components/chartOptions";
 import { formatCompact, formatDuration, formatInteger, formatNumber, formatPercent, formatRelative, formatShortDate } from "../lib/format";
-import type { PerformanceResponse, ReliabilityResponse, RequestRow } from "../types";
+import { colorAt } from "../lib/palette";
+import type { OutageEpisode, OutageEpisodes, PerformanceResponse, ReliabilityResponse, RequestRow } from "../types";
 
 /** Failures that share a model and an error, as one line: "gpt-5.6-luna · upstream_server_error · 23×, 02:54–08:18". */
 function groupFailures(rows: RequestRow[]) {
@@ -26,6 +28,84 @@ function groupFailures(rows: RequestRow[]) {
 }
 
 const clock = (ts: number) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+/** Text for the class, so the chart never relies on colour alone. */
+const CLASS_LABEL: Record<string, string> = { "upstream or capacity": "upstream", "configuration or request": "config", other: "other" };
+const CLASS_COLOR: Record<string, number> = { "upstream or capacity": 0, "configuration or request": 2, other: 4 };
+const when = (ts: number) => `${formatShortDate(ts)}, ${clock(ts)}`;
+const durationText = (episode: OutageEpisode) => (episode.durationMs === null ? "single error" : formatDuration(episode.durationMs));
+
+/** The same page, narrowed to one episode's window and its errors: every row, not the capped failure list. */
+function episodeLink(episode: OutageEpisode, search: string) {
+  const params = new URLSearchParams(search);
+  params.set("from", String(episode.start));
+  params.set("to", String(episode.end + 1));
+  params.set("statuses", "error");
+  params.delete("range");
+  params.delete("last");
+  return { pathname: "/performance", search: `?${params}` };
+}
+
+function EpisodeCard({ data, loading, error }: { data: OutageEpisodes | undefined; loading: boolean; error: unknown }) {
+  const { chartTheme } = useTheme();
+  const { search } = useLocation();
+  const option = useMemo(() => {
+    if (!data?.episodes.length) return null;
+    const lanes = [...new Set(data.episodes.flatMap(episode => episode.providers))].sort();
+    const bars = data.episodes.flatMap(episode => episode.providers.map(provider => ({
+      lane: lanes.indexOf(provider), start: episode.start, end: episode.end,
+      label: `${formatInteger(episode.size)} ${CLASS_LABEL[episode.dominantClass] ?? "other"}`,
+      color: colorAt(CLASS_COLOR[episode.dominantClass] ?? 4),
+      tooltip: `${when(episode.start)} · ${durationText(episode)}<br/>${formatInteger(episode.size)} errors · ${episode.statuses.map(status => `${status.name} (${formatInteger(status.value)})`).join(", ")}<br/>${episode.models.join(", ")}`,
+    })));
+    const span = Math.max(...data.episodes.map(episode => episode.end)) - Math.min(...data.episodes.map(episode => episode.start));
+    return laneTimelineChart(chartTheme, lanes, bars, { zoom: span > 3 * 86_400_000 });
+  }, [data, chartTheme]);
+  const after = data?.persistence.afterError;
+  const base = data?.persistence.base;
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="inline-flex items-center gap-1.5">Outage episodes <InfoTip>Errors less than {data ? Math.round(data.gapMs / 60_000) : 10} minutes apart form one episode. Classes are inferred from the status code: yald sees no response bodies, so a 401 suggests configuration and does not prove it. Clustering is an observation, not a cause. Only requests with an observed outcome count: {data ? `${formatInteger(data.coverage.observedRequests)} of ${formatInteger(data.coverage.totalRequests)}` : "—"} here, and Claude Code requests are unobserved.</InfoTip></span>}
+        subtitle={data?.episodes.length ? `${formatInteger(data.coverage.errors)} errors in ${formatInteger(data.episodes.length)} episodes${data.marks.p50 ? `. The largest ${formatInteger(data.marks.p50)} held half of them, ${formatInteger(data.marks.p75 ?? 0)} held three quarters` : ""}.` : undefined}
+      />
+      <StateBlock loading={loading} error={error} empty={!option} emptyLabel="No errors in this window">
+        {option ? <Chart option={option} height={Math.max(120, 56 + 34 * new Set(data!.episodes.flatMap(episode => episode.providers)).size)} /> : null}
+        {after && base ? <p className="mt-2 text-[11.5px] leading-5 text-ink-soft">
+          After an error, the next observed request also failed {formatInteger(after.errors)} of {formatInteger(after.total)} times{after.rate === null ? "" : ` (${formatPercent(after.rate, 1)})`}, against {formatPercent(base.rate, 1)} of all {formatInteger(base.total)} observed requests.
+        </p> : null}
+        <div className="mt-3">
+          <Expandable items={data?.episodes ?? []} limit={6}>
+            {rows => (
+              <TableShell>
+                <thead>
+                  <tr><Th>Start</Th><Th align="right">Length</Th><Th align="right">Errors</Th><Th>Status (inferred class)</Th><Th>Models</Th><Th align="right">Succeeded inside</Th><Th align="right">Tokens reported</Th></tr>
+                </thead>
+                <tbody>
+                  {rows.map(episode => (
+                    <tr key={episode.start} className="transition hover:bg-surface-2">
+                      <Td className="whitespace-nowrap">
+                        <Link to={episodeLink(episode, search)} className="text-info hover:underline">{when(episode.start)}</Link>
+                        {episode.clippedStart ? <> <Badge tone="warn">may start earlier</Badge></> : null}
+                        {episode.ongoing ? <> <Badge tone="warn">may be ongoing</Badge></> : null}
+                      </Td>
+                      <Td align="right">{durationText(episode)}</Td>
+                      <Td align="right">{formatInteger(episode.size)} <span className="text-muted">({formatPercent(episode.share, 0)})</span></Td>
+                      <Td>{episode.statuses.slice(0, 3).map(status => `${status.name} ×${formatInteger(status.value)}`).join(", ")} <span className="text-muted">({CLASS_LABEL[episode.dominantClass] ?? "other"})</span></Td>
+                      <Td className="max-w-[200px] truncate" >{episode.providers.join(", ")} · {episode.models.slice(0, 2).join(", ")}{episode.models.length > 2 ? ` +${episode.models.length - 2}` : ""}</Td>
+                      <Td align="right">{formatInteger(episode.successesInside)}</Td>
+                      <Td align="right">{episode.usage.tokens === null ? <span className="text-muted">none reported</span> : `${formatCompact(episode.usage.tokens)} (${formatInteger(episode.usage.reportedRows)} of ${formatInteger(episode.usage.failedRows)})`}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableShell>
+            )}
+          </Expandable>
+        </div>
+      </StateBlock>
+    </Card>
+  );
+}
 
 export function PerformancePage() {
   const { filters } = useFilters();
@@ -202,6 +282,7 @@ export function PerformancePage() {
               {failuresOption ? <Chart option={failuresOption} height={220} /> : null}
             </StateBlock>
           </Card>
+          {failed > 0 ? <EpisodeCard data={outcomes?.episodes} loading={reliability.isLoading} error={reliability.error} /> : null}
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             <Card>
               <CardHeader title="Error breakdown" />

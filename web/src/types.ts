@@ -318,6 +318,38 @@ export interface PerformanceResponse {
   context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
 }
 
+export interface OutageEpisode {
+  start: number;
+  end: number;
+  durationMs: number | null;
+  size: number;
+  share: number;
+  statuses: { name: string; value: number; class: string }[];
+  errorCodes: { name: string; value: number }[];
+  dominantClass: string;
+  providers: string[];
+  models: string[];
+  successesInside: number;
+  clippedStart: boolean;
+  ongoing: boolean;
+  usage: { reportedRows: number; failedRows: number; tokens: number | null; costUsd: number | null };
+}
+
+export interface EpisodePersistence {
+  afterError: { errors: number; total: number; rate: number | null };
+  base: { errors: number; total: number; rate: number | null };
+}
+
+export interface OutageEpisodes {
+  gapMs: number;
+  episodes: OutageEpisode[];
+  concentration: { episodes: number; errors: number; share: number }[];
+  marks: { p50: number | null; p75: number | null };
+  persistence: EpisodePersistence & { byProvider: (EpisodePersistence & { provider: string })[] };
+  classMix: { name: string; value: number }[];
+  coverage: { totalRequests: number; observedRequests: number; unobservedRequests: number; errors: number; cancelled: number };
+}
+
 export interface ReliabilityResponse {
   measurementCoverage: MeasurementCoverage;
   successRate: number | null;
@@ -330,6 +362,7 @@ export interface ReliabilityResponse {
   attempts: { name: string; value: number }[];
   failureByModel: { name: string; failures: number; requests: number; rate: number }[];
   recentFailures: RequestRow[];
+  episodes: OutageEpisodes;
   waste: Summary["waste"];
   metering: Summary["metering"];
   retryOverhead: Summary["retryOverhead"];
