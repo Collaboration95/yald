@@ -11,7 +11,7 @@ import { Card, CardHeader, Expandable, InfoTip, Stat, StateBlock, TableShell, Td
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, stackedBarChart } from "../components/chartOptions";
 import { YaldiArtwork, type YaldiArtworkState } from "../components/YaldiArtwork";
-import { formatDuration, formatInteger, formatPercent, formatUsd } from "../lib/format";
+import { formatDuration, formatInteger, formatPercent, formatShortDate, formatUsd } from "../lib/format";
 import { downloadCaseFile, exportNotes } from "../lib/caseFileImage";
 import type { RecapResponse, WorkingStyleResponse } from "../types";
 
@@ -74,21 +74,21 @@ export function WorkingStylePage() {
     const labels = ["Sessions", "Requests", "Priced cost"];
     return stackedBarChart(chartTheme, labels, data.archetypes.map(row => ({
       name: row.name, data: [row.sessionShare, row.requestShare, row.costShare].map(value => (value === null ? null : value * 100)),
-    })), { horizontal: true, formatter: value => `${Math.round(value)}%` });
+    })), { horizontal: true, max: 100, formatter: value => `${Math.round(value)}%` });
   }, [data, chartTheme]);
   const peaksOption = useMemo(() => {
     if (!data?.concurrency.peakHistogram.length) return null;
-    return barChart(chartTheme, data.concurrency.peakHistogram.map(entry => String(entry.peak)), data.concurrency.peakHistogram.map(entry => entry.days), { formatter: value => formatInteger(value), color: () => colorAt(0) });
+    return barChart(chartTheme, data.concurrency.peakHistogram.map(entry => String(entry.peak)), data.concurrency.peakHistogram.map(entry => entry.days), { formatter: value => formatInteger(value), color: () => colorAt(0), wholeNumbers: true });
   }, [data, chartTheme]);
   const dayOption = useMemo(() => {
     if (!data?.concurrency.busiestSeries.length) return null;
     const labels = data.concurrency.busiestSeries.map(point => new Date(point.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }));
-    const option = lineChart(chartTheme, labels, [{ name: "Sessions", data: data.concurrency.busiestSeries.map(point => point.sessions) }], { formatter: value => formatInteger(value), showLegend: false }) as { series: Record<string, unknown>[] };
+    const option = lineChart(chartTheme, labels, [{ name: "Sessions", data: data.concurrency.busiestSeries.map(point => point.sessions) }], { formatter: value => formatInteger(value), showLegend: false, wholeNumbers: true }) as { series: Record<string, unknown>[] };
     return { ...option, series: option.series.map(series => ({ ...series, step: "end", smooth: false })) };
   }, [data, chartTheme]);
   const hoursOption = useMemo(() => {
     if (!data?.totals.requests) return null;
-    return barChart(chartTheme, data.hours.map(entry => String(entry.hour).padStart(2, "0")), data.hours.map(entry => entry.requests), { formatter: value => formatInteger(value), color: index => colorAt(index < 6 ? 3 : 0) });
+    return barChart(chartTheme, data.hours.map(entry => String(entry.hour).padStart(2, "0")), data.hours.map(entry => entry.requests), { formatter: value => formatInteger(value), color: index => colorAt(index < 6 ? 3 : 0), wholeNumbers: true });
   }, [data, chartTheme]);
   const busiestDayRequests = Math.max(1, ...(data?.activity.days.map(day => day.requests) ?? [0]));
 
@@ -97,7 +97,7 @@ export function WorkingStylePage() {
       <CaseFile />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Sessions" value={data ? formatInteger(data.totals.sessions) : "—"} hint={data?.totals.requestsWithoutSession ? `${formatInteger(data.totals.requestsWithoutSession)} requests without a session` : undefined} />
-        <Stat label="Peak at once" value={data?.concurrency.busiestDay ? formatInteger(data.concurrency.maxPeak) : "—"} hint={data?.concurrency.busiestDay ?? undefined} info="Most sessions with a request in one 10-minute bin. Sessions left open but idle are not counted." />
+        <Stat label="Peak at once" value={data?.concurrency.busiestDay ? formatInteger(data.concurrency.maxPeak) : "—"} hint={data?.concurrency.busiestDay ? formatShortDate(data.concurrency.busiestDay) : undefined} info="Most sessions with a request in one 10-minute bin. Sessions left open but idle are not counted." />
         <Stat label="Days with data" value={data ? `${formatInteger(data.activity.activeDays)} of ${formatInteger(data.activity.windowDays)}` : "—"} hint={data ? `longest run ${formatInteger(data.activity.longestStreak)}, current ${formatInteger(data.activity.currentStreak)}` : undefined} info="Days with at least one request. A day without data may be a day without work, a source that was not running, or a gap." />
         <Stat label="Night share" value={formatPercent(data?.night.share ?? null)} hint="00:00-05:59 local clock" info="Requests by the selected time zone's clock. It says nothing about sleep, overtime or health." />
       </div>
@@ -140,7 +140,7 @@ export function WorkingStylePage() {
           </StateBlock>
         </Card>
         <Card>
-          <CardHeader title="The busiest day" subtitle={data?.concurrency.busiestDay ?? undefined} />
+          <CardHeader title="The busiest day" subtitle={data?.concurrency.busiestDay ? formatShortDate(data.concurrency.busiestDay) : undefined} />
           <StateBlock loading={query.isLoading} error={query.error} empty={!dayOption}>
             {dayOption ? <Chart option={dayOption} height={220} /> : null}
           </StateBlock>
@@ -151,9 +151,9 @@ export function WorkingStylePage() {
         <Card>
           <CardHeader title="Days with data" subtitle="Darker days have more requests" />
           <StateBlock loading={query.isLoading} error={query.error} empty={!data?.activity.activeDays}>
-            <div className="grid grid-cols-7 gap-1" role="img" aria-label={data ? `${data.activity.activeDays} of ${data.activity.windowDays} days have data` : undefined}>
+            <div className="grid grid-cols-7 gap-1" role="img" aria-label={data ? `${formatInteger(data.activity.activeDays)} of ${formatInteger(data.activity.windowDays)} days have data` : undefined}>
               {data?.activity.days.map(day => (
-                <span key={day.date} title={`${day.date}: ${formatInteger(day.requests)} requests`} className="h-4 rounded-sm border border-line"
+                <span key={day.date} title={`${formatShortDate(day.date)}: ${formatInteger(day.requests)} requests`} className="h-4 rounded-sm border border-line"
                   style={{ background: day.requests ? "var(--accent)" : "transparent", opacity: day.requests ? 0.3 + 0.7 * (day.requests / busiestDayRequests) : 1 }} />
               ))}
             </div>
