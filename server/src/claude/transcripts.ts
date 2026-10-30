@@ -237,7 +237,7 @@ function collectInto(byRequest: Map<string, Record<string, unknown>>, content: s
       const entry = assistant ? toUsageEntry(line) : null;
       if (entry) retainEntry(byRequest, entry);
       const event = events ? toEvent(line) : null;
-      if (event) events.set(event.key, event);
+      if (event) events?.set(event.key, event);
       const session = entry ? String(entry.conversationId ?? "") : event?.sessionId;
       if (session && !events?.has(`captured:${session}`)) events?.set(`captured:${session}`, { key: `captured:${session}`, kind: "captured", sessionId: session, ts: 0 });
     } catch {
