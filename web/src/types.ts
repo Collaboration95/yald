@@ -465,6 +465,47 @@ export interface ConversationDetailResponse {
   summary: Summary;
   models: { name: string; value: number }[];
   requests: RequestRow[];
+  anatomy: SessionAnatomy;
+}
+
+export interface AnatomyChain {
+  key: string;
+  kind: AgentKind;
+  agentId: string | null;
+  agentType: string | null;
+  model: string | null;
+  depth: number | null;
+  parent: string | null;
+  spawn: { ts: number; requestId: string } | null;
+  firstAt: number;
+  lastAt: number;
+  requests: number;
+  tokens: number;
+  costUsd: number;
+  unpricedRequests: number;
+  startupCostUsd: number | null;
+  firstRequestMissing: boolean;
+  ticks: number[];
+  context: { ts: number; tokens: number }[];
+  contextEligible: number;
+}
+
+export interface AnatomyCompaction { ts: number; chain: string; trigger: string | null; preTokens: number | null; postTokens: number | null; durationMs: number | null }
+
+export interface SessionAnatomy {
+  split: boolean;
+  note: string | null;
+  chains: AnatomyChain[];
+  compactions: AnatomyCompaction[];
+  stats: {
+    chains: number;
+    subagents: number;
+    maxDepth: number | null;
+    subagentShare: { requests: number | null; tokens: number | null; cost: number | null } | null;
+    startupCostUsd: number | null;
+    startupsUnavailable: number;
+    coverage: { labelled: number | null; priced: number | null; context: number | null };
+  };
 }
 
 export interface CompositionPoint {
@@ -1005,7 +1046,7 @@ export interface SubagentsResponse {
     labelledShare: number | null;
     shares: (AgentTally & { kind: AgentKind; requestShare: number | null; tokenShare: number | null; inputShare: number | null; costShare: number | null; pricedShare: number | null })[];
     overTime: { ts: number; label: string; split: AgentSplit; labelledShare: number | null }[];
-    fanOut: { sessions: number; unlabelledSessions: number; withSubagents: number; withSubagentsShare: number | null; median: number | null; p90: number | null; max: number | null; bins: { label: string; sessions: number }[] };
+    fanOut: { sessions: number; unlabelledSessions: number; withSubagents: number; withSubagentsShare: number | null; median: number | null; p90: number | null; max: number | null; bins: { label: string; sessions: number }[]; topSessions: { id: string; source: "claude-code"; project: string | null; subagents: number }[] };
     byType: { type: string; spawns: number; requests: number; tokens: number; costUsd: number; costShare: number | null; medianRequestsPerSpawn: number | null; model: string | null; startupCostUsd: number }[];
     byDepth: (AgentTally & { depth: string; requestShare: number | null; costShare: number | null })[];
     startup: { spawns: number; unavailableSpawns: number; unpricedSpawns: number; cacheWriteTokens: number; costUsd: number; medianCostUsd: number | null; shortSpawnShare: number | null; points: { requests: number; costShare: number }[]; pointsOmitted: number };

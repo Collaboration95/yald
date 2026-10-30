@@ -50,6 +50,7 @@ import { buildContextReplay } from "./labs/context";
 import { claudeSessionTitles } from "./claude/transcripts";
 import { contextBreakdown } from "./contextView";
 import { EPISODE_GAP_MS, outageEpisodes } from "./episodes";
+import { sessionAnatomy } from "./anatomy";
 import { spendStructure } from "./spendStructure";
 import { subagentBreakdown } from "./subagents";
 import { workingStyle } from "./workingStyle";
@@ -814,10 +815,11 @@ api.get("/api/conversations/:id", async c => {
     return c.json({ ok: false, error: { code: "ambiguous_session", param: "sessionSource", message: `Conversation id "${id}" exists in ${lookup.sources.join(" and ")}. Add sessionSource=<source>.`, sources: lookup.sources } }, 409);
   }
   const timeline = conversationTimeline(lookup.scoped, id);
-  const applied = ["sources", "projects", "providers", "models", "efforts", "statuses", "routeKinds", "search"].filter(key => params[key]?.split(",").some(part => part.trim()));
+  const applied = ["sources", "projects", "providers", "models", "efforts", "statuses", "routeKinds", "agents", "agentTypes", "search"].filter(key => params[key]?.split(",").some(part => part.trim()));
   return c.json({
     ok: true,
     ...timeline,
+    anatomy: sessionAnatomy(lookup.scoped, { source: lookup.source, id, all: lookup.all, events: dataset.claudeEvents }),
     source: lookup.source,
     ...coverageField(lookup.all, filter),
     scope: {

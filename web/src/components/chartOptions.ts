@@ -498,3 +498,94 @@ export function laneTimelineChart(theme: ThemeTokens, lanes: string[], bars: Tim
     }],
   };
 }
+
+export interface TreeNode { name: string; value: number; color?: string; tooltip?: string; children?: TreeNode[] }
+
+/** Nested areas sized by `value`, with no zoom or click-through: the table beside it holds the detail. */
+export function treemapChart(theme: ThemeTokens, nodes: TreeNode[]): ChartOption {
+  const tooltips = new Map<string, string>();
+  const style = (node: TreeNode): Record<string, unknown> => {
+    if (node.tooltip) tooltips.set(node.name, node.tooltip);
+    return { name: node.name, value: node.value, ...(node.color ? { itemStyle: { color: node.color } } : {}), ...(node.children ? { children: node.children.map(style) } : {}) };
+  };
+  return {
+    animation: false,
+    tooltip: {
+      trigger: "item", backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, textStyle: { color: theme.text, fontSize: 12 },
+      formatter: (params: { name: string }) => tooltips.get(params.name) ?? params.name,
+    },
+    series: [{
+      type: "treemap", roam: false, nodeClick: false, breadcrumb: { show: false }, left: 0, right: 0, top: 0, bottom: 0,
+      label: { show: true, fontSize: 11, color: theme.tooltipBg, overflow: "truncate" }, upperLabel: { show: false },
+      itemStyle: { borderColor: theme.tooltipBg, borderWidth: 2, gapWidth: 2 },
+      levels: [{ itemStyle: { borderWidth: 0, gapWidth: 3 } }, { itemStyle: { gapWidth: 2 } }],
+      data: nodes.map(style),
+    }],
+  };
+}
+
+export interface SwimLane { label: string; start: number; end: number; color: string; ticks: number[]; tooltip: string }
+
+/**
+ * One lane per chain, first on top: a bar from first to last request with a tick per request, and a
+ * connector from the spawning request to the first request of the lane it started.
+ */
+export function swimlaneChart(theme: ThemeTokens, lanes: SwimLane[], links: { from: number; ts: number; to: number; end: number }[]): ChartOption {
+  type Api = { value: (index: number) => number; coord: (point: [number, number]) => [number, number]; size: (point: [number, number]) => [number, number] };
+  const axis = axisCommon(theme);
+  const tooltip = (index: number) => lanes[index]?.tooltip ?? "";
+  return {
+    animation: false,
+    grid: baseGrid({ top: 8, bottom: 4 }),
+    tooltip: { ...tooltipCommon(theme), trigger: "item" as const, formatter: (params: { value: number[] }) => tooltip(params.value[0]!) },
+    xAxis: { type: "time" as const, ...axis, splitLine: { show: false } },
+    yAxis: { type: "category" as const, inverse: true, data: lanes.map(lane => lane.label), ...axis, splitLine: { show: false } },
+    series: [
+      {
+        type: "custom", encode: { x: [1, 2], y: 0 }, data: lanes.map((lane, index) => [index, lane.start, lane.end]),
+        renderItem: (params: { dataIndex: number }, api: Api) => {
+          const [x, y] = api.coord([api.value(1), api.value(0)]);
+          const [xEnd] = api.coord([api.value(2), api.value(0)]);
+          return { type: "rect", shape: { x, y: y - 5, width: Math.max(3, xEnd - x), height: 10, r: 2 }, style: { fill: lanes[params.dataIndex]!.color, opacity: 0.35 } };
+        },
+      },
+      {
+        type: "scatter", symbol: "rect", symbolSize: [1.5, 12], silent: false,
+        itemStyle: { color: (params: { value: number[] }) => lanes[params.value[0]!]?.color ?? theme.axis },
+        data: lanes.flatMap((lane, index) => lane.ticks.map(ts => [index, ts])), encode: { x: 1, y: 0 },
+      },
+      {
+        type: "custom", silent: true, encode: { x: [1, 3], y: [0, 2] }, data: links.map(link => [link.from, link.ts, link.to, link.end]),
+        renderItem: (_params: unknown, api: Api) => {
+          const [x1, y1] = api.coord([api.value(1), api.value(0)]);
+          const [x2, y2] = api.coord([api.value(3), api.value(2)]);
+          return { type: "polyline", shape: { points: [[x1, y1], [x1, y2], [x2, y2]] }, style: { stroke: theme.axis, lineWidth: 1, lineDash: [3, 3], fill: "none" } };
+        },
+      },
+    ],
+  };
+}
+
+/** Input per request on a time axis, with a labelled dashed line per recorded event. Requests without a measurement are absent, not zero. */
+export function contextTimeChart(theme: ThemeTokens, points: { ts: number; tokens: number }[], markers: { ts: number; label: string; tooltip: string }[], formatter: (value: number) => string): ChartOption {
+  const color = colorAt(0);
+  const axis = axisCommon(theme);
+  const tips = new Map(markers.map(marker => [marker.ts, marker.tooltip]));
+  return {
+    animation: false,
+    grid: baseGrid({ top: 22, bottom: 4 }),
+    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
+    xAxis: { type: "time" as const, ...axis, splitLine: { show: false } },
+    yAxis: { type: "value" as const, ...axis, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
+    series: [{
+      name: "Input per request", type: "line", symbol: "none", lineStyle: { width: 2, color }, itemStyle: { color }, areaStyle: { opacity: 0.12, color },
+      data: points.map(point => [point.ts, point.tokens]),
+      markLine: {
+        symbol: "none", silent: false, lineStyle: { type: "dashed", color: theme.axis, width: 1 },
+        label: { formatter: (params: { value: number }) => markers.find(marker => marker.ts === params.value)?.label ?? "", color: theme.text, fontSize: 10, position: "end" },
+        tooltip: { formatter: (params: { value: number }) => tips.get(params.value) ?? "" },
+        data: markers.map(marker => ({ xAxis: marker.ts })),
+      },
+    }],
+  };
+}

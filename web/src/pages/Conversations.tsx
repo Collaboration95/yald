@@ -1,3 +1,4 @@
+import { SessionAnatomySection } from "./SessionAnatomy";
 import { useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, MessagesSquare } from "lucide-react";
@@ -156,6 +157,8 @@ export function ConversationDetailPage() {
           {outcomesKnown ? <Stat label="Failed or cancelled" tag="Codex only" value={formatInteger(data.summary.errors + data.summary.cancelled)} tone={data.summary.errors > 0 ? "bad" : "neutral"} /> : null}
         </div>
       ) : null}
+
+      {data ? <SessionAnatomySection key={id} anatomy={data.anatomy} /> : null}
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Card>

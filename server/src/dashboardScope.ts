@@ -7,7 +7,7 @@ import { readSources } from "./report/spec";
 import type { Source } from "./report/types";
 
 /** Filters a quota sample or a ledger event cannot be joined to: they carry no folder, model or outcome. */
-const UNJOINABLE = ["projects", "providers", "models", "efforts", "statuses", "routeKinds", "search", "conversationId"] as const;
+const UNJOINABLE = ["projects", "providers", "models", "efforts", "statuses", "routeKinds", "agents", "agentTypes", "search", "conversationId"] as const;
 
 /** Quota and the send ledger are opencodex account observations; only `ocx` has them (SOURCE_CAPABILITIES). */
 const ACCOUNT_SOURCE: Source = "ocx";

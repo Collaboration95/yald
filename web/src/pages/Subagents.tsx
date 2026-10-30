@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useEndpoint } from "../api";
+import { conversationLink, useEndpoint } from "../api";
 import { Card, CardHeader, Expandable, InfoTip, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, pairedBarChart, scatterChart, stackedBarChart } from "../components/chartOptions";
@@ -8,7 +8,7 @@ import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { useChartStyle } from "../lib/chartStyle";
 import { colorAt } from "../lib/palette";
-import { formatCompact, formatInteger, formatNumber, formatPercent, formatUsd, formatUsdAxis, shortPath } from "../lib/format";
+import { formatCompact, formatInteger, formatNumber, formatPercent, formatUsd, formatUsdAxis, sessionLabel, shortPath } from "../lib/format";
 import type { AgentKind, AgentSplit, SubagentsResponse } from "../types";
 
 const KIND_LABELS: Record<AgentKind, string> = { main: "Main thread", subagent: "Subagents", unlabelled: "Unlabelled" };
@@ -67,6 +67,7 @@ function CodexThreads({ codex }: { codex: SubagentsResponse["codex"] }) {
 
 function ClaudeViews({ data }: { data: SubagentsResponse["claude"] }) {
   const { chartTheme } = useTheme();
+  const { search } = useLocation();
   const [metric, setMetric] = useState<OverTimeMetric>("cost");
   const headline = useMemo(() => stackedBarChart(chartTheme, ["Priced cost", "Input tokens", "Requests"], data.shares.map(row => ({
     name: KIND_LABELS[row.kind], data: [row.costShare, row.inputShare, row.requestShare].map(value => (value === null ? null : value * 100)),
@@ -151,6 +152,19 @@ function ClaudeViews({ data }: { data: SubagentsResponse["claude"] }) {
         </p>
       </StateBlock>
     </Card>
+
+    {data.fanOut.topSessions.length ? <Card>
+      <CardHeader title="Most subagents in one session" subtitle="Open a session for its cost tree and timeline" />
+      <Expandable items={data.fanOut.topSessions} limit={5}>
+        {rows => <TableShell>
+          <thead><tr><Th>Session</Th><Th align="right">Subagents</Th></tr></thead>
+          <tbody>{rows.map(session => <tr key={session.id}>
+            <Td><Link to={conversationLink(session, search)} className="text-info hover:underline">{sessionLabel(session)}</Link></Td>
+            <Td align="right">{formatInteger(session.subagents)}</Td>
+          </tr>)}</tbody>
+        </TableShell>}
+      </Expandable>
+    </Card> : null}
 
     <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
       <SplitTable title="By project" rows={data.byProject} name={key => shortPath(key)} />
