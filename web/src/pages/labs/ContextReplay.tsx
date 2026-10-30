@@ -4,7 +4,7 @@ import { conversationLink, filtersKey, sourceLabel, useContextReplay } from "../
 import { Chart } from "../../components/Chart";
 import { YaldiFindingArtwork } from "../../components/YaldiArtwork";
 import { Card, CardHeader, Expandable, TableShell, Td, Th } from "../../components/ui";
-import { formatCompact, formatDateTime, formatDuration, formatInteger, formatNumber, formatRatio, formatShortDate, shortId } from "../../lib/format";
+import { formatCompact, formatDuration, formatInteger, formatNumber, formatRatio, formatShortDate, shortId } from "../../lib/format";
 import { useTheme } from "../../lib/theme";
 import type { ContextChain, ContextCompaction, ContextReplayResponse, ContextSession } from "../../types";
 import { InvestigationState } from "./InvestigationState";
