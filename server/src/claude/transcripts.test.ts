@@ -303,6 +303,10 @@ test("recorded session titles stay in memory: ranked, capped, and never in the a
     await rm(join(dir, "s-title.jsonl"));
     await readClaudeEntries(dir, archive);
     expect(claudeSessionTitles().has("s-title")).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 const SECRET = "SECRET-TEXT";
 const richLine = (block: Record<string, unknown>, extra: Record<string, unknown> = {}) => JSON.stringify({
