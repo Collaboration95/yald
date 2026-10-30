@@ -23,7 +23,9 @@ async function writeSubagentSession(folder, cwd, now) {
   ];
   const sub = (agentId, count, begin, input) => Array.from({ length: count }, (_, i) => line(`${agentId}-${i}`, begin + i * MINUTE, input + i * 1000, { isSidechain: true, agentId,
     stop: i === count - 1 ? "end_turn" : "tool_use", tools: i === count - 1 ? [] : [tool(`synthetic-${agentId}-${i}`, "Read")] }));
-  await writeFile(join(folder, `${SUBAGENT_SESSION}.jsonl`), jsonl(main));
+  // A human prompt is its line's shape; the demo records no text.
+  const prompt = { type: "user", sessionId: SUBAGENT_SESSION, uuid: "synthetic-prompt", timestamp: new Date(start - MINUTE).toISOString() };
+  await writeFile(join(folder, `${SUBAGENT_SESSION}.jsonl`), jsonl([prompt, ...main]));
   const agents = join(folder, SUBAGENT_SESSION, "subagents");
   await mkdir(agents, { recursive: true });
   const spawn = async (agentId, lines, meta) => {

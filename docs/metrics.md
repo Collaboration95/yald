@@ -362,6 +362,28 @@ The shape of one session, built from the same rows as its detail response, so ch
 - **Stats.** Chains, maximum recorded depth, subagent share of requests, tokens and cost, the first-request cache write (same definition as [Subagents](#subagents)), and coverage: labelled, priced and context-measured shares. A first request outside the selection is unavailable, not zero.
 - **Codex** sessions and unmarked Claude sessions read as one chain with a note. Codex subagent traffic often reuses the parent thread's id, so it cannot be split.
 
+## Agent turns and tools
+
+How agent work is shaped, for Claude Code only. opencodex close reasons use a different vocabulary, so those requests are left out and counted. This is not a productivity measure: a deep turn is not good or bad, a high autonomy ratio does not mean the agent did more for you, and no band is ideal.
+
+- A **step** is one logical request. A **turn** is a run of steps in one chain, `(conversationId, agentId ?? "main")`, so interleaved subagents do not break it. A step whose stop reason is `tool_use` continues the turn, as does a step with no stop reason that requested a tool (a transcript can lose the stop reason on a partial line). Any other stop reason ends it. A human prompt between two main-chain steps also ends it: the turn was interrupted, and it counts under its last recorded stop reason. A turn is built from the filtered rows, so a model or Agent filter changes its shape. A turn cut by the start of the window is counted in `clippedTurns`.
+- **Turn depth** is the number of steps in a turn, binned 1, 2-4, 5-9, 10-19 and 20+. **Cost share by depth** is the list-price cost of the steps in each bin over all priced cost, priced steps only, next to the share of turns.
+- **Autonomy ratio** is main-chain steps divided by human prompts, overall, per session (median, p90) and per week (the median and p90 of session ratios). It is unavailable without prompt counts, never zero. A session with no recorded prompt in the window is left out.
+- **Tool mix** counts `tool_use` blocks by name. Counts are requested calls, not successful ones. **Steps with a tool** overlap by design, since a step can use several, and no cost is attributed to a tool. Tool names are local like every other field; MCP names can reveal which servers you run.
+- **Stop reasons** are shown as recorded, including unknown values. A step without one reads `not recorded`.
+
+| Tool group | Tools (case-insensitive) |
+| --- | --- |
+| Bash | Bash, BashOutput, KillShell, Monitor |
+| Read | Read, NotebookRead |
+| Edit/Write | Edit, Write, MultiEdit, NotebookEdit |
+| Search | Grep, Glob, WebSearch, WebFetch, ToolSearch |
+| Agent | Agent, Task, SendMessage, SubagentHandback, TaskStop, Skill |
+| MCP | any name starting `mcp__` |
+| Other | everything else |
+
+Without transcript structure (older archive lines), turn depth is approximate from stop reasons alone, with the share of steps that have one, and autonomy and tool mix read unavailable.
+
 ## Working style
 
 Describes how sessions are shaped and when requests happened. A label is about size and span, not value, and a session is not a task. Nothing here measures productivity, overtime or health.

@@ -79,7 +79,7 @@ function ClaudeViews({ data }: { data: SubagentsResponse["claude"] }) {
     { name: "Labelled", data: data.overTime.map(point => (point.labelledShare === null ? null : point.labelledShare * 100)) },
   ], { formatter: percent, showLegend: false, preserveGaps: true }), [data, chartTheme]);
   const fanOut = useMemo(() => barChart(chartTheme, data.fanOut.bins.map(bin => bin.label), data.fanOut.bins.map(bin => bin.sessions), { formatter: formatInteger, color: () => colorAt(1), wholeNumbers: true }), [data, chartTheme]);
-  const types = useMemo(() => barChart(chartTheme, data.byType.map(row => row.type), data.byType.map(row => (row.costShare === null ? null : row.costShare * 100)), { horizontal: true, formatter: percent, color: () => colorAt(1), showLabels: true }), [data, chartTheme]);
+  const types = useMemo(() => barChart(chartTheme, [...data.byType].reverse().map(row => row.type), [...data.byType].reverse().map(row => (row.costShare === null ? null : row.costShare * 100)), { horizontal: true, formatter: percent, color: () => colorAt(1), showLabels: true }), [data, chartTheme]);
   const depth = useMemo(() => pairedBarChart(chartTheme, data.byDepth.map(row => `Depth ${row.depth}`), [
     { name: "Requests", data: data.byDepth.map(row => (row.requestShare === null ? null : row.requestShare * 100)) },
     { name: "Priced cost", data: data.byDepth.map(row => (row.costShare === null ? null : row.costShare * 100)) },

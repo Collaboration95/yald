@@ -37,6 +37,7 @@ import { ContextPage } from "../src/pages/Context";
 import { ConversationDetailPage, ConversationsPage } from "../src/pages/Conversations";
 import { WorkingStylePage } from "../src/pages/WorkingStyle";
 import { SubagentsPage } from "../src/pages/Subagents";
+import { TurnsPage } from "../src/pages/Turns";
 import { materializeFixtureHome, materializeFixturePricing } from "./fixtureHome";
 import { addContextReplayFixtures } from "./context-replay-fixtures";
 import { checkContextReplaySmoke } from "./context-replay-smoke";
@@ -179,6 +180,14 @@ const PAGES: PageSpec[] = [
     Component: SubagentsPage,
     queries: [{ path: "/api/subagents", params: filtersToParams(DEFAULT_FILTERS, {}) }],
     expect: ["Subagent share", "Label coverage"],
+    expectFrom: () => [],
+  },
+  {
+    name: "AgentTurns",
+    route: "/turns",
+    Component: TurnsPage,
+    queries: [{ path: "/api/turns", params: filtersToParams({ ...DEFAULT_FILTERS, groupBy: "", metric: "" }, {}) }],
+    expect: ["Median turn depth", "Autonomy ratio"],
     expectFrom: () => [],
   },
   {

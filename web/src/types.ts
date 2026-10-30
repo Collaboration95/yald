@@ -1033,6 +1033,34 @@ export interface WorkingStyleResponse {
   night: { requests: number; share: number | null };
 }
 
+export interface ToolTableRow { key: string; requests: number; calls: number; groups: Record<string, number> }
+
+export interface TurnsResponse {
+  ok: boolean;
+  window: { bucket: string };
+  approximate: boolean;
+  coverage: { steps: number; excludedRequests: number; stepsWithStopReason: number; stopReasonShare: number | null; stepsWithStructure: number; structureShare: number | null; pricedSteps: number; pricedShare: number | null; clippedTurns: number };
+  turns: {
+    total: number;
+    medianDepth: number | null;
+    p90Depth: number | null;
+    bins: { label: string; turns: number; steps: number; turnShare: number | null; costUsd: number; costShare: number | null }[];
+    deep: { turnShare: number | null; costShare: number | null };
+    ends: { name: string; count: number }[];
+  };
+  autonomy: { mainSteps: number; humanPrompts: number; overall: number; sessions: number; median: number | null; p90: number | null; weeks: { ts: number; label: string; sessions: number; median: number | null; p90: number | null }[] } | null;
+  tools: {
+    groups: { name: string; count: number }[];
+    stepsWithTools: number;
+    stepsWithToolsShare: number | null;
+    top: { name: string; group: string; calls: number; steps: number; stepShare: number | null }[];
+    byProject: ToolTableRow[];
+    byModel: ToolTableRow[];
+  } | null;
+  overTime: { ts: number; label: string; steps: number; groups: Record<string, number>; stops: Record<string, number> }[];
+  stops: { name: string; count: number }[];
+}
+
 export interface AgentTally { requests: number; tokens: number; inputTokens: number; costUsd: number; pricedRequests: number }
 export type AgentKind = "main" | "subagent" | "unlabelled";
 export type AgentSplit = Record<AgentKind, AgentTally>;
