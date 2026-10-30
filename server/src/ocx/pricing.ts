@@ -61,17 +61,19 @@ let engine: PricingEngine | null = null;
 let status: PricingStatus | null = null;
 let pending: Promise<PricingStatus> | null = null;
 
-// Audited 2026-10-02: the single-request pricing path uses compiled catalog,
-// expected/tier tables and pure identity helpers. The only changing price state
-// it reads is the versioned overlay/provider/account registry. A version export
-// alone is not a contract for other engines or future dependency revisions.
+// Audited 2026-10-30 against opencodex 2.94.0: the single-request pricing path
+// uses compiled catalog, expected/tier tables and pure identity helpers. The only
+// changing price state it reads is the versioned overlay/provider/account registry.
+// A version export alone is not a contract for other engines or future dependency
+// revisions.
 const AUDITED_PRICE_SOURCES = [
   "usage/cost.ts", "generated/model-metadata.ts", "usage/expected-prices.ts",
-  "usage/model-identity.ts", "usage/user-cost-overlays.ts", "providers/label.ts",
-  "providers/fastwire.ts", "providers/antigravity-models.ts", "adapters/cursor/claude-id.ts",
-  "codex/account-id.ts", "codex/account-label.ts", "codex/main-account.ts", "lib/redact.ts",
+  "usage/model-identity.ts", "usage/user-cost-overlays.ts", "usage/user-cost-validation.ts",
+  "providers/label.ts", "providers/fastwire.ts", "providers/antigravity-models.ts",
+  "providers/anthropic-instance-id.ts", "adapters/cursor/claude-id.ts", "adapters/cursor/catalog.ts",
+  "codex/account-id.ts", "codex/account-label.ts", "lib/redact.ts",
 ] as const;
-const AUDITED_PRICE_HASH = "fa56531a6b4dba32a97f9aaea863ebdcb41f4f93623b8b3e203ef1aaf47bf154";
+const AUDITED_PRICE_HASH = "60398bb71dd3133ef6f512f1151bacc14e00dc6fed168d0f1a9f86d52e67566b";
 
 async function auditedPricingSources(modulePath: string): Promise<string | null> {
   if (extname(modulePath) !== ".ts") return null;
