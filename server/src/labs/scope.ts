@@ -31,7 +31,9 @@ export type EvidenceSelection =
   | { kind: "session"; source: Source; conversationId: string }
   | { kind: "unnamed"; source?: Source }
   | { kind: "chain"; source: Source; conversationId: string; agentId: string }
-  | { kind: "account"; account: string; window: string };
+  | { kind: "account"; account: string; window: string }
+  | { kind: "branch"; project: string; state: "named"; branch: string }
+  | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
 
 export type EvidenceEligibility = "all" | "cache" | "context" | "rebuild";
 
@@ -73,7 +75,7 @@ export function evidenceParams(selector: EvidenceSelector): URLSearchParams {
     // Structured arrays preserve literal commas, and the embedded window stays pinned after range changes.
     selector: JSON.stringify(selector),
   });
-  if (selection.kind === "project") params.set("projectKey", selection.project);
+  if (selection.kind === "project" || selection.kind === "branch") params.set("projectKey", selection.project);
   if (selection.kind === "session" || selection.kind === "chain") {
     params.set("sessionSource", selection.source);
     params.set("sessionId", selection.conversationId);

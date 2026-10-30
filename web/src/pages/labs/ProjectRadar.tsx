@@ -9,6 +9,7 @@ import { colorAt } from "../../lib/palette";
 import { useTheme } from "../../lib/theme";
 import type { ProjectRadarResponse, RadarChange, RadarTotals } from "../../types";
 import { InvestigationState } from "./InvestigationState";
+import { ProjectBranches } from "./ProjectBranches";
 import { Verdict, periodPhrase, useLabsFilters } from "./shared";
 
 type Project = ProjectRadarResponse["projects"][number];
@@ -103,6 +104,7 @@ export function ProjectRadarResult({ data }: { data: ProjectRadarResponse }) {
           )}
         </Expandable>
       </Card>
+      <ProjectBranches projects={data.projects} initial={mover} label={projectLabel} />
     </>}
   </div>;
 }

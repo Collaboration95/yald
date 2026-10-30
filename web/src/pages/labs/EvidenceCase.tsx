@@ -16,6 +16,7 @@ const clock = (ts: number, tz: string) => new Intl.DateTimeFormat("en-US", { tim
 
 function selectionText({ selection, eligibility, cause }: CaseSelector) {
   if (eligibility === "rebuild" && selection.kind === "scope") return cause ? LEDGER_NAMES[cause] : "All cache rebuilds";
+  if (selection.kind === "branch") return `${shortPath(selection.project)} · ${selection.state === "named" ? selection.branch : selection.state === "detached" ? "Detached HEAD" : "No branch recorded"}`;
   if (selection.kind === "account") return `${quotaLabel(selection.window)} · ${selection.account === "codex-rollouts" ? "Codex sessions" : selection.account}`;
   return selection.kind === "scope" ? "All matching requests" : selection.kind === "project" ? shortPath(selection.project)
     : selection.kind === "chain" ? `Session ${selection.conversationId.slice(0, 6)} · ${selection.agentId === "main" ? "main agent" : "subagent"} · cache rebuilds`
@@ -146,13 +147,14 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
         : <InvestigationState kind="empty" title="No intervals here" detail="A window needs two samples to have an interval." />)
         : intent.selector.eligibility === "rebuild" && data.rows.length ? <RebuildRows rows={data.rows} tz={tz} /> : data.rows.length ? <TableShell>
         <thead>
-          <tr><Th>Time</Th><Th>Model</Th><Th>Project</Th><Th align="right">Tokens</Th><Th align="right">Cost</Th></tr>
+          <tr><Th>Time</Th><Th>Model</Th><Th>Project</Th>{intent.investigation === "project-radar" ? <Th>Branch</Th> : null}<Th align="right">Tokens</Th><Th align="right">Cost</Th></tr>
         </thead>
         <tbody>
           {data.rows.map(row => <tr key={row.identity} className={row.eligible ? "transition hover:bg-surface-2" : "opacity-60"} data-evidence-identity={row.identity}>
             <Td className="whitespace-nowrap text-muted" ><time dateTime={new Date(row.ts).toISOString()} title={new Date(row.ts).toISOString()}>{clock(row.ts, tz)}</time></Td>
             <Td className="max-w-[220px]"><ModelTag model={row.model} /></Td>
             <Td className="max-w-[200px] truncate" ><span title={row.cwd ?? undefined}>{row.project.project === "(unattributed)" ? "—" : shortPath(row.project.project)}</span></Td>
+            {intent.investigation === "project-radar" ? <Td className="max-w-[180px] truncate"><span title={row.gitBranch ?? undefined}>{row.gitBranch ?? "not recorded"}</span></Td> : null}
             <Td align="right">{row.totalTokens === null ? "—" : formatCompact(row.totalTokens)}</Td>
             <Td align="right">{row.cost === null ? "—" : formatUsd(row.cost)}</Td>
           </tr>)}

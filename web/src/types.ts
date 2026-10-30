@@ -610,7 +610,8 @@ export interface RadarEvidence {
     cohort: RadarCohort;
     selection: { kind: "scope" } | { kind: "project"; project: string }
       | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string }
-      | { kind: "account"; account: string; window: string };
+      | { kind: "account"; account: string; window: string }
+      | { kind: "branch"; project: string; state: "named"; branch: string } | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
     eligibility: "all" | "cache" | "context" | "rebuild";
     cause?: LedgerRow["class"];
   };
@@ -667,6 +668,33 @@ export interface RadarComparison {
   tokens: RadarChange;
   pricedCostUsd: RadarChange;
 }
+export interface BranchRow {
+  state: "named" | "detached" | "unrecorded";
+  name: string | null;
+  bases: ("request time" | "session start")[];
+  sources: { source: Source; requests: number }[];
+  sessions: number;
+  requests: number;
+  tokens: number;
+  pricedRequests: number;
+  unpricedRequests: number;
+  pricedCostUsd: number;
+  firstTs: number;
+  lastTs: number;
+  activeDays: number;
+  /** `owner/repo#N`, the first few of `prCount`. Overlapping: never summed. */
+  prs: string[];
+  prCount: number;
+  /** Sent for the costliest branches only. */
+  days: { ts: number; date: string; costUsd: number }[] | null;
+}
+export interface BranchBreakdown {
+  rows: BranchRow[];
+  namedBranches: number;
+  requests: { total: number; recorded: number; onMain: number; detached: number; unrecorded: number };
+  recordedShare: number | null;
+  coverage: { source: Source; requests: number; recorded: number }[];
+}
 export interface ProjectRadarResponse {
   ok: true;
   window: RadarWindow & { fromIso: string; toIso: string; halfOpen: true };
@@ -688,8 +716,8 @@ export interface ProjectRadarResponse {
     project: string;
     gitRoot: boolean;
     folders: string[];
-    current: RadarPeriod;
-    prior: RadarPeriod;
+    current: RadarPeriod & { branches: BranchBreakdown };
+    prior: RadarPeriod & { branches: BranchBreakdown };
     comparison: RadarComparison;
   }[];
 }
@@ -729,7 +757,9 @@ export type EvidenceSelection =
   | { kind: "session"; source: Source; conversationId: string }
   | { kind: "unnamed"; source?: Source }
   | { kind: "chain"; source: Source; conversationId: string; agentId: string }
-  | { kind: "account"; account: string; window: string };
+  | { kind: "account"; account: string; window: string }
+  | { kind: "branch"; project: string; state: "named"; branch: string }
+  | { kind: "branch"; project: string; state: "detached" | "unrecorded" };
 
 export interface EvidenceSelector {
   version: 1;

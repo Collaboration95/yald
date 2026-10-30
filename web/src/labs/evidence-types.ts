@@ -32,7 +32,7 @@ export type EvidenceRow = Omit<RequestRow, "inputTokens" | "outputTokens" | "cac
   inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null;
   cacheWriteTokens: number | null; reasoningTokens: number | null; cost: number | null; durationMs: number | null;
   ordinal: number; originalOrdinal: number; identity: string; project: { project: string; gitRoot: boolean };
-  eligible: boolean; exclusionReason: string | null;
+  eligible: boolean; exclusionReason: string | null; gitBranch?: string | null;
   rebuild?: {
     class: LedgerRow["class"]; label: LedgerRow["label"]; signals: LedgerRow["class"][]; reason: string | null; gapMs: number | null; agentId: string;
     rewrittenTokens: number; premiumUsd: number | null; borrowedRate: boolean;

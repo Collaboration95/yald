@@ -316,6 +316,7 @@ Each scope/project `current` and `prior` period contains:
 | `sources` | `{source,...totals}` rows, request count descending, tokens descending, source ascending |
 | `models` | `{source,provider,model,...totals}` rows, request count descending, tokens descending, then source/provider/model ascending; equal model names from different sources/providers remain separate |
 | `evidence` | `{selector,href}` from shared `evidenceFor`; scope or exact project selection, with `eligibility: "all"` |
+| `branches` | On each project's `current` and `prior`: `rows` with `state` (`named`, `detached`, `unrecorded`), `name`, `bases`, `sources`, `sessions`, `requests`, `tokens`, priced totals, `firstTs`, `lastTs`, `activeDays`, `prs` (the first 8), `prCount` and `days` (costliest branches of the current period only), plus `namedBranches`, `requests` by state, `recordedShare` and per-source `coverage`. Rows sum to the project's totals; PR figures overlap and are not sums |
 
 `projects` includes the union of both periods' exact project identities and an
 always-present `(unattributed)` group (zero when a project filter excluded it).
@@ -565,6 +566,11 @@ sums, and each row adds `rebuild` with `class`, `label`, `signals`, `reason`, `g
 `agentId`, `rewrittenTokens`, `premiumUsd`, `borrowedRate` and the previous request's
 `id`, `model`, `cacheReadTokens` and `cacheWriteTokens`. A `cause` or a `chain` outside
 rebuild eligibility is a 400.
+
+Project Radar also accepts the selection `{kind:"branch",project,state,branch}`. `state`
+is `named`, `detached` or `unrecorded`, and `branch` is required for `named` and refused
+otherwise, so a branch literally named `unrecorded` cannot collide with the bucket. Both
+selectors of the pair carry the same selection, and each row includes `gitBranch`.
 
 A `quota-pace` case takes the selection `{kind:"account",account,window}`, must include
 source `ocx`, and has the instance `[start, reset)` as its window. Other cohort fields

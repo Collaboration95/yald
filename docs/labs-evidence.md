@@ -20,6 +20,10 @@ choose between the two original windows while retaining the full
 comparison. Both windows remain visible; inspecting prior requests does not
 create an earlier baseline.
 
+A branch in Projects opens the same fixed current and prior pair, narrowed to that
+branch. The detached and `no branch recorded` states work the same way, and the list adds
+a branch column.
+
 Quota pace evidence is one quota window, not a set of requests. It lists the sample
 intervals: times, used percent before and after, the change, and the tokens and cost
 recorded in the interval with the reason it was left out, if any. Where the account is
