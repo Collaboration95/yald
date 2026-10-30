@@ -5,6 +5,7 @@ import { createProjectIdentity } from "../projects";
 import { publicRow } from "../publicRow";
 import { contextEligible, sourceOf } from "../report/source";
 import { buildCacheEconomics, cacheEligibility, round6 } from "./cache";
+import { buildCacheRebuilds, ledgerExclusion, ledgerIndex } from "./cache-rebuild";
 import { buildContextReplay, contextExclusionReason } from "./context";
 import { buildProjectRadar } from "./projects";
 import { analysisScope, evidenceFor, orderedRequests, sessionKey } from "./scope";
@@ -24,7 +25,8 @@ export function selectCaseRows(datasetRows: RequestRow[], selector: CaseSelector
   return orderedRequests(rows.filter(row => selection.kind === "scope"
     || (selection.kind === "project" && identity(row.cwd).project === selection.project)
     || (selection.kind === "session" && sourceOf(row) === selection.source && row.conversationId === selection.conversationId)
-    || (selection.kind === "unnamed" && row.conversationId === null && (!selection.source || sourceOf(row) === selection.source))));
+    || (selection.kind === "unnamed" && row.conversationId === null && (!selection.source || sourceOf(row) === selection.source))
+    || (selection.kind === "chain" && sourceOf(row) === selection.source && row.conversationId === selection.conversationId && (row.details?.agentId ?? "main") === selection.agentId)));
 }
 
 function rowTotals(rows: RequestRow[], pricedCostUsd?: number) {
@@ -85,6 +87,16 @@ function cacheObservation(datasetRows: RequestRow[], selectedRows: RequestRow[],
     projectCoverage: projectCoverage(datasetRows, caseFilter(selector)), notes: data.notes,
   };
 }
+function rebuildObservation(datasetRows: RequestRow[], selectedRows: RequestRow[], selector: CaseSelector, claudeEvents: readonly ClaudeEvent[]) {
+  const economics = cacheObservation(datasetRows, selectedRows, selector);
+  const { ledger, totals, coverage, reasons, notes } = buildCacheRebuilds(datasetRows, caseFilter(selector), selector.window, claudeEvents, selectedRows);
+  const state = !selectedRows.length ? "empty" as const : !coverage.eligibleRequests ? "insufficient" as const : "observed" as const;
+  return {
+    ...economics, state, notes,
+    rebuild: { ledger: ledger.map(({ evidence: _evidence, ...row }) => row), totals, coverage, reasons },
+    summary: `${totals.requests} rebuilds in ${coverage.eligibleChains} chains: ${totals.reported} reported, ${totals.inferred} inferred, ${totals.noEvidence} with no evidence. Upper-bound premium ${money(totals.premiumUsd)}, ${totals.unpricedRequests} unpriced.`,
+  };
+}
 function contextObservation(datasetRows: RequestRow[], selectedRows: RequestRow[], selector: CaseSelector, claudeEvents: readonly ClaudeEvent[]) {
   const filter = caseFilter(selector);
   const data = buildContextReplay(datasetRows, filter, selector.window, claudeEvents);
@@ -141,14 +153,22 @@ function spendObservation(datasetRows: RequestRow[], intent: CaseIntent) {
 export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent, claudeEvents: readonly ClaudeEvent[] = []) {
   const selectedSelector = intent.period === "prior" ? intent.priorSelector! : intent.selector;
   const selected = selectCaseRows(datasetRows, selectedSelector);
-  const eligible = (row: RequestRow) => intent.investigation === "cache-detective" ? cacheEligibility(row).eligible
+  const rebuild = selectedSelector.eligibility === "rebuild" ? ledgerIndex(datasetRows, claudeEvents).entries : null;
+  const inLedger = (row: RequestRow) => {
+    const entry = rebuild!.get(row);
+    return Boolean(entry?.class) && (selectedSelector.cause ? entry!.class === selectedSelector.cause : Boolean(entry!.previous));
+  };
+  const eligible = (row: RequestRow) => rebuild ? ledgerExclusion(row) === null
+    : intent.investigation === "cache-detective" ? cacheEligibility(row).eligible
     : intent.investigation === "context-replay" ? contextEligible(row) : true;
-  const selectedEvidence = selected.filter(row => selectedSelector.eligibility === "cache" ? cacheEligibility(row).eligible
+  const selectedEvidence = selected.filter(row => rebuild ? inLedger(row)
+    : selectedSelector.eligibility === "cache" ? cacheEligibility(row).eligible
     : selectedSelector.eligibility === "context" ? contextEligible(row) : true);
   const exclusions = new Map<string, number>();
   for (const row of selected) {
     const cache = cacheEligibility(row);
-    const reason = intent.investigation === "cache-detective" ? cache.eligible ? null : cache.reason
+    const reason = rebuild ? ledgerExclusion(row)
+      : intent.investigation === "cache-detective" ? cache.eligible ? null : cache.reason
       : intent.investigation === "context-replay" ? contextExclusionReason(row) : null;
     if (reason) exclusions.set(reason, (exclusions.get(reason) ?? 0) + 1);
   }
@@ -157,6 +177,7 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent,
   const identity = createProjectIdentity();
   const observation = intent.investigation === "project-radar" ? radarObservation(datasetRows, intent)
     : intent.investigation === "spend-changes" ? spendObservation(datasetRows, intent)
+    : rebuild ? rebuildObservation(datasetRows, selected, selectedSelector, claudeEvents)
     : intent.investigation === "cache-detective" ? cacheObservation(datasetRows, selected, selectedSelector)
     : contextObservation(datasetRows, selected, selectedSelector, claudeEvents);
   // Cache evidence reuses the builder's exact pricing-pair sum, already rounded
@@ -167,13 +188,21 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent,
     ? round6(datasetRows.reduce((sum, row) => sum + (ordinals.has(row) && row.priced ? row.cost : 0), 0)) : undefined;
   const population = {
     original: rowTotals(selected, originalCost),
-    evidence: rowTotals(selectedEvidence, observation.investigation === "cache-detective" ? observation.totals.actualUsd : undefined),
+    evidence: rowTotals(selectedEvidence, observation.investigation === "cache-detective" && !rebuild ? observation.totals.actualUsd : undefined),
     eligibleRequests: selected.filter(eligible).length,
     excludedRequests: selected.filter(row => !eligible(row)).length,
     exclusions: [...exclusions].map(([reason, requests]) => ({ reason, requests })),
     measurements: measurementCoverage(selected),
     // Keep all group identities in the hash even when this page is empty or beyond the last row.
     projects: [...new Map(selected.map(row => { const project = identity(row.cwd); return [JSON.stringify(project), project]; })).values()],
+  };
+  const rebuildFields = (row: RequestRow) => {
+    const entry = rebuild?.get(row);
+    if (!entry) return {};
+    const { previous } = entry;
+    return { rebuild: { class: entry.class!, label: entry.label!, signals: entry.signals, reason: entry.reason, gapMs: entry.gapMs, agentId: entry.agentId,
+      rewrittenTokens: entry.rewrittenTokens, premiumUsd: entry.premiumUsd === null ? null : round6(entry.premiumUsd), borrowedRate: entry.borrowedRate,
+      previous: previous ? { id: previous.id, model: previous.model, cacheReadTokens: previous.cacheReadTokens, cacheWriteTokens: previous.cacheWriteTokens } : null } };
   };
   const rows = selectedEvidence.slice(intent.offset, intent.offset + intent.limit).map(row => {
     const originalOrdinal = originalOrdinals.get(row)!;
@@ -188,6 +217,7 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent,
       cost: row.priced ? row.cost : null,
       durationMs: row.measurements.duration ? row.durationMs : null, ttftMs: row.measurements.ttft ? row.ttftMs : null,
       eligible: eligible(row), exclusionReason: intent.investigation === "context-replay" ? contextExclusionReason(row) : null,
+      ...rebuildFields(row),
     };
   });
   return {

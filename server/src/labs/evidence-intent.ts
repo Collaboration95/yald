@@ -4,6 +4,10 @@ import { nextBucketStart, parseWindow, zonedBucketStart } from "../time/window";
 // Structural counterpart of scope.ts's EvidenceSelector. Keep the browser
 // validator independent of analytics and its server-only Bun project matcher.
 type Source = "ocx" | "claude-code";
+export const REBUILD_CAUSES = ["reported", "compaction", "model-switch", "idle-gap", "no-evidence"] as const;
+export type RebuildCause = typeof REBUILD_CAUSES[number];
+export const LEDGER_CLASSES = ["session-start", "subagent-start", ...REBUILD_CAUSES] as const;
+export type LedgerClass = typeof LEDGER_CLASSES[number];
 export interface CaseSelector {
   version: 1;
   window: { from: number; to: number; tz: string; label: string };
@@ -13,8 +17,11 @@ export interface CaseSelector {
     routeKinds: string[]; conversationId: string | null; search: string;
   };
   selection: { kind: "scope" } | { kind: "project"; project: string }
-    | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source };
-  eligibility: "all" | "cache" | "context";
+    | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source }
+    | { kind: "chain"; source: Source; conversationId: string; agentId: string };
+  eligibility: "all" | "cache" | "context" | "rebuild";
+  /** One ledger row. Only with rebuild eligibility; absent means every rebuild class, no starts. */
+  cause?: LedgerClass;
 }
 export interface CaseIntent {
   investigation: "project-radar" | "cache-detective" | "context-replay" | "spend-changes";
@@ -55,7 +62,7 @@ function decode(raw: string | null, param: string): CaseSelector {
   if (raw === null || raw.length > 24_576) fail(param, `The case link needs a complete ${param} of at most 24576 characters. Open the finding again.`);
   let decoded: unknown;
   try { decoded = JSON.parse(raw); } catch { fail(param, `The case link has an unreadable ${param}. Open the finding again.`); }
-  const value = object(decoded, param, ["version", "window", "cohort", "selection", "eligibility"]);
+  const value = object(decoded, param, ["version", "window", "cohort", "selection", "eligibility", "cause"]);
   if (value.version !== 1) fail(param, "This case link uses an unsupported selector version. Open the finding again.");
   const w = object(value.window, `${param}.window`, ["from", "to", "tz", "label"]);
   for (const key of ["from", "to"] as const) {
@@ -83,16 +90,21 @@ function decode(raw: string | null, param: string): CaseSelector {
     conversationId: c.conversationId === null ? null : text(c.conversationId, "conversationId"),
     search: text(c.search, "search", true),
   };
-  const s = object(value.selection, `${param}.selection`, ["kind", "project", "source", "conversationId"]);
-  const kind = enumeration(s.kind, ["scope", "project", "session", "unnamed"] as const, "selection");
+  const s = object(value.selection, `${param}.selection`, ["kind", "project", "source", "conversationId", "agentId"]);
+  const kind = enumeration(s.kind, ["scope", "project", "session", "unnamed", "chain"] as const, "selection");
   const allowed = kind === "scope" ? ["kind"] : kind === "project" ? ["kind", "project"]
-    : kind === "session" ? ["kind", "source", "conversationId"] : ["kind", "source"];
+    : kind === "session" ? ["kind", "source", "conversationId"]
+    : kind === "chain" ? ["kind", "source", "conversationId", "agentId"] : ["kind", "source"];
   object(s, "selection", allowed);
   const selection: CaseSelector["selection"] = kind === "scope" ? { kind }
     : kind === "project" ? { kind, project: text(s.project, "project") }
     : kind === "session" ? { kind, source: enumeration(s.source, sources, "session source"), conversationId: text(s.conversationId, "session ID") }
+    : kind === "chain" ? { kind, source: enumeration(s.source, sources, "chain source"), conversationId: text(s.conversationId, "session ID"), agentId: text(s.agentId, "agent ID") }
     : { kind, ...(s.source === undefined ? {} : { source: enumeration(s.source, sources, "unnamed source") }) };
-  return { version: 1, window, cohort, selection, eligibility: enumeration(value.eligibility, ["all", "cache", "context"] as const, "eligibility") };
+  const eligibility = enumeration(value.eligibility, ["all", "cache", "context", "rebuild"] as const, "eligibility");
+  if (value.cause !== undefined && eligibility !== "rebuild") fail("cause", "Only rebuild evidence can select a cause. Open the finding again.");
+  if (selection.kind === "chain" && eligibility !== "rebuild") fail("selection", "Only rebuild evidence can select a chain. Open the finding again.");
+  return { version: 1, window, cohort, selection, eligibility, ...(value.cause === undefined ? {} : { cause: enumeration(value.cause, LEDGER_CLASSES, "cause") }) };
 }
 export const CASE_QUERY_KEYS = ["investigation", "selector", "priorSelector", "period", "offset", "limit", "selectorVersion"] as const;
 
@@ -102,10 +114,11 @@ export function parseCaseIntent(params: URLSearchParams): CaseIntent {
   if (params.has("selectorVersion") && params.get("selectorVersion") !== "1") fail("selectorVersion", "This case link uses an unsupported selector version.");
   const investigation = enumeration(params.get("investigation"), ["project-radar", "cache-detective", "context-replay", "spend-changes"] as const, "investigation");
   const selector = decode(params.get("selector"), "selector");
-  const eligibility = investigation === "cache-detective" ? "cache" : "all";
-  if (selector.eligibility !== eligibility) fail("eligibility", `This investigation requires ${eligibility} evidence eligibility. Open the finding again.`);
+  const eligibilities: CaseSelector["eligibility"][] = investigation === "cache-detective" ? ["cache", "rebuild"] : ["all"];
+  if (!eligibilities.includes(selector.eligibility)) fail("eligibility", `This investigation requires ${eligibilities[0]} evidence eligibility. Open the finding again.`);
   const allowedSelections = investigation === "project-radar" ? ["scope", "project"]
-    : investigation === "spend-changes" ? ["scope", "project", "session"] : ["scope", "session", "unnamed"];
+    : investigation === "spend-changes" ? ["scope", "project", "session"]
+    : investigation === "cache-detective" ? ["scope", "session", "unnamed", "chain"] : ["scope", "session", "unnamed"];
   if (!allowedSelections.includes(selector.selection.kind)) {
     fail("selection", "This selection is unsupported for the investigation. Open the finding again.");
   }

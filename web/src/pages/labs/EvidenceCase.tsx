@@ -5,7 +5,8 @@ import { caseQuery, parseCaseIntent, type CaseIntent, type CaseSelector } from "
 import { ApiError, fetchJson, sourceLabel } from "../../api";
 import type { EvidenceCaseResponse } from "../../labs/evidence-types";
 import { InfoTip, ModelTag, TableShell, Td, Th } from "../../components/ui";
-import { formatCompact, formatInteger, formatUsd, shortPath } from "../../lib/format";
+import { formatCompact, formatDuration, formatInteger, formatUsd, shortPath } from "../../lib/format";
+import { LEDGER_NAMES } from "./CacheRebuilds";
 import { InvestigationState } from "./InvestigationState";
 
 const TABS = { "project-radar": { label: "Projects", path: "project-radar" }, "cache-detective": { label: "Cache savings", path: "cache-detective" },
@@ -13,8 +14,10 @@ const TABS = { "project-radar": { label: "Projects", path: "project-radar" }, "c
 const control = "rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink disabled:opacity-40";
 const clock = (ts: number, tz: string) => new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(ts);
 
-function selectionText(selection: CaseSelector["selection"]) {
+function selectionText({ selection, eligibility, cause }: CaseSelector) {
+  if (eligibility === "rebuild" && selection.kind === "scope") return cause ? LEDGER_NAMES[cause] : "All cache rebuilds";
   return selection.kind === "scope" ? "All matching requests" : selection.kind === "project" ? shortPath(selection.project)
+    : selection.kind === "chain" ? `Session ${selection.conversationId.slice(0, 6)} · ${selection.agentId === "main" ? "main agent" : "subagent"} · cache rebuilds`
     : selection.kind === "session" ? `Session ${selection.conversationId.slice(0, 6)} · ${sourceLabel(selection.source)}`
     : `${selection.source ? sourceLabel(selection.source) + " · " : ""}Requests with no session`;
 }
@@ -45,6 +48,33 @@ function EvidenceCaseQuery({ intent }: { intent: CaseIntent }) {
   return <EvidenceCaseView data={result.data} />;
 }
 
+/** Each row shows what the class was read from, so it can be checked by eye. */
+function RebuildRows({ rows, tz }: { rows: EvidenceCaseResponse["rows"]; tz: string }) {
+  return <TableShell>
+    <thead>
+      <tr><Th>Time</Th><Th>Model</Th><Th>Class</Th><Th>Label</Th><Th align="right">Gap</Th><Th>Previous model</Th><Th align="right">Previous read / write</Th><Th align="right">Read / write</Th><Th align="right">Rewritten</Th><Th align="right">Premium</Th></tr>
+    </thead>
+    <tbody>
+      {rows.map(row => {
+        const rebuild = row.rebuild!;
+        const also = rebuild.signals.slice(1).map(signal => LEDGER_NAMES[signal].toLowerCase());
+        return <tr key={row.identity} className="transition hover:bg-surface-2" data-evidence-identity={row.identity}>
+          <Td className="whitespace-nowrap text-muted"><time dateTime={new Date(row.ts).toISOString()} title={new Date(row.ts).toISOString()}>{clock(row.ts, tz)}</time></Td>
+          <Td className="max-w-[180px]"><ModelTag model={row.model} /></Td>
+          <Td><span title={[rebuild.reason, also.length ? `also ${also.join(", ")}` : null].filter(Boolean).join("; ") || undefined}>{LEDGER_NAMES[rebuild.class]}</span></Td>
+          <Td>{rebuild.label}</Td>
+          <Td align="right">{rebuild.gapMs === null ? "first" : formatDuration(rebuild.gapMs)}</Td>
+          <Td className="max-w-[180px]">{rebuild.previous ? <ModelTag model={rebuild.previous.model} /> : "first"}</Td>
+          <Td align="right">{rebuild.previous ? `${formatCompact(rebuild.previous.cacheReadTokens)} / ${formatCompact(rebuild.previous.cacheWriteTokens)}` : "first"}</Td>
+          <Td align="right">{formatCompact(row.cacheReadTokens)} / {formatCompact(row.cacheWriteTokens)}</Td>
+          <Td align="right">{formatCompact(rebuild.rewrittenTokens)}</Td>
+          <Td align="right">{rebuild.premiumUsd === null ? "unpriced" : formatUsd(rebuild.premiumUsd)}</Td>
+        </tr>;
+      })}
+    </tbody>
+  </TableShell>;
+}
+
 /** The requests behind a finding as a plain table: time, model, project, tokens, cost. */
 export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
   const [, setParams] = useSearchParams();
@@ -67,7 +97,7 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
     <section className="card space-y-3 p-4" aria-labelledby="case-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="case-title" className="flex items-center gap-1.5 text-[15px] font-semibold text-ink" data-case-selection>
-          {selectionText(intent.selector.selection)}
+          {selectionText(intent.selector)}
           <InfoTip label="About these requests">{info}</InfoTip>
         </h2>
         {intent.priorSelector ? <div className="flex items-center gap-1" role="group" aria-label="Period">
@@ -88,7 +118,7 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
           </tr>)}</tbody>
         </TableShell>
       </div> : null}
-      {data.rows.length ? <TableShell>
+      {intent.selector.eligibility === "rebuild" && data.rows.length ? <RebuildRows rows={data.rows} tz={tz} /> : data.rows.length ? <TableShell>
         <thead>
           <tr><Th>Time</Th><Th>Model</Th><Th>Project</Th><Th align="right">Tokens</Th><Th align="right">Cost</Th></tr>
         </thead>

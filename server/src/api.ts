@@ -56,6 +56,7 @@ import { subagentBreakdown } from "./subagents";
 import { turnStructure } from "./turns";
 import { workingStyle } from "./workingStyle";
 import { buildCacheEconomics } from "./labs/cache";
+import { buildCacheRebuilds } from "./labs/cache-rebuild";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
 import { projectBreakdown, projectMatcher } from "./projects";
@@ -905,6 +906,7 @@ api.get("/api/labs/cache", async c => {
     window: query.window,
     pricing: { available: pricing.available, detail: pricing.detail },
     ...buildCacheEconomics(dataset.rows, query.filter, query.window, { limit: numberParam(c.req.query("limit")) }),
+    rebuilds: buildCacheRebuilds(dataset.rows, query.filter, query.window, dataset.claudeEvents ?? []),
   });
 });
 

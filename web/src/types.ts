@@ -609,8 +609,9 @@ export interface RadarEvidence {
     window: RadarWindow;
     cohort: RadarCohort;
     selection: { kind: "scope" } | { kind: "project"; project: string }
-      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source };
-    eligibility: "all" | "cache" | "context";
+      | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string };
+    eligibility: "all" | "cache" | "context" | "rebuild";
+    cause?: LedgerRow["class"];
   };
   href: string;
 }
@@ -725,14 +726,15 @@ export type EvidenceSelection =
   | { kind: "scope" }
   | { kind: "project"; project: string }
   | { kind: "session"; source: Source; conversationId: string }
-  | { kind: "unnamed"; source?: Source };
+  | { kind: "unnamed"; source?: Source }
+  | { kind: "chain"; source: Source; conversationId: string; agentId: string };
 
 export interface EvidenceSelector {
   version: 1;
   window: AnalysisWindow;
   cohort: AnalysisCohort;
   selection: EvidenceSelection;
-  eligibility: "all" | "cache" | "context";
+  eligibility: "all" | "cache" | "context" | "rebuild";
 }
 
 export type CacheExclusion =
@@ -791,6 +793,54 @@ export interface CacheEconomicsResponse {
   sessionCount: number;
   sessionsTruncated: boolean;
   unnamed: CacheEconomicsTotals;
+  notes: string[];
+  rebuilds: CacheRebuilds;
+}
+
+type TokenClassShares = Record<"freshInput" | "cacheRead" | "cacheWrite" | "output", number | null>;
+export interface LedgerRow {
+  class: "session-start" | "subagent-start" | "reported" | "compaction" | "model-switch" | "idle-gap" | "no-evidence";
+  label: "first request" | "reported" | "inferred" | "no evidence";
+  requests: number;
+  writeTokens: number;
+  writeCostUsd: number;
+  /** Null on the two start rows: a first request is not a rebuild. */
+  rewrittenTokens: number | null;
+  /** Upper bound, never added to the write premium. Null when no request in the row has a rate. */
+  premiumUsd: number | null;
+  pricedRequests: number | null;
+  unpricedRequests: number;
+  borrowedRateRequests: number;
+  evidence: CacheEconomicsTotals["evidence"];
+}
+export interface CacheRebuildTotals {
+  requests: number; reported: number; inferred: number; noEvidence: number;
+  afterCompaction: number; atModelSwitch: number; afterIdleGap: number;
+  rewrittenTokens: number; premiumUsd: number; unpricedRequests: number; borrowedRateRequests: number;
+}
+export interface CacheRebuildCoverage {
+  totalRequests: number; eligibleRequests: number;
+  excluded: Record<"cache-unmeasured" | "no-session" | "no-agent-marker", number>;
+  eligibleChains: number; totalChains: number; clippedChains: number;
+}
+export interface CacheRebuilds {
+  state: "observed" | "insufficient" | "not-applicable";
+  minChains: number;
+  notApplicableRequests: number;
+  coverage: CacheRebuildCoverage;
+  writeBill: {
+    pricedRequests?: number; totalCostUsd?: number;
+    tokenShare?: TokenClassShares; costShare?: TokenClassShares;
+    ttl: { fiveMinuteTokens: number; oneHourTokens: number; unsplitTokens: number };
+  } | null;
+  ledger: LedgerRow[];
+  totals: CacheRebuildTotals;
+  reasons: { reason: string; requests: number }[];
+  warmByGap: { label: string; requests: number; warmShare: number | null }[];
+  warmMinRequests: number;
+  interleaving: { bySession: number; byChain: number; disappeared: number };
+  topChains: { key: string; source: Source; conversationId: string; agentId: string; requests: number; rewrittenTokens: number; premiumUsd: number; unpricedRequests: number; evidence: CacheEconomicsTotals["evidence"] }[];
+  evidence: CacheEconomicsTotals["evidence"];
   notes: string[];
 }
 

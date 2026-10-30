@@ -167,7 +167,7 @@ const NOTES = [
   "Net = cache-read discount − cache-write premium, against the identical recorded input priced as uncached input by the same pricing engine, model price, context tier and service-tier record.",
   "Only rows with reported, logical usage and observed cache read/write counters support money comparisons; excluded rows contribute no dollars and are counted by reason.",
   "Costs are API list-price equivalents, not subscription bills or proof of realized savings. Lower-bound rows flag incomplete tier pricing on both prices; the net is not a guaranteed savings floor.",
-  "Claude cache writes use the engine's single write rate; missing TTL splits can understate the premium for 1-hour writes. This comparison does not explain cache misses or reconstruct alternate request timing.",
+  "Claude cache writes use the engine's single write rate, which understates the premium for 1-hour writes. This comparison does not explain cache misses or reconstruct alternate request timing; the rebuild ledger lists rewrites with their reported or inferred causes.",
   "The dashboard's gross cache savings is a different figure: cache-read discount at base list rate, before write premiums and tier rules.",
 ];
 

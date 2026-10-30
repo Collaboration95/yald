@@ -20,6 +20,12 @@ choose between the two original windows while retaining the full
 comparison. Both windows remain visible; inspecting prior requests does not
 create an earlier baseline.
 
+Rebuild evidence, opened from the Cache savings rebuild ledger, lists the requests
+behind one ledger row or one chain. Each row shows its class, whether the cause is
+reported or inferred, the gap, and the previous request's model and cache counters,
+so the classification can be checked by eye. A compaction or a model switch is listed
+as what happened, not as a fault.
+
 Cache evidence lists the exact cache-accounting eligible population used for
 fixed-workload read discount, write premium and net. Original request totals and
 exclusions are separately disclosed. The eligible priced subtotal equals the

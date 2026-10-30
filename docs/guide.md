@@ -118,8 +118,14 @@ with its observed cache counters, priced against the same input uncached. Read
 discount minus write premium is the net; negative means write premiums outweigh
 read discounts. Eligibility needs logical reported usage, inclusive input, both
 observed cache counters and adequate engine prices/tier provenance. This does not
-measure prefix survival, cache-miss causes or subscription savings. See
+measure prefix survival or subscription savings. See
 [net cache economics](metrics.md#net-cache-economics).
+
+Below it, the rebuild ledger shows where Claude cache writes come from: session and
+subagent starts, then requests that wrote more cache than they read. Each cause is
+labelled reported, when the API said so, or inferred from the request sequence.
+Premiums are upper bounds, and they are not added to the write premium above. See
+[cache rebuild ledger](metrics.md#cache-rebuild-ledger).
 
 **Context growth** shows submitted input in request order within a
 source-qualified session. With at least six eligible requests, it compares the

@@ -477,6 +477,23 @@ coverage, lower-bound rates and write-TTL limitation. See
 [Net cache economics](metrics.md#net-cache-economics) for interpretation.
 The evidence href opens the `/labs/evidence` boundary, whose replay uses
 exported `cacheEligibility` from `server/src/labs/cache.ts`.
+
+`rebuilds` is the cache write bill and rebuild ledger, with its own population
+(see [Cache rebuild ledger](metrics.md#cache-rebuild-ledger)). Anthropic rows only;
+`notApplicableRequests` counts the rest, and `state` is `not-applicable` when there
+are no Anthropic rows, `insufficient` below `minChains` eligible chains, else `observed`.
+
+| `rebuilds` field | Meaning |
+| --- | --- |
+| `coverage` | Anthropic `totalRequests`, `eligibleRequests`, `excluded` by reason, `eligibleChains`, `totalChains` and `clippedChains` (first request outside the selection) |
+| `writeBill` | `tokenShare` and `costShare` by class, `tokens`, `cost`, `totalCostUsd`, and `ttl` write tokens by lifetime. Null without Anthropic rows; the class fields are absent without a priced row |
+| `ledger` | `session-start`, `subagent-start`, then each cause: `requests`, `label` (`first request`, `reported`, `inferred`, `no evidence`), `writeTokens`, `writeCostUsd`, `rewrittenTokens`, `premiumUsd`, `pricedRequests`, `unpricedRequests`, `borrowedRateRequests` and a fixed `evidence` selector. Rewritten, premium and priced are null on the start rows |
+| `totals` | Rebuild requests by reported, inferred and no evidence, rewritten tokens and the upper-bound premium. Never add this premium to `writePremiumUsd` |
+| `reasons` | Raw `cache_miss_reason` values with counts |
+| `warmByGap`, `warmMinRequests` | Requests and warm share per gap bucket; `warmShare` is null below the minimum |
+| `interleaving` | Apparent busts `bySession` and `byChain`, and how many `disappeared` |
+| `topChains` | Chains with the largest premium, each with a `chain` evidence selector |
+| `notes` | The basis and limits of these figures |
 `/api/conversations/:id` is not a substitute for case evidence.
 
 ### `GET /api/labs/evidence` — fixed case evidence
@@ -517,7 +534,16 @@ recorded-token, priced/unpriced, priced-USD and unattributed totals before
 pagination. Eligible and excluded counts/reasons partition the original population.
 Cache's evidence population contains only cache-accounting eligible rows, while
 its original population discloses the exclusions. Context/Radar list all selected
-rows. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
+rows. A Cache selector with `eligibility: "rebuild"` lists the rebuild ledger
+instead: every rebuild, or one ledger row with an optional `cause` (`session-start`,
+`subagent-start`, `reported`, `compaction`, `model-switch`, `idle-gap`, `no-evidence`).
+It also accepts the selection `{kind:"chain",source,conversationId,agentId}`, with
+`agentId: "main"` for the main agent. Its observation adds `rebuild` with the ledger
+totals for the fixed window and cohort, its priced subtotals are plain priced-row
+sums, and each row adds `rebuild` with `class`, `label`, `signals`, `reason`, `gapMs`,
+`agentId`, `rewrittenTokens`, `premiumUsd`, `borrowedRate` and the previous request's
+`id`, `model`, `cacheReadTokens` and `cacheWriteTokens`. A `cause` or a `chain` outside
+rebuild eligibility is a 400. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
 `actualUsd`: exact eligible pricing amounts accumulated in original dataset order,
 then rounded once to six decimal USD places with ties away from zero.
 `population.original.pricedCostUsd` independently sums all selected priced row
