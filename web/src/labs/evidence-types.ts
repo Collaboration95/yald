@@ -12,7 +12,7 @@ export type CaseObservation =
   | (Finding & { investigation: "cache-detective"; totals: Omit<CacheEconomicsTotals, "evidence">;
     precisionDp: 6; basis: "api-list-price-equivalent"; projectCoverage: ProjectCoverage | null })
   | (Finding & { investigation: "context-replay"; coverage: ContextCounts & { totalRequests: number };
-    growth: ContextSession["growth"] | null; history: ContextSession["history"] | null; projectCoverage: ProjectCoverage | null });
+    growth: ContextSession["growth"] | null; history: ContextSession["history"] | null; compaction: ContextSession["compaction"] | null; projectCoverage: ProjectCoverage | null });
 
 export interface EvidenceTotals {
   requests: number; tokens: number; pricedRequests: number; unpricedRequests: number;

@@ -78,6 +78,16 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
       {observation.state !== "observed" ? <InvestigationState kind={observation.state}
         title={observation.state === "empty" ? "No requests here" : "Not enough data to compare"}
         detail={observation.state === "empty" ? "Nothing matches this finding any more." : "The requests are listed below; the comparison itself needs more data."} /> : null}
+      {observation.investigation === "context-replay" && observation.compaction?.events.length ? <div>
+        <p className="mb-1 text-[11.5px] text-muted">Recorded compactions in this window{observation.compaction.outsideWindowEvents ? ` (${formatInteger(observation.compaction.outsideWindowEvents)} more outside it, not listed)` : ""}</p>
+        <TableShell>
+          <thead><tr><Th>Time</Th><Th>Trigger</Th><Th align="right">Before</Th><Th align="right">After</Th><Th align="right">After request</Th></tr></thead>
+          <tbody>{observation.compaction.events.map(event => <tr key={event.ts}>
+            <Td>{clock(event.ts, tz)}</Td><Td>{event.trigger ?? "not recorded"}</Td>
+            <Td align="right">{formatCompact(event.preTokens)}</Td><Td align="right">{formatCompact(event.postTokens)}</Td><Td align="right">{formatInteger(event.position)}</Td>
+          </tr>)}</tbody>
+        </TableShell>
+      </div> : null}
       {data.rows.length ? <TableShell>
         <thead>
           <tr><Th>Time</Th><Th>Model</Th><Th>Project</Th><Th align="right">Tokens</Th><Th align="right">Cost</Th></tr>

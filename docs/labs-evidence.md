@@ -40,7 +40,7 @@ comparison are dimmed. Full timestamps, request IDs and ordinals stay in the dat
 not on screen. The page controls support keyboard operation with visible focus in
 both themes. Totals always describe the
 whole selected population. Empty, short or unavailable observations stay plain
-and inspectable; they do not infer compaction, productivity, quality or cache causes.
+and inspectable; they show recorded compactions only and infer none, nor productivity, quality or cache causes.
 
 An invalid link displays an explanation. Open the finding again to recover the
 complete selector. A failed request offers Try again. With Labs disabled, no

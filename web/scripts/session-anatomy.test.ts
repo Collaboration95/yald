@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { contextTimelineOption } from "../src/pages/labs/contextReplayChart";
 import { chainName, chainTree } from "../src/pages/SessionAnatomy";
 import type { AnatomyChain } from "../src/types";
 
@@ -21,5 +22,23 @@ describe("the cost tree", () => {
   test("names never call an unmarked chain main", () => {
     expect(chainName(chain("unlabelled", "unlabelled", null, 0))).toBe("Unlabelled");
     expect(chainName(chain("abcdef123", "subagent", null, 0))).toBe("Explore abcdef");
+  });
+});
+
+describe("the Context Replay chart", () => {
+  const theme = { text: "#000", axis: "#111", split: "#222", tooltipBg: "#fff", tooltipBorder: "#333", area: "#444" };
+  const request = (ts: number, inputTokens: number) => ({ ts, inputTokens, eligible: true }) as never;
+  const event = (ts: number, trigger: string | null) => ({ ts, chain: null, trigger, preTokens: null, postTokens: null, durationMs: null, position: 0, requestsSincePrevious: 0 });
+
+  test("draws no marker without a recorded event, even across an input drop", () => {
+    const option = contextTimelineOption(theme, { requests: [request(1, 900), request(2, 10)] }, "UTC") as { series: Record<string, unknown>[] };
+    expect(option.series[0]!.markLine).toBeUndefined();
+  });
+
+  test("gives each event a blank slot between its two requests, with a text label", () => {
+    const option = contextTimelineOption(theme, { requests: [request(10, 900), request(20, 10)] }, "UTC", [event(15, "manual")]) as { series: { data: unknown[]; markLine: { data: unknown[]; label: { formatter: (params: { dataIndex: number }) => string } } }[] };
+    expect(option.series[0]!.data).toEqual([900, null, 10]);
+    expect(option.series[0]!.markLine.data).toEqual([{ xAxis: 1 }]);
+    expect(option.series[0]!.markLine.label.formatter({ dataIndex: 0 })).toBe("manual");
   });
 });

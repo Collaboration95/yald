@@ -31,8 +31,9 @@ as unavailable; priced zero stays `$0.00`. Reasoning remains within output and t
 view displays the server's total without adding it again.
 
 History limits, loaded-only coverage and exclusion reasons are explicit. Scope
-evidence also includes unnamed requests. An input decrease or nearby model
-change is an observation; the view infers no cause or task quality. No prompt or
+evidence also includes unnamed requests. A recorded compaction is shown as an
+event. An input decrease with no recorded event, or a nearby model change, is an
+observation; the view infers no cause or task quality. No prompt or
 response bodies are displayed.
 
 Both evidence actions preserve the server's complete `href` selector and append

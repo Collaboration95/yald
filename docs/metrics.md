@@ -394,6 +394,18 @@ cohort limits and all excluded requests are disclosed. See the
 [Context Replay contract](labs-context.md) for denominators and history coverage.
 These request observations do not infer turns, compaction, waste or answer quality.
 
+### Recorded compactions
+
+Claude Code writes a `compact_boundary` line when it compacts. Context Replay places those events on the session's sequence and never infers one from an input drop.
+
+- **State.** `recorded`: at least one event. `none recorded`: the session was read with event capture and none was seen, shown as "no recorded compaction", never "no compaction". `unavailable`: no capture record, which covers sessions archived before events were kept and all Codex sessions.
+- **Placement.** An event sits between the last request before its timestamp and the next request (`requestsBefore` in `server/src/labs/scope.ts`). The Cache Detective rebuild ledger uses the same rule.
+- **Requests until first compaction** is the number of selected requests before the first recorded event, counting excluded requests. It is available only when no loaded request precedes the sequence outside the window or cohort, and no event falls outside the window. Otherwise it reads "unavailable: the sequence starts before the window". The first loaded request is still not proof of the session's true start.
+- **Counts** are by `trigger`: auto, manual, and any other or missing value as other. An auto-to-manual ratio exists only from 10 events with at least one manual.
+- `preTokens` and `postTokens` are Claude Code's own counts, not API usage counters. Missing values are unavailable, not zero. An event with an agent id draws on that chain; without one it cannot be split by agent and draws on the main chain. Events outside a fixed window are counted, not returned.
+
+An event is a record that Claude Code compacted. It is not a cause of cost, of an input drop elsewhere or of answer quality, and it is not waste or failure.
+
 ## Labs spend spikes
 
 `GET /api/labs/spend` judges each local day of the window (in the window's time
