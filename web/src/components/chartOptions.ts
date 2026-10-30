@@ -105,11 +105,11 @@ export function stackedBarChart(
   theme: ThemeTokens,
   labels: string[],
   series: SeriesLike[],
-  options: { formatter?: (value: number) => string; showLegend?: boolean; horizontal?: boolean } = {},
+  options: { formatter?: (value: number) => string; showLegend?: boolean; horizontal?: boolean; max?: number } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) };
-  const valueAxis = { type: "value" as const, ...axisCommon(theme) };
+  const valueAxis = { type: "value" as const, ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme) };
   return {
     grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
@@ -137,6 +137,8 @@ export function lineChart(
     showLegend?: boolean;
     /** Opt in to disconnected nulls and unavailable tooltips; legacy defaults stay intact. */
     preserveGaps?: boolean;
+    /** Counts: no ticks between whole numbers, so a formatted axis never repeats a label. */
+    wholeNumbers?: boolean;
   } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
@@ -146,7 +148,7 @@ export function lineChart(
       ? "Unavailable" : formatter(Number(value)) },
     legend: legendCommon(theme, options.showLegend !== false),
     xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
-    yAxis: { type: "value", ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
+    yAxis: { type: "value", ...(options.wholeNumbers ? { minInterval: 1 } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     series: series.map((entry, index) => ({
       name: entry.name,
       type: "line",
@@ -211,11 +213,13 @@ export function barChart(
     color?: string | ((index: number) => string);
     showAxis?: boolean;
     showLabels?: boolean;
+    /** Counts: no ticks between whole numbers, so a formatted axis never repeats a label. */
+    wholeNumbers?: boolean;
   } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   const categoryAxis = { type: "category" as const, data: labels, ...axisCommon(theme), splitLine: { show: false } };
-  const valueAxis = { type: "value" as const, ...axisCommon(theme), axisLabel: { show: options.showAxis !== false, color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } };
+  const valueAxis = { type: "value" as const, ...(options.wholeNumbers ? { minInterval: 1 } : {}), ...axisCommon(theme), axisLabel: { show: options.showAxis !== false, color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } };
   return {
     grid: baseGrid({ top: 12, bottom: 4 }),
     tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },

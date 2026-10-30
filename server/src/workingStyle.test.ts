@@ -77,6 +77,15 @@ describe("recap notes", () => {
     expect(recapNotes(style(session("a", 2)), { id: "abc12345", requests: 2, costUsd: 2 }).at(-1)).toMatchObject({ identifying: true, money: true });
   });
 
+  test("print counts and days the way the page does", () => {
+    const rows = ["a", "b", "c", "d", "e"].flatMap(id => session(id, 2_000, Date.UTC(2026, 9, 3, 10), 100));
+    const text = recapNotes(style(rows), { id: "x", requests: 2_000, costUsd: 1_234.5 }).map(note => note.text).join(" ");
+    expect(text).toContain("of 10,000 requests");
+    expect(text).toContain("on Oct 3.");
+    expect(text).toContain("made 2,000 requests ($1,234.50 list-price equivalent)");
+    expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
   test("never praise or blame", () => {
     const rows = ["a", "b", "c", "d", "e", "f"].flatMap(id => session(id, 5));
     const text = recapNotes(style(rows), { id: "x", requests: 5, costUsd: null }).map(note => note.text).join(" ").toLowerCase();

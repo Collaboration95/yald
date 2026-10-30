@@ -179,28 +179,31 @@ export interface RecapNote {
 }
 
 const percent = (value: number | null) => `${Math.round((value ?? 0) * 100)}%`;
-const usd = (value: number) => `$${value.toFixed(2)}`;
+const usd = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const count = (value: number) => value.toLocaleString("en-US");
+/** "Oct 25" for a YYYY-MM-DD local day, the same text the page's formatShortDate gives. */
+const shortDay = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** Fixed sentences with their n, composed here so the CLI, the HTML report and the card print the same text. */
 export function recapNotes(style: WorkingStyle, biggest: { id: string; requests: number; costUsd: number | null } | null): RecapNote[] {
   const { totals, archetypes, concurrency: peaks, activity: days, night } = style;
-  const tooLittle = (what: string, n: number): RecapNote => ({ text: `Too little data for ${what}: ${n} of ${NOTE_MIN} needed.`, n });
+  const tooLittle = (what: string, n: number): RecapNote => ({ text: `Too little data for ${what}: ${count(n)} of ${NOTE_MIN} needed.`, n });
   const poke = archetypes.find(row => row.name === "poke")!;
   const notes: RecapNote[] = [
     totals.sessions >= NOTE_MIN
-      ? { text: `Of ${totals.sessions} sessions, ${percent(poke.sessionShare)} were 3 requests or fewer and held ${percent(poke.costShare)} of priced cost.`, n: totals.sessions }
+      ? { text: `Of ${count(totals.sessions)} sessions, ${percent(poke.sessionShare)} were 3 requests or fewer and held ${percent(poke.costShare)} of priced cost.`, n: totals.sessions }
       : tooLittle("the session mix", totals.sessions),
     peaks.busiestDay !== null && totals.sessions >= NOTE_MIN
-      ? { text: `At most ${peaks.maxPeak} sessions made a request in the same 10 minutes, on ${peaks.busiestDay}.`, n: totals.sessions }
+      ? { text: `At most ${count(peaks.maxPeak)} sessions made a request in the same 10 minutes, on ${shortDay(peaks.busiestDay)}.`, n: totals.sessions }
       : tooLittle("concurrency", totals.sessions),
-    { text: `${days.activeDays} of ${days.windowDays} days had data. The longest run of days with data was ${days.longestStreak}.`, n: days.windowDays },
+    { text: `${count(days.activeDays)} of ${count(days.windowDays)} days had data. The longest run of days with data was ${count(days.longestStreak)}.`, n: days.windowDays },
     totals.requests >= NOTE_MIN
-      ? { text: `${percent(night.share)} of ${totals.requests} requests fell between 00:00 and 05:59 on the local clock.`, n: totals.requests }
+      ? { text: `${percent(night.share)} of ${count(totals.requests)} requests fell between 00:00 and 05:59 on the local clock.`, n: totals.requests }
       : tooLittle("hours", totals.requests),
   ];
   if (biggest) {
     const cost = biggest.costUsd === null ? "" : ` (${usd(biggest.costUsd)} list-price equivalent)`;
-    notes.push({ text: `The largest session by tokens, ${biggest.id}, made ${biggest.requests} requests${cost}.`, n: biggest.requests, identifying: true, money: biggest.costUsd !== null });
+    notes.push({ text: `The largest session by tokens, ${biggest.id}, made ${count(biggest.requests)} requests${cost}.`, n: biggest.requests, identifying: true, money: biggest.costUsd !== null });
   }
   return notes;
 }
