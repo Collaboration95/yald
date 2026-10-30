@@ -81,6 +81,20 @@ export interface ContextObservation {
   exclusionReason: ContextExclusion | null;
 }
 
+export type CompactionState = "recorded" | "none recorded" | "unavailable";
+
+export interface ContextCompaction {
+  state: CompactionState;
+  /** Recorded events inside the window; `position` is the count of session requests before each. */
+  events: { ts: number; chain: string | null; trigger: string | null; preTokens: number | null; postTokens: number | null; durationMs: number | null; position: number; requestsSincePrevious: number }[];
+  outsideWindowEvents: number;
+  requestsUntilFirst: number | null;
+  requestsUntilFirstUnavailable: string | null;
+  auto: number;
+  manual: number;
+  other: number;
+}
+
 export interface ContextChain {
   /** The `agentId`, or the agent kind for requests without one. */
   key: string;
@@ -117,6 +131,7 @@ export interface ContextSession extends ContextCounts {
   };
   /** The session's agents, main first; null when no request carries a marker. */
   chains: ContextChain[] | null;
+  compaction: ContextCompaction;
   requests: ContextObservation[];
   evidence: ContextEvidence;
 }
@@ -147,6 +162,18 @@ export interface ContextReplayResponse {
       };
     } | null;
     evidence: ContextEvidence;
+    compaction: {
+      recordedSessions: number;
+      noneRecordedSessions: number;
+      unavailableSessions: number;
+      events: number;
+      auto: number;
+      manual: number;
+      other: number;
+      autoPerManual: number | null;
+      medianRequestsUntilFirst: number | null;
+      requestsUntilFirstSessions: number;
+    };
   };
   sessions: ContextSession[];
   unnamedRequests: number;

@@ -98,6 +98,22 @@ export const sessionKey = (source: Source, conversationId: string): string => JS
 export const chainKey = (source: Source, conversationId: string, agentId: string | null | undefined): string => JSON.stringify([source, conversationId, agentId ?? "main"]);
 
 /**
+ * Where an event sits in a sequence: the count of requests strictly before it, so it falls between
+ * request `n - 1` and request `n`. Context Replay and the Cache Detective ledger share this rule, so
+ * both views put a recorded event between the same pair of requests. `timestamps` is ascending.
+ */
+export function requestsBefore(timestamps: readonly number[], ts: number): number {
+  let low = 0;
+  let high = timestamps.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (timestamps[middle]! < ts) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/**
  * How many of the named sessions have a loaded request outside [from, to): the window clipped them, so only
  * their in-window part is analysed. `named` maps each source to the conversation ids of interest.
  */

@@ -692,7 +692,7 @@ export interface ProjectRadarResponse {
   }[];
 }
 
-export type { ContextChain, ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
+export type { CompactionState, ContextChain, ContextCompaction, ContextReplayResponse, ContextSession, ContextObservation, ContextEvidence, ContextExclusion } from "./labs/context-types";
 
 /** Resolved bounds carried by Labs findings and their evidence intents (epoch milliseconds). */
 export interface AnalysisWindow {

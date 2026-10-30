@@ -68,6 +68,8 @@ to the unscoped legacy conversation endpoint. Excluded observations remain part
 of the evidence population.
 
 Concurrent or interleaved agent requests remain a time-ordered request view.
-An observed input decrease does not establish compaction. Nearby model changes
-or costs do not establish causality, waste, task turns or answer quality. These
+A recorded `compact_boundary` event shows that Claude Code compacted at that time.
+An input decrease with no recorded event establishes nothing, and no recorded
+compaction is not no compaction. Nearby model changes or costs are not causes, and
+they do not establish waste, task turns or answer quality. These
 limitations are also returned as text in `limitations` for the view to disclose.

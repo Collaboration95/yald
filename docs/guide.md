@@ -125,7 +125,7 @@ measure prefix survival, cache-miss causes or subscription savings. See
 source-qualified session. With at least six eligible requests, it compares the
 median input of the first three with the last three; a zero baseline has no ratio.
 Missing input and attempt sums remain gaps, while measured zero remains valid. An
-input drop or adjacent model change establishes no compaction, cause or answer
+input drop or adjacent model change without a recorded event establishes no compaction, cause or answer
 quality. See [context metrics](labs-context.md).
 
 Each finding's **See the requests** button opens a **fixed case**: a plain table of time, model, project, tokens and cost. It retains the exact

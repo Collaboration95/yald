@@ -1,4 +1,5 @@
 import { filterRows, measurementCoverage, projectCoverage, type RowFilter } from "../analytics";
+import type { ClaudeEvent } from "../claude/transcripts";
 import type { RequestRow } from "../ocx/store";
 import { createProjectIdentity } from "../projects";
 import { publicRow } from "../publicRow";
@@ -84,9 +85,9 @@ function cacheObservation(datasetRows: RequestRow[], selectedRows: RequestRow[],
     projectCoverage: projectCoverage(datasetRows, caseFilter(selector)), notes: data.notes,
   };
 }
-function contextObservation(datasetRows: RequestRow[], selectedRows: RequestRow[], selector: CaseSelector) {
+function contextObservation(datasetRows: RequestRow[], selectedRows: RequestRow[], selector: CaseSelector, claudeEvents: readonly ClaudeEvent[]) {
   const filter = caseFilter(selector);
-  const data = buildContextReplay(datasetRows, filter, selector.window);
+  const data = buildContextReplay(datasetRows, filter, selector.window, claudeEvents);
   const selection = selector.selection;
   const session = selection.kind === "session"
     ? data.sessions.find(session => session.key === sessionKey(selection.source, selection.conversationId)) : undefined;
@@ -99,7 +100,7 @@ function contextObservation(datasetRows: RequestRow[], selectedRows: RequestRow[
   const state = !totalRequests ? "empty" as const
     : !eligibleRequests || (selection.kind === "session" && !growth?.ranked) ? "insufficient" as const : "observed" as const;
   return {
-    investigation: "context-replay" as const, state, coverage, growth, history: session?.history ?? null,
+    investigation: "context-replay" as const, state, coverage, growth, history: session?.history ?? null, compaction: session?.compaction ?? null,
     summary: growth?.ranked
       ? `${eligibleRequests} of ${totalRequests} requests have eligible submitted input. First-three median ${growth.baseline} tokens; last-three median ${growth.latest} tokens; change ${growth.absoluteChange} tokens.`
       : `${eligibleRequests} of ${totalRequests} requests have eligible submitted input. ${selection.kind === "session" ? "At least six eligible requests are needed for the first-three / last-three median comparison." : "Growth comparisons apply to individual source-qualified sessions."}`,
@@ -137,7 +138,7 @@ function spendObservation(datasetRows: RequestRow[], intent: CaseIntent) {
 }
 
 /** Bounded public metadata plus full-population metrics from the accepted investigation builders. */
-export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent) {
+export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent, claudeEvents: readonly ClaudeEvent[] = []) {
   const selectedSelector = intent.period === "prior" ? intent.priorSelector! : intent.selector;
   const selected = selectCaseRows(datasetRows, selectedSelector);
   const eligible = (row: RequestRow) => intent.investigation === "cache-detective" ? cacheEligibility(row).eligible
@@ -157,7 +158,7 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent)
   const observation = intent.investigation === "project-radar" ? radarObservation(datasetRows, intent)
     : intent.investigation === "spend-changes" ? spendObservation(datasetRows, intent)
     : intent.investigation === "cache-detective" ? cacheObservation(datasetRows, selected, selectedSelector)
-    : contextObservation(datasetRows, selected, selectedSelector);
+    : contextObservation(datasetRows, selected, selectedSelector, claudeEvents);
   // Cache evidence reuses the builder's exact pricing-pair sum, already rounded
   // once. The original subtotal also includes priced exclusions: sum their raw
   // row costs in dataset order, then apply the same server rounding rule once.

@@ -414,7 +414,8 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
 
 api.get("/api/labs/evidence", c => {
   const intent = parseCaseIntent(new URL(c.req.url).searchParams);
-  const payload = buildEvidenceCase(c.get("dataset").rows, intent);
+  const dataset = c.get("dataset");
+  const payload = buildEvidenceCase(dataset.rows, intent, dataset.claudeEvents);
   // Derived roots can change without a ledger revision. Validate and resolve before any 304.
   const etag = `W/"${createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
@@ -425,7 +426,7 @@ api.get("/api/labs/evidence", c => {
 api.get("/api/labs/context", c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
-  return c.json({ ok: true, ...buildContextReplay(dataset.rows, query.filter, query.window) });
+  return c.json({ ok: true, ...buildContextReplay(dataset.rows, query.filter, query.window, dataset.claudeEvents) });
 });
 
 api.get("/api/overview", async c => {
