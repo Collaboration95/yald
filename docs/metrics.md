@@ -177,7 +177,8 @@ transcript; every other protocol is `ocx`. An Anthropic request routed through
 opencodex remains `ocx`. The API's `sourceCapabilities` describes what each source
 can observe. Capability does not prove that an individual row recorded a value.
 
-Claude transcripts record usage and cache counters. They do not record failures,
+Claude transcripts record usage and cache counters, plus the structure listed under
+[Claude transcript structure](#claude-transcript-structure). They do not record failures,
 retry history, request timing or subscription quota. Their compatibility HTTP 200,
 one-attempt and send defaults are not observations. Their API outcome is
 `unobserved`, and their request badge says so. `ok`, `error` and `cancelled` filters
@@ -235,6 +236,25 @@ are deleted and has no automatic retention expiry. An empty transcript folder
 does not remove archived usage; a source filter does not delete the archive or
 disable ingestion. [Local storage details](install.md#data-locations-and-local-archive)
 explain isolation with a separate home.
+
+### Claude transcript structure
+
+Where a transcript records it, a Claude Code request carries `details` in `publicRow` and exports. Every field is null when not recorded, and `details` itself is null on archive lines written before Yald kept these fields, so older data reads as unavailable and never as zero or "main".
+
+| Field | From | Notes |
+| --- | --- | --- |
+| `agent` | `isSidechain` | `main` or `subagent`. Null is `unlabelled`, in the `agents` filter and the `agent` group, and is never folded into main |
+| `agentId`, `attributionAgent` | transcript line | An extra dimension: a session stays `(source, conversationId)` |
+| `agentType`, `spawnDepth`, `spawnToolUseId` | `subagents/agent-*.meta.json` | Named fields only; any task description in the file is not kept |
+| `effort` (row field), `perTurnEffort`, `thinkingDurationMs` | transcript line | Claude effort is populated where present |
+| `cacheWrite5m`, `cacheWrite1h` | `usage.cache_creation` | Token split only. Dollars still use the engine's single write rate |
+| `cacheMissReason` | `message.diagnostics` | As the API reported it. A missing reason is not "no miss" |
+| `toolCounts`, `toolUseIds` | `tool_use` blocks | Names, ids and counts of requested calls. MCP tool names can reveal which servers you run; they stay local like every other field |
+| `gitBranch`, `promptId` | transcript line | |
+
+Records that are not requests live in their own archive and on `Dataset.claudeEvents`: recorded compactions, API errors and client retries, turn durations, human prompt times, PR links and agent records. A `captured` record marks a session read with event capture, so "no recorded compaction" can be told apart from "not captured". A human prompt is a `user` line that is not a tool result, meta, sidechain or compaction summary; its text is examined only to classify it and is never kept.
+
+No prompt, response, tool input or tool output text is stored. Reading a line parses its text in memory, then only the fields above are kept.
 
 ## Project Radar (Labs)
 

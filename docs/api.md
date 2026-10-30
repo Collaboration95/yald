@@ -8,7 +8,7 @@ All endpoints return JSON except `/api/export` and `/api/report?format=html`. Ea
 
 Every `/api/*` response, `304 Not Modified` included, carries `Server-Timing: build;dur=<ms>, compute;dur=<ms>`. `build` is the time spent getting the dataset (checking the files and rebuilding when they changed); `compute` is the time in the route itself. A body served from the memo adds `memo;desc="hit"`. The header holds durations only, never data.
 
-Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
+Shared analytics parameters: the time-window parameters below, comma-separated `sources`, `projects`, `providers`, `models`, `efforts`, `routeKinds`, and `statuses` (`ok`, `error`, `cancelled`, `unobserved`), `agents` (`main`, `subagent`, `unlabelled`), `agentTypes`, `conversationId`, `search`, `groupBy` (`model`, `provider`, `effort`, `route`, `outcome`, `account`, `serviceTier`, `agent`, `agentType`, `none`), `metric` (`tokens`, `cost`, `requests`, `outputTokens`, `inputTokens`, `cacheReadTokens`, `reasoningTokens`), and `bucket` (`hour`, `day`, `week`, or omitted/`auto` for automatic selection).
 
 ## Time windows
 

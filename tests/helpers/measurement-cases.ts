@@ -13,7 +13,7 @@ test("Claude-only usage retains volume but cannot supply synthetic reliability, 
   const row = transcript();
   const summary = summarize([row]);
   expect(sourceOf(row)).toBe("claude-code");
-  expect(SOURCE_CAPABILITIES["claude-code"]).toEqual({ outcomes: false, retries: false, timing: false, quota: false, cache: true });
+  expect(SOURCE_CAPABILITIES["claude-code"]).toEqual({ outcomes: false, retries: false, timing: false, quota: false, cache: true, effort: true, agents: true });
   expect(summary).toMatchObject({ requests: 1, ok: 0, errors: 0, cancelled: 0, unobserved: 1, successRate: null, tokens: { input: 140, total: 150 }, latency: { p50: null }, ttft: { p50: null }, retries: { sends: 0, retriedRequests: 0 } });
   for (const key of ["outcomes", "duration", "ttft", "throughput", "retries"] as const) {
     expect(summary.measurementCoverage[key]).toEqual({ eligibleRequests: 0, totalRequests: 1 });

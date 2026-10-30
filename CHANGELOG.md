@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- **More of what Claude Code records is kept.** Requests now carry subagent markers, effort, the 5-minute and 1-hour cache write split, API-reported cache miss reasons, git branch and tool names and counts, and a new `yald-claude-events.jsonl` keeps compactions, API errors, turn durations, prompt times, PR links and agent types after transcripts are deleted. Older data reads as unavailable, not zero. `agents` and `agentTypes` filter any analytics route, and `agent` and `agentType` work as `groupBy`. No prompt, response or tool text is stored ([#96](https://github.com/Collaboration95/yald/issues/96)).
+
 ### Changed
 
 - **A leaner dashboard.** Pages no longer open with a "Dashboard selection" box or a "09 / DASHBOARD" label. A small "Filtered: 2 projects · Reset" chip appears only when a filter narrows your data, with the project-exclusion note beside it when a project filter leaves requests out. The sidebar footer keeps only when the data was last updated and the opencodex and Yald versions, and the Labs and Hide artwork switches moved into a settings menu next to the theme toggle. Picking a range like 24h or 90d no longer counts as a filter, and Reset keeps your range ([#94](https://github.com/Collaboration95/yald/issues/94), [#121](https://github.com/Collaboration95/yald/issues/121), [#123](https://github.com/Collaboration95/yald/issues/123), [#132](https://github.com/Collaboration95/yald/issues/132)).
