@@ -16,11 +16,17 @@ const SCAN_BATCH = 8;
 
 const WINDOW_NAMES: Record<number, string> = { 300: "fiveHour", 1_440: "daily", 10_080: "weekly", 43_200: "monthly" };
 
+/** Older rollouts record a window a minute short, such as 299 or 10079. */
+function windowName(minutes: number): string {
+  const nominal = Object.keys(WINDOW_NAMES).map(Number).find(known => Math.abs(known - minutes) <= 1);
+  return nominal === undefined ? `${minutes}m` : WINDOW_NAMES[nominal]!;
+}
+
 function sampleOf(slot: Record<string, any> | undefined, observedAt: number): QuotaSample | null {
   if (typeof slot?.used_percent !== "number" || !Number.isFinite(slot.used_percent)) return null;
   const minutes = typeof slot.window_minutes === "number" ? slot.window_minutes : null;
   return {
-    account: ROLLOUT_ACCOUNT, family: "account", window: minutes === null ? "unknown" : WINDOW_NAMES[minutes] ?? `${minutes}m`,
+    account: ROLLOUT_ACCOUNT, family: "account", window: minutes === null ? "unknown" : windowName(minutes),
     usedPercent: slot.used_percent,
     resetAtMs: typeof slot.resets_at === "number" ? slot.resets_at * 1000 : null,
     observedAt, source: "rollout",
@@ -110,21 +116,40 @@ export async function readRolloutQuotaSamples(codexHome = CODEX_HOME): Promise<Q
   return merged;
 }
 
-/** opencodex's quota with rollout samples added, and a latest reading for each window it does not report itself. */
-export function mergeRolloutQuota<Q extends { windows: QuotaWindowSnapshot[]; samples: QuotaSample[]; updatedAt: number | null }>(quota: Q, samples: QuotaSample[]): Q {
+/** Keeps the first and last sample of each unchanged run per window. Every token_count repeats the reading, so the chart and burn stay the same. */
+export function collapseRuns(samples: QuotaSample[]): QuotaSample[] {
+  const kept: QuotaSample[] = [];
+  const runs = new Map<string, { used: number; reset: number | null; last: number | null }>();
+  for (const sample of samples) {
+    const run = runs.get(sample.window);
+    if (run?.used !== sample.usedPercent || run.reset !== sample.resetAtMs) {
+      kept.push(sample);
+      runs.set(sample.window, { used: sample.usedPercent, reset: sample.resetAtMs, last: null });
+    } else if (run.last === null) {
+      kept.push(sample);
+      run.last = kept.length - 1;
+    } else {
+      kept[run.last] = sample;
+    }
+  }
+  return kept;
+}
+
+/** opencodex's quota with rollout samples added, and a latest reading for each window it does not report itself, while that reading's window is still open. */
+export function mergeRolloutQuota<Q extends { windows: QuotaWindowSnapshot[]; samples: QuotaSample[]; updatedAt: number | null }>(quota: Q, samples: QuotaSample[], now = Date.now()): Q {
   if (!samples.length) return quota;
   const latest = new Map<string, QuotaSample>();
   for (const sample of samples) latest.set(sample.window, sample);
   const windows = [...quota.windows];
   for (const sample of latest.values()) {
-    if (!quota.windows.some(window => window.window === sample.window)) {
+    if (sample.resetAtMs !== null && sample.resetAtMs > now && !quota.windows.some(window => window.window === sample.window)) {
       windows.push({ account: ROLLOUT_ACCOUNT, window: sample.window, usedPercent: sample.usedPercent, resetAtMs: sample.resetAtMs, updatedAt: sample.observedAt });
     }
   }
   windows.sort((a, b) => a.account.localeCompare(b.account) || a.window.localeCompare(b.window));
   return {
     ...quota, windows,
-    samples: [...quota.samples, ...samples].sort((a, b) => a.observedAt - b.observedAt),
+    samples: [...quota.samples, ...collapseRuns(samples)].sort((a, b) => a.observedAt - b.observedAt),
     updatedAt: Math.max(quota.updatedAt ?? 0, ...windows.map(window => window.updatedAt)) || null,
   };
 }

@@ -4,7 +4,8 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdCompressSync } from "node:zlib";
-import { mergeRolloutQuota, parseRateLimits, readRolloutQuotaSamples, ROLLOUT_ACCOUNT } from "./quota";
+import { quotaView } from "../analytics";
+import { collapseRuns, mergeRolloutQuota, parseRateLimits, readRolloutQuotaSamples, ROLLOUT_ACCOUNT } from "./quota";
 import { conversationKey, parseSessionMeta, readCodexSessionIndex } from "./sessions";
 
 const ROOT = "019a1111-0000-7000-8000-000000000001";
@@ -175,8 +176,35 @@ test("rollout quota comes from plain and compressed files, deduplicated, re-read
 test("merging adds rollout samples without replacing a window opencodex reports", () => {
   const quota = { windows: [{ account: "a", window: "weekly", usedPercent: 10, resetAtMs: null, updatedAt: 5 }], samples: [], updatedAt: 5 };
   const samples = parseRateLimits(limits("2026-10-11T01:00:00.000Z", 40).trim());
-  const merged = mergeRolloutQuota(quota, samples);
+  const merged = mergeRolloutQuota(quota, samples, 1_791_000_000_000);
   expect(merged.windows.map(window => [window.account, window.window])).toEqual([["a", "weekly"], [ROLLOUT_ACCOUNT, "fiveHour"]]);
   expect(merged.samples).toHaveLength(2);
   expect(mergeRolloutQuota(quota, [])).toBe(quota);
+});
+
+test("an unchanged run keeps its first and last sample, so the chart and burn do not move", () => {
+  const at = (observedAt: number, usedPercent: number) => ({ account: ROLLOUT_ACCOUNT, family: "account", window: "weekly", usedPercent, resetAtMs: 9, observedAt, source: "rollout" }) as Parameters<typeof collapseRuns>[0][number];
+  const kept = collapseRuns([at(1, 5), at(2, 5), at(3, 5), at(4, 5), at(5, 6), at(6, 6), at(7, 6)]);
+  expect(kept.map(sample => [sample.observedAt, sample.usedPercent])).toEqual([[1, 5], [4, 5], [5, 6], [7, 6]]);
+});
+
+test("a rollout window a minute short keeps its name, and a closed window adds history but no reading", () => {
+  const [short] = parseRateLimits(limits("2026-10-11T01:00:00.000Z", 40, 1_792_000_000, 10_079).trim());
+  expect(short!.window).toBe("weekly");
+  const quota = { windows: [], samples: [], updatedAt: null };
+  const merged = mergeRolloutQuota(quota, [short!], 1_793_000_000_000);
+  expect(merged.windows).toEqual([]);
+  expect(merged.samples).toHaveLength(1);
+});
+
+test("a long quota series is thinned for the response, keeping its count, ends and burn", () => {
+  const samples = Array.from({ length: 2_000 }, (_, index) => ({ account: "a", family: "account", window: "weekly", usedPercent: index / 40, resetAtMs: 9e12, observedAt: 1_000 + index * 1_000, source: "rollout" }));
+  const windows = [{ account: "a", window: "weekly", usedPercent: 50, resetAtMs: 9e12, updatedAt: 2_000_000 }];
+  const view = quotaView({ quota: { windows, samples, updatedAt: 2_000_000 } } as unknown as Parameters<typeof quotaView>[0], {}, 2_000_000);
+  const series = view.series[0]!;
+  expect(series.points).toHaveLength(500);
+  expect(series.sampleCount).toBe(2_000);
+  expect(series.points[0]!.ts).toBe(1_000);
+  expect(series.points.at(-1)!.ts).toBe(2_000_000);
+  expect(view.burn[0]!.percentPerDay).toBeGreaterThan(0);
 });
