@@ -3,7 +3,7 @@
 Yald reads local opencodex usage ledgers and Claude Code transcripts, normalizes
 them into shared requests, and serves analytics through a local API and desktop
 web dashboard. Yaldi is the decorative detective companion; findings and their
-coverage come from server calculations. This describes 0.2.0;
+coverage come from server calculations. This describes 0.4.0;
 the earlier v0.1.0 preview predates Claude ingestion, reports and Labs. See
 [installation](install.md) for GitHub asset availability.
 

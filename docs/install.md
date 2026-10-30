@@ -1,11 +1,11 @@
 # Installation and local data
 
-## Meet Yaldi 0.2.0 GitHub package
+## Yald 0.4.0 GitHub package
 
-The baseline channel for **0.2.0 — Meet Yaldi** is the GitHub tarball,
-`yald-dashboard-0.2.0.tgz`, with `SHA256SUMS`. Confirm both assets are present on
-the [v0.2.0 release page](https://github.com/Collaboration95/yald/releases/tag/v0.2.0)
-before downloading; preparing these instructions does not publish the candidate.
+The baseline channel for **0.4.0** is the GitHub tarball,
+`yald-dashboard-0.4.0.tgz`, with `SHA256SUMS`. Confirm both assets are present on
+the [v0.4.0 release page](https://github.com/Collaboration95/yald/releases/tag/v0.4.0)
+before downloading.
 npm registry and Homebrew distribution remain **UNVERIFIED**. The executable is
 `yald`; the package name is `yald-dashboard`.
 
@@ -17,10 +17,10 @@ checkout, Make and a separate global Bun installation are unnecessary.
 ```bash
 release_dir="$(mktemp -d)"
 yald_prefix="$HOME/.local"
-gh release download v0.2.0 --repo Collaboration95/yald \
-  --pattern 'yald-dashboard-0.2.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
+gh release download v0.4.0 --repo Collaboration95/yald \
+  --pattern 'yald-dashboard-0.4.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
 (cd "$release_dir" && shasum -a 256 -c SHA256SUMS) && \
-npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.2.0.tgz"
+npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.4.0.tgz"
 export PATH="$yald_prefix/bin:$PATH"
 yald --version
 yald --help
@@ -28,7 +28,7 @@ yald demo --open
 ```
 
 Continue only if checksum verification says `OK`; the installed version should
-be exactly `0.2.0`. The installed demo opens **http://127.0.0.1:4318** with
+be exactly `0.4.0`. The installed demo opens **http://127.0.0.1:4318** with
 synthetic data, illustrative prices and Labs enabled. Stop with Ctrl+C to remove
 its generated data. Run `yald --open` to read your normal sources instead; that
 mode writes Yald's own Claude usage archive as documented below. Add the chosen
@@ -37,7 +37,7 @@ check npm's install-script policy and reinstall the same verified tarball.
 
 The earlier [v0.1.0 prerelease](https://github.com/Collaboration95/yald/releases/tag/v0.1.0)
 is the opencodex-only preview; it has no Claude ingestion, source/project controls,
-reports, Yaldi, Labs or demo. The sections below describe 0.2.0. See the
+reports, Yaldi, Labs or demo. The sections below describe 0.4.0. See the
 [demo guide](demo.md), [release notes](release-notes-v0.2.0.md) and
 [candidate process](release-candidate-v0.2.0.md) for feature and qualification details.
 
