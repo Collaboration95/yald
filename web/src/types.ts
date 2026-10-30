@@ -239,7 +239,7 @@ export interface QuotaResponse extends QuotaView {
 
 export interface MetaResponse {
   sources: Source[];
-  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean }>;
+  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean; effort: boolean; agents: boolean }>;
   ok: boolean;
   ocxHome: string;
   timeZone: string;

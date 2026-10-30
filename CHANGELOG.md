@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- **More of what Claude Code records is kept.** Requests now carry subagent markers, effort, the 5-minute and 1-hour cache write split, API-reported cache miss reasons, git branch and tool names and counts, and a new `yald-claude-events.jsonl` keeps compactions, API errors, turn durations, prompt times, PR links and agent types after transcripts are deleted. Older data reads as unavailable, not zero. `agents` and `agentTypes` filter any analytics route, and `agent` and `agentType` work as `groupBy`. No prompt, response or tool text is stored ([#96](https://github.com/Collaboration95/yald/issues/96)).
+
 ### Changed
 
 - **Audited opencodex 2.94.0.** Appended usage is ingested incrementally again on this engine. Older opencodex versions still price correctly but re-parse in full.
