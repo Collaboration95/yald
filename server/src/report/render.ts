@@ -350,6 +350,13 @@ function exclusionSentences(c: ReportData["coverage"]): string[] {
   return sentences;
 }
 
+/** Text only: the server cannot read the browser's Hide artwork preference. */
+function recapSection(data: ReportData): string {
+  const recap = data.workingStyle;
+  if (!recap) return "";
+  return "\n" + card("Case file (recap)", `${esc(data.meta.window.label)}. A summary of this window, not fixed evidence.`, `<ul class="sentences">${recap.notes.map(note => `<li>${esc(note.text)}</li>`).join("")}</ul>`);
+}
+
 function coverageSection(data: ReportData, clock: Clock): string {
   const c = data.coverage;
   const sentences: string[] = [];
@@ -404,7 +411,7 @@ ${CSS}</style>
 <body>
 <main class="page">
 ${header(data, clock)}
-${kpis(data)}
+${kpis(data)}${recapSection(data)}
 ${main}
 <div class="grid two">${quotaSection(data)}${coverageSection(data, clock)}</div>
 <footer class="footer">Report schema v${esc(data.schemaVersion)}. The full payload is embedded in this file as JSON (<code>script#yald-report</code>).</footer>

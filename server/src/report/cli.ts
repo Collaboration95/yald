@@ -37,6 +37,7 @@ Output:
   --title <text>              Default: "yald report · <window label>"
   --top <n>                   Conversations listed. Default 10.
   --no-redact                 Full ids, absolute paths, account labels.
+  --recap                     Add the working-style recap (session mix, peaks, days with data, hours).
   --open                      Open the HTML in the default browser when done.
   --dry-run                   Print the resolved window, phases and row counts per phase/source; write nothing.
 
@@ -64,7 +65,7 @@ const OPTIONS = {
   source: { type: "string", multiple: true },
   project: { type: "string", multiple: true },
   out: { type: "string" }, json: { type: "string" }, title: { type: "string" }, top: { type: "string" },
-  "no-redact": { type: "boolean" }, open: { type: "boolean" }, "dry-run": { type: "boolean" },
+  "no-redact": { type: "boolean" }, recap: { type: "boolean" }, open: { type: "boolean" }, "dry-run": { type: "boolean" },
   "ocx-home": { type: "string" }, "claude-projects": { type: "string" }, "codex-home": { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
@@ -132,6 +133,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       projects: many("project"),
       top: str("top"),
       redact: values["no-redact"] !== true,
+      recap: values.recap === true,
       title: str("title"),
     },
     out: str("out"),

@@ -3,6 +3,7 @@
 // and the endpoint (#39) stay compatible.
 
 import type { AttributionCoverage } from "../attribution";
+import type { ArchetypeRow, RecapNote } from "../workingStyle";
 import type { Instant, Phase, TimeWindow } from "../time/window";
 
 export type Source = "claude-code" | "ocx";
@@ -14,6 +15,7 @@ export interface ReportSpec {
   projects: string[];            // globs; [] = no project filter
   top: number;                   // default 10
   redact: boolean;               // default true
+  recap?: boolean;               // default false; adds workingStyle (#105)
   title?: string;
 }
 
@@ -60,6 +62,18 @@ export interface ReportData {
     windows: Array<{ account: string; window: string; status: "measured" | "insufficient"; samples: number;
                      usedPctStart: number | null; usedPctEnd: number | null; burnPctPerDay: number | null }>;
     claudeCode: "unavailable";
+  };
+  /** Additive and opt-in (#105): only with `recap`. Notes are the same text in the CLI, HTML and card. */
+  workingStyle?: {
+    archetypes: ArchetypeRow[];
+    peakConcurrency: number;
+    nightShare: number | null;
+    activeDays: number;
+    windowDays: number;
+    longestStreak: number;
+    biggestSession: { id: string; source: Source; requests: number; costUsd: number | null } | null;
+    topModel: string | null;
+    notes: RecapNote[];
   };
   coverage: {
     sourcesRead: string[];

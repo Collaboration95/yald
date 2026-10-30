@@ -51,6 +51,7 @@ import { claudeSessionTitles } from "./claude/transcripts";
 import { contextBreakdown } from "./contextView";
 import { EPISODE_GAP_MS, outageEpisodes } from "./episodes";
 import { spendStructure } from "./spendStructure";
+import { workingStyle } from "./workingStyle";
 import { buildCacheEconomics } from "./labs/cache";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
 import { getDataset, type Dataset, type RequestRow } from "./ocx/store";
@@ -738,6 +739,19 @@ api.get("/api/ledger", async c => {
   });
 });
 
+/** Working style (#105): session archetypes, concurrency, days with data and hours. */
+api.get("/api/style", async c => {
+  const dataset = c.get("dataset");
+  const query = parseQuery(c.req.query(), dataset, c.get("now"));
+  const rows = filterRows(dataset.rows, query.filter);
+  return c.json({
+    ok: true,
+    ...coverageField(dataset.rows, query.filter),
+    window: query.window,
+    ...workingStyle(rows, { tz: query.tz, from: query.from, to: query.to, now: c.get("now"), datasetRows: dataset.rows }),
+  });
+});
+
 api.get("/api/conversations", async c => {
   const dataset = c.get("dataset");
   const query = parseQuery(c.req.query(), dataset, c.get("now"));
@@ -952,7 +966,7 @@ api.get("/api/report", async c => {
     from: query.from, to: query.to, last: query.last, range: query.range, tz: query.tz,
     phases: c.req.queries("phase") ?? [],
     sources: joined("sources"), projects: joined("projects"),
-    top: query.top, redact: query.redact, title: query.title,
+    top: query.top, redact: query.redact, recap: query.recap, title: query.title,
   }, { now, first: dataset.rows[0]?.ts ?? now });
   const report = buildReport(dataset, spec, liveReportContext(now));
   const stable = { ...report, meta: { ...report.meta, generatedAt: 0 } };

@@ -340,6 +340,27 @@ The Cost page's structure sections read priced requests only. Cost is the sum of
 - **Token-class cost mix** splits cost into fresh input, cache read, cache write and output, per bucket and source, beside each class's share of priced tokens. Each row carries the engine's own per-class cost (`costParts`), so the classes add up to `row.cost` exactly, including long-context-tier and priority rows. A row without the split falls back to tokens times table rates and the difference is shown as a separate "tier adjustment", never folded into a class. Reasoning tokens are a subset of output; reasoning cost is the output cost in proportion to reasoning tokens (an attribution, not a measurement) and is never added twice.
 - **Interpretation.** These are arithmetic on tokens and today's price table: rows are priced at load with the current engine and overlays, so a series shows mix and the current table, not what was paid at the time. Until Claude's 5m and 1h cache-write split is read, the 1h write premium is understated. A large cache-write share is not waste; the net comparison is Cache Detective's.
 
+## Working style
+
+Describes how sessions are shaped and when requests happened. A label is about size and span, not value, and a session is not a task. Nothing here measures productivity, overtime or health.
+
+A session is `(source, conversationId)`, using its in-window requests. Requests without a conversation id are counted apart. Rules apply in order, from one table in `server/src/workingStyle.ts`:
+
+| Archetype | Rule |
+| --- | --- |
+| poke | 1-3 requests |
+| quick | 4-24 requests |
+| deep | 25-999 requests within one local calendar day |
+| marathon | 1,000 or more requests, or 25 or more requests across two or more local days |
+
+A session with requests outside the window is counted in `clippedSessions`, and its archetype is a lower bound. Cost is the list-price equivalent of priced requests, with unpriced requests counted.
+
+- **Concurrency** is the number of distinct sessions with a request in each 10-minute bin. Idle open sessions are invisible, and a Codex subagent under its own id counts as a session. A day's peak is its largest bin.
+- **Days with data** are local days with at least one request. A day without requests may be a day without work, a source that was not running, or a gap. Streaks are runs of consecutive days with data, and the current run ends today.
+- **Hours** sum requests by local hour. Night share is requests from 00:00 to 05:59 on the selected time zone's clock, divided by all requests.
+
+**Recap.** With `recap=1`, or `--recap` on `yald report`, the report adds a `workingStyle` block whose notes are fixed sentences composed by the server, so the CLI, the HTML report and the dashboard card print the same text. Each note carries its n, and below 5 sessions or requests a note reads "Too little data". The block is off by default because streaks and hours describe personal habits. The session id in it follows `redact`, and the recap adds no project names, paths or prompt text. The PNG export of the card leaves out notes that name a session unless you ask for them, and it is drawn from the same notes.
+
 ## Labs context growth
 
 Context Replay compares median input of the first three eligible requests with
