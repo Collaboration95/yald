@@ -21,7 +21,15 @@ export interface RowFilter {
   search?: string;
   /** Folder globs; a row matches when its cwd or an ancestor does. Rows without a cwd never match. */
   projects?: string[];
+  /** `main`, `subagent` or `unlabelled`; a row with no marker is only ever `unlabelled`. */
+  agents?: AgentKind[];
+  agentTypes?: string[];
 }
+
+export type AgentKind = "main" | "subagent" | "unlabelled";
+
+export const agentKind = (row: RequestRow): AgentKind => row.details?.agent ?? "unlabelled";
+export const agentTypeOf = (row: RequestRow): string => row.details?.agentType ?? (row.details?.agent === "main" ? "main" : "unknown");
 
 const DAY_MS = 86_400_000;
 
@@ -73,7 +81,7 @@ function filterKey(filter: RowFilter): string {
   const everySource = sources !== null && ALL_SOURCES.every(source => sources.includes(source));
   return JSON.stringify([
     filter.from ?? null, filter.to ?? null, set(filter.providers), everySource ? null : sources, set(filter.models), set(filter.efforts),
-    set(filter.statuses), set(filter.routeKinds), filter.conversationId || null, filter.search?.toLowerCase().trim() || null, set(filter.projects),
+    set(filter.statuses), set(filter.routeKinds), filter.conversationId || null, filter.search?.toLowerCase().trim() || null, set(filter.projects), set(filter.agents), set(filter.agentTypes),
   ]);
 }
 
@@ -112,6 +120,8 @@ function scanRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
   const statusSet = filter.statuses?.length ? new Set(filter.statuses) : null;
   const routeSet = filter.routeKinds?.length ? new Set(filter.routeKinds) : null;
   const inProject = filter.projects?.length ? projectMatcher(filter.projects) : null;
+  const agentSet = filter.agents?.length ? new Set<string>(filter.agents) : null;
+  const agentTypeSet = filter.agentTypes?.length ? new Set(filter.agentTypes) : null;
   return rows.filter(row => {
     if (filter.from !== undefined && row.ts < filter.from) return false;
     if (filter.to !== undefined && row.ts >= filter.to) return false; // half-open: a row at `to` belongs to the next window
@@ -122,6 +132,8 @@ function scanRows(rows: RequestRow[], filter: RowFilter): RequestRow[] {
     if (routeSet && !routeSet.has(row.routeKind ?? "unrouted")) return false;
     if (filter.conversationId && row.conversationId !== filter.conversationId) return false;
     if (inProject && !inProject(row.cwd)) return false;
+    if (agentSet && !agentSet.has(agentKind(row))) return false;
+    if (agentTypeSet && !agentTypeSet.has(agentTypeOf(row))) return false;
     if (statusSet) {
       const kind = outcome(row);
       if (!statusSet.has(kind)) return false;
@@ -464,6 +476,8 @@ export function groupKey(row: RequestRow, groupBy: string): string {
     case "outcome": return outcome(row);
     case "account": return row.account ?? "unattributed";
     case "serviceTier": return row.serviceTier ?? "default";
+    case "agent": return agentKind(row);
+    case "agentType": return agentTypeOf(row);
     case "none":
     default: return "all";
   }
@@ -1029,6 +1043,15 @@ export interface QuotaView {
   observed: { samples: number; first: number | null; last: number | null };
 }
 
+const QUOTA_CHART_POINTS = 500;
+
+/** Evenly spaced points, first and last kept. Only for the response: burn is measured on every point first. */
+function thinPoints<T>(points: T[]): T[] {
+  if (points.length <= QUOTA_CHART_POINTS) return points;
+  const step = (points.length - 1) / (QUOTA_CHART_POINTS - 1);
+  return Array.from({ length: QUOTA_CHART_POINTS }, (_, index) => points[Math.round(index * step)]!);
+}
+
 /** Groups quota samples into series, optionally trimmed to a time window. `now` dates the exhaustion projection. */
 export function quotaView(dataset: Pick<Dataset, "quota">, selected?: { from?: number; to?: number }, now = Date.now()): QuotaView {
   const from = selected?.from;
@@ -1091,7 +1114,7 @@ export function quotaView(dataset: Pick<Dataset, "quota">, selected?: { from?: n
   const observed = dataset.quota.samples.filter(sample => inWindow(sample.observedAt));
   return {
     windows: dataset.quota.windows,
-    series,
+    series: series.map(entry => ({ ...entry, points: thinPoints(entry.points) })),
     burn,
     updatedAt: dataset.quota.updatedAt,
     window: { from: from ?? null, to: to ?? null },

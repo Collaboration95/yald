@@ -405,5 +405,6 @@ if (import.meta.main) {
     process.chdir(process.env.YALD_CWD);
     delete process.env.YALD_CWD;
   }
-  process.exitCode = await main(process.argv.slice(2));
+  // Exit now: a report never reads the background rollout scan, so it must not wait for it.
+  process.exit(await main(process.argv.slice(2)));
 }

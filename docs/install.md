@@ -55,7 +55,7 @@ bill or proof of savings.
 | `$OCX_HOME/codex-quota-cache.json` | Latest recorded account quota windows and captured sample history |
 | `$OCX_HOME/routing-history.sqlite` | Upstream indexed mirror; Yald does not read it by default |
 | `$CLAUDE_PROJECTS_DIR/**/*.jsonl` | Claude Code transcripts, including nested subagent files |
-| `$CODEX_HOME/sessions/**/rollout-*.jsonl` and `$CODEX_HOME/archived_sessions/rollout-*.jsonl` | First-line Codex session metadata for opencodex project attribution |
+| `$CODEX_HOME/sessions/**/rollout-*.jsonl[.zst]` and `$CODEX_HOME/archived_sessions/rollout-*.jsonl[.zst]` | First-line Codex session metadata for opencodex project attribution, and `rate_limits` from `token_count` records as quota history. Message content in these files is parsed in memory and not kept |
 | `$OCX_HOME/yald-claude-usage.jsonl` | **Yald-owned archive, written locally** from Claude usage metadata |
 | Browser IndexedDB, database `yald` | **Written by the dashboard page**: the last successful API response per view and selection, so a reload shows it at once |
 
@@ -65,8 +65,11 @@ Claude transcripts do not supply measured failures, retries, timing or quota.
 See [source coverage](metrics.md#source-capabilities-and-measurement-coverage).
 
 The Claude archive is append-only, deduplicated on read and has **no automatic
-retention expiry**. It retains normalized usage metadata (including IDs and cwd),
-not prompt/response bodies or session titles. More complete live records can fill gaps in older
+retention expiry**. It retains normalized usage metadata (including IDs, cwd, git
+branch, agent markers and tool names and counts), not prompt/response bodies,
+tool inputs and outputs, or session titles. Records that are not requests (compactions, API errors,
+prompt times, PR links, agent types) go in `yald-claude-events.jsonl` beside it,
+under the same rules. More complete live records can fill gaps in older
 entries. Usage remains after transcripts are deleted or `CLAUDE_PROJECTS_DIR`
 is changed to an empty directory. Source filtering changes the displayed
 population; it neither deletes this archive nor stops ingestion from the

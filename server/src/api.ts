@@ -140,6 +140,8 @@ function parseQuery(query: Record<string, string | undefined>, dataset: Dataset,
     conversationId: query.conversationId,
     search: query.search,
     projects: listParam(query.projects),
+    agents: listParam(query.agents) as RowFilter["agents"],
+    agentTypes: listParam(query.agentTypes),
   };
   return {
     filter, range: query.range ?? "30d", bucket, from: window.from, to: window.to, tz: window.tz, window: windowEcho(window),
