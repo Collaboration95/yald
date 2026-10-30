@@ -20,6 +20,12 @@ choose between the two original windows while retaining the full
 comparison. Both windows remain visible; inspecting prior requests does not
 create an earlier baseline.
 
+Quota pace evidence is one quota window, not a set of requests. It lists the sample
+intervals: times, used percent before and after, the change, and the tokens and cost
+recorded in the interval with the reason it was left out, if any. Where the account is
+joined to requests, an interval opens its requests. Where it is not, those figures read
+unavailable, never zero. Source filters other than `ocx` do not apply.
+
 Rebuild evidence, opened from the Cache savings rebuild ledger, lists the requests
 behind one ledger row or one chain. Each row shows its class, whether the cause is
 reported or inferred, the gap, and the previous request's model and cache counters,

@@ -147,6 +147,13 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
     expect(ce.population.evidence.pricedCostUsd).toBe(cache.totals.actualUsd);
     expect(ce.rows).toHaveLength(50);
     expect(ce.population.original.requests).toBe(147);
+    const pace = await get(base, "/api/labs/quota");
+    const weekly = pace.entries.find((entry: { window: string }) => entry.window === "weekly");
+    expect(weekly).toMatchObject({ state: "current", account: "synthetic-demo-account" });
+    expect(weekly.pace.usedPercent).toBeGreaterThan(0);
+    const intervals = await get(base, apiEvidence(weekly.evidence, "quota-pace"));
+    expect(intervals.observation.investigation).toBe("quota-pace");
+    expect(intervals.rows).toHaveLength(0);
     const context = await get(base, "/api/labs/context");
     const growing = context.sessions.find((s: any) => s.excludedRequests === 2);
     expect(growing.growth).toMatchObject({ ranked: true, baseline: 2000, latest: 7000, absoluteChange: 5000 });

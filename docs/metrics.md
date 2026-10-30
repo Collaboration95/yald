@@ -180,6 +180,44 @@ Calendar buckets use the request's `tz` (default: the configured local timezone)
 
 Range presets are rolling elapsed-time windows ending at the current time, rounded down to the API's 10-second clock quantum (see [request clock](api.md)): `24h` is 24 hours and `7d` is exactly 168 hours, including across daylight-saving changes. Calendar chart buckets do not expand or truncate the selected window. Explicit `from`, `to` and `last` parameters override its boundaries (see the [API reference](api.md#time-windows)). Every window is half-open, `[from, to)`: a request exactly at `to` is counted in the next window, and the prior-period comparison is `[from − span, from)`. Future-dated source rows do not move the default end time.
 
+### Quota pace
+
+Labs' Quota pace reads one account and window at a time. It is account-scoped: nothing
+is split by project, model or session, and a Claude-only selection shows nothing.
+
+- **Window instance.** The period between resets. Samples whose reset times sit within
+  five minutes are one instance, because each sample reports a reset a few seconds
+  apart. Start is the reset minus the window length, taken from the window name.
+- **Used percent.** The highest value so far in the instance, because parallel
+  sessions can report a stale lower value.
+- **Pace.** Even pace at time t is `100 × (t − start) / length`. The delta is used
+  percent minus even pace at the latest sample, in points, with that sample's age.
+  A single opencodex snapshot is enough. After the reset the window is expired, and
+  the last percentage is not presented as current. Even pace is a reference line.
+- **Weekday burn.** The change in used percent per local day, split at local midnight
+  in proportion to time, in instances other than the current one. A day inside a gap
+  over 24 hours is unobserved and left out; a day with samples on both sides and no
+  change is a real zero. A weekday seen in fewer than three instances uses all days
+  pooled.
+- **Forecast range.** Windows of at least a week, with at least three past instances.
+  From the latest sample, each local day to the reset adds the P25, median or P75 burn
+  of its weekday, in proportion to the time left, giving a low, typical and high path.
+  The result is the earliest and latest date on which a path reaches 100%, or "not before
+  reset", with how many of the three paths run out. It is a range of scenarios, not a
+  prediction, and never one date. Days with no samples are left out, so it reads as if
+  the window is used on every remaining day. A plan or limit change invalidates it.
+- **Exchange rate.** For consecutive samples of one account and window, the tokens and
+  list-price cost of that account's requests in `(a, b]`, pooled as tokens over points.
+  Intervals across a reset, where used percent fell, with no change or over a 24-hour
+  gap are excluded and counted. It needs 10 intervals and 5 points. Rollout samples name
+  no account, so no join to requests is established and the rate is unavailable for
+  them. It is an observed ratio, not a conversion rule: usage elsewhere on the account
+  also moves used percent, which makes tokens per point look lower than what a point
+  buys.
+
+Rollouts can blend several accounts under one label. Instances then overlap, and each
+is still read on its own. `otherOpenWindows` counts the others still open.
+
 ### Claude Code quota
 
 Claude Code subscription quota (5-hour and weekly windows) is not shown, and yald never estimates it from transcript tokens or reports a missing window as 0% usage. Anthropic documents `rate_limits.five_hour` and `rate_limits.seven_day` (`used_percentage`, `resets_at`) only in the JSON that Claude Code passes to a custom status-line command on stdin; Claude Code does not persist that payload. The local files checked (`~/.claude/projects` transcripts, `stats-cache.json`, `claude-dashboard.local.json`) contain none of these fields, so there is no existing snapshot to ingest. Reading quota would need a status-line collector that writes the payload to a file, which changes Claude settings and is outside yald's passive, read-only design; it requires a separate decision. If such a snapshot exists later, yald would show its sample time and source, mark a window expired once its reset time passes, and never present the previous window's percentage as current.

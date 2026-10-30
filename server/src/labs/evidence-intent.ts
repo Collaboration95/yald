@@ -18,18 +18,21 @@ export interface CaseSelector {
   };
   selection: { kind: "scope" } | { kind: "project"; project: string }
     | { kind: "session"; source: Source; conversationId: string } | { kind: "unnamed"; source?: Source }
-    | { kind: "chain"; source: Source; conversationId: string; agentId: string };
+    | { kind: "chain"; source: Source; conversationId: string; agentId: string }
+    | { kind: "account"; account: string; window: string };
   eligibility: "all" | "cache" | "context" | "rebuild";
   /** One ledger row. Only with rebuild eligibility; absent means every rebuild class, no starts. */
   cause?: LedgerClass;
 }
 export interface CaseIntent {
-  investigation: "project-radar" | "cache-detective" | "context-replay" | "spend-changes";
+  investigation: "project-radar" | "cache-detective" | "context-replay" | "spend-changes" | "quota-pace";
   selector: CaseSelector;
   priorSelector?: CaseSelector;
   period: "current" | "prior";
   offset: number;
   limit: number;
+  /** Quota pace only: lists this interval's requests instead of the intervals. */
+  interval?: number;
 }
 
 export class EvidenceIntentError extends Error {
@@ -90,38 +93,42 @@ function decode(raw: string | null, param: string): CaseSelector {
     conversationId: c.conversationId === null ? null : text(c.conversationId, "conversationId"),
     search: text(c.search, "search", true),
   };
-  const s = object(value.selection, `${param}.selection`, ["kind", "project", "source", "conversationId", "agentId"]);
-  const kind = enumeration(s.kind, ["scope", "project", "session", "unnamed", "chain"] as const, "selection");
+  const s = object(value.selection, `${param}.selection`, ["kind", "project", "source", "conversationId", "agentId", "account", "window"]);
+  const kind = enumeration(s.kind, ["scope", "project", "session", "unnamed", "chain", "account"] as const, "selection");
   const allowed = kind === "scope" ? ["kind"] : kind === "project" ? ["kind", "project"]
     : kind === "session" ? ["kind", "source", "conversationId"]
-    : kind === "chain" ? ["kind", "source", "conversationId", "agentId"] : ["kind", "source"];
+    : kind === "chain" ? ["kind", "source", "conversationId", "agentId"]
+    : kind === "account" ? ["kind", "account", "window"] : ["kind", "source"];
   object(s, "selection", allowed);
   const selection: CaseSelector["selection"] = kind === "scope" ? { kind }
     : kind === "project" ? { kind, project: text(s.project, "project") }
     : kind === "session" ? { kind, source: enumeration(s.source, sources, "session source"), conversationId: text(s.conversationId, "session ID") }
     : kind === "chain" ? { kind, source: enumeration(s.source, sources, "chain source"), conversationId: text(s.conversationId, "session ID"), agentId: text(s.agentId, "agent ID") }
+    : kind === "account" ? { kind, account: text(s.account, "account"), window: text(s.window, "quota window") }
     : { kind, ...(s.source === undefined ? {} : { source: enumeration(s.source, sources, "unnamed source") }) };
   const eligibility = enumeration(value.eligibility, ["all", "cache", "context", "rebuild"] as const, "eligibility");
   if (value.cause !== undefined && eligibility !== "rebuild") fail("cause", "Only rebuild evidence can select a cause. Open the finding again.");
   if (selection.kind === "chain" && eligibility !== "rebuild") fail("selection", "Only rebuild evidence can select a chain. Open the finding again.");
   return { version: 1, window, cohort, selection, eligibility, ...(value.cause === undefined ? {} : { cause: enumeration(value.cause, LEDGER_CLASSES, "cause") }) };
 }
-export const CASE_QUERY_KEYS = ["investigation", "selector", "priorSelector", "period", "offset", "limit", "selectorVersion"] as const;
+export const CASE_QUERY_KEYS = ["investigation", "selector", "priorSelector", "period", "offset", "limit", "interval", "selectorVersion"] as const;
 
 /** Read only authoritative case fields. Global toolbar fields and readable mirrors cannot move a case. */
 export function parseCaseIntent(params: URLSearchParams): CaseIntent {
   for (const key of CASE_QUERY_KEYS) if (params.getAll(key).length > 1) fail(key, `The case link repeats ${key}. Open the finding again.`);
   if (params.has("selectorVersion") && params.get("selectorVersion") !== "1") fail("selectorVersion", "This case link uses an unsupported selector version.");
-  const investigation = enumeration(params.get("investigation"), ["project-radar", "cache-detective", "context-replay", "spend-changes"] as const, "investigation");
+  const investigation = enumeration(params.get("investigation"), ["project-radar", "cache-detective", "context-replay", "spend-changes", "quota-pace"] as const, "investigation");
   const selector = decode(params.get("selector"), "selector");
   const eligibilities: CaseSelector["eligibility"][] = investigation === "cache-detective" ? ["cache", "rebuild"] : ["all"];
   if (!eligibilities.includes(selector.eligibility)) fail("eligibility", `This investigation requires ${eligibilities[0]} evidence eligibility. Open the finding again.`);
   const allowedSelections = investigation === "project-radar" ? ["scope", "project"]
     : investigation === "spend-changes" ? ["scope", "project", "session"]
-    : investigation === "cache-detective" ? ["scope", "session", "unnamed", "chain"] : ["scope", "session", "unnamed"];
+    : investigation === "cache-detective" ? ["scope", "session", "unnamed", "chain"]
+    : investigation === "quota-pace" ? ["account"] : ["scope", "session", "unnamed"];
   if (!allowedSelections.includes(selector.selection.kind)) {
     fail("selection", "This selection is unsupported for the investigation. Open the finding again.");
   }
+  if (investigation === "quota-pace" && !selector.cohort.sources.includes("ocx")) fail("sources", "Quota is an opencodex account observation. Open the finding again.");
   const period = enumeration(params.get("period") ?? "current", ["current", "prior"] as const, "period");
   let priorSelector: CaseSelector | undefined;
   if (investigation === "project-radar") {
@@ -151,8 +158,10 @@ export function parseCaseIntent(params: URLSearchParams): CaseIntent {
     if (!Number.isSafeInteger(result) || result > max || (key === "limit" && result === 0)) fail(key, `The case ${key} is outside its supported range${key === "limit" ? " (1–200)" : ""}.`);
     return result;
   };
+  if (params.has("interval") && investigation !== "quota-pace") fail("interval", "Only quota pace lists an interval.");
   return { investigation, selector, ...(priorSelector ? { priorSelector } : {}), period,
-    offset: integer("offset", 0, Number.MAX_SAFE_INTEGER), limit: integer("limit", 100, 200) };
+    offset: integer("offset", 0, Number.MAX_SAFE_INTEGER), limit: integer("limit", 100, 200),
+    ...(params.has("interval") ? { interval: integer("interval", 0, Number.MAX_SAFE_INTEGER) } : {}) };
 }
 
 /** Complete validated intent + page; excludes mutable toolbar mirrors and arbitrary display prose. */
@@ -160,5 +169,6 @@ export function caseQuery(intent: CaseIntent): string {
   const params = new URLSearchParams({ investigation: intent.investigation, selector: JSON.stringify(intent.selector),
     period: intent.period, offset: String(intent.offset), limit: String(intent.limit) });
   if (intent.priorSelector) params.set("priorSelector", JSON.stringify(intent.priorSelector));
+  if (intent.interval !== undefined) params.set("interval", String(intent.interval));
   return params.toString();
 }

@@ -1,6 +1,6 @@
 import { filterRows, measurementCoverage, projectCoverage, type RowFilter } from "../analytics";
 import type { ClaudeEvent } from "../claude/transcripts";
-import type { RequestRow } from "../ocx/store";
+import type { Dataset, RequestRow } from "../ocx/store";
 import { createProjectIdentity } from "../projects";
 import { publicRow } from "../publicRow";
 import { contextEligible, sourceOf } from "../report/source";
@@ -9,8 +9,9 @@ import { buildCacheRebuilds, ledgerExclusion, ledgerIndex } from "./cache-rebuil
 import { buildContextReplay, contextExclusionReason } from "./context";
 import { buildProjectRadar } from "./projects";
 import { analysisScope, evidenceFor, orderedRequests, sessionKey } from "./scope";
+import { quotaCase } from "./quota";
 import { SPEND_RULE, spendCaseObservation } from "./spend";
-import type { CaseIntent, CaseSelector } from "./evidence-intent";
+import { EvidenceIntentError, type CaseIntent, type CaseSelector } from "./evidence-intent";
 
 export function caseFilter(selector: CaseSelector): RowFilter {
   return { ...selector.cohort, conversationId: selector.cohort.conversationId ?? undefined,
@@ -26,7 +27,8 @@ export function selectCaseRows(datasetRows: RequestRow[], selector: CaseSelector
     || (selection.kind === "project" && identity(row.cwd).project === selection.project)
     || (selection.kind === "session" && sourceOf(row) === selection.source && row.conversationId === selection.conversationId)
     || (selection.kind === "unnamed" && row.conversationId === null && (!selection.source || sourceOf(row) === selection.source))
-    || (selection.kind === "chain" && sourceOf(row) === selection.source && row.conversationId === selection.conversationId && (row.details?.agentId ?? "main") === selection.agentId)));
+    || (selection.kind === "chain" && sourceOf(row) === selection.source && row.conversationId === selection.conversationId && (row.details?.agentId ?? "main") === selection.agentId)
+    || (selection.kind === "account" && row.account === selection.account)));
 }
 
 function rowTotals(rows: RequestRow[], pricedCostUsd?: number) {
@@ -149,10 +151,27 @@ function spendObservation(datasetRows: RequestRow[], intent: CaseIntent) {
   };
 }
 
+function quotaObservation(data: ReturnType<typeof quotaCase>, intent: CaseIntent) {
+  const usable = data.intervals.filter(interval => !interval.exclusion).length;
+  const page = data.intervals.slice(intent.offset, intent.offset + intent.limit).map(({ firstRequest: _first, lastRequest: _last, ...interval }, index) => ({ ...interval, index: intent.offset + index }));
+  const total = data.intervals.length;
+  return {
+    investigation: "quota-pace" as const, state: !data.present ? "empty" as const : total ? "observed" as const : "insufficient" as const, joined: data.joined, samples: data.samples, sources: data.sources,
+    intervals: page, intervalPage: { offset: intent.offset, limit: intent.limit, returned: page.length, total, nextOffset: intent.offset + page.length < total ? intent.offset + page.length : null },
+    summary: `${data.samples} samples and ${total} intervals in this window; ${usable} with a positive change.${data.joined ? "" : " These samples are not joined to requests, so request figures are unavailable."}`,
+    notes: ["Quota is an account observation, never split by project, model or session.", "Used percent here is what each sample reported, including stale values from parallel sessions.", "Source filters other than ocx do not apply."],
+  };
+}
+
 /** Bounded public metadata plus full-population metrics from the accepted investigation builders. */
-export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent, claudeEvents: readonly ClaudeEvent[] = []) {
+export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent, claudeEvents: readonly ClaudeEvent[] = [], quota?: { quota: Dataset["quota"]; now: number }) {
   const selectedSelector = intent.period === "prior" ? intent.priorSelector! : intent.selector;
   const selected = selectCaseRows(datasetRows, selectedSelector);
+  const selection = selectedSelector.selection;
+  const quotaData = selection.kind === "account" ? quotaCase(quota?.quota ?? { windows: [], samples: [], updatedAt: null }, datasetRows, selection, selectedSelector.window.to, quota?.now ?? Date.now()) : null;
+  const expanded = quotaData && intent.interval !== undefined ? quotaData.intervals[intent.interval] : undefined;
+  if (quotaData && intent.interval !== undefined && !expanded) throw new EvidenceIntentError("interval", "This interval is not in the window. Open the finding again.");
+  const expandedRows = expanded ? new Set(quotaData!.requestRows.slice(expanded.firstRequest, expanded.lastRequest)) : null;
   const rebuild = selectedSelector.eligibility === "rebuild" ? ledgerIndex(datasetRows, claudeEvents).entries : null;
   const inLedger = (row: RequestRow) => {
     const entry = rebuild!.get(row);
@@ -161,7 +180,7 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent,
   const eligible = (row: RequestRow) => rebuild ? ledgerExclusion(row) === null
     : intent.investigation === "cache-detective" ? cacheEligibility(row).eligible
     : intent.investigation === "context-replay" ? contextEligible(row) : true;
-  const selectedEvidence = selected.filter(row => rebuild ? inLedger(row)
+  const selectedEvidence = selected.filter(row => quotaData ? Boolean(expandedRows?.has(row)) : rebuild ? inLedger(row)
     : selectedSelector.eligibility === "cache" ? cacheEligibility(row).eligible
     : selectedSelector.eligibility === "context" ? contextEligible(row) : true);
   const exclusions = new Map<string, number>();
@@ -175,7 +194,8 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent,
   const ordinals = new Map(selected.map((row, ordinal) => [row, ordinal]));
   const originalOrdinals = new Map(datasetRows.map((row, ordinal) => [row, ordinal]));
   const identity = createProjectIdentity();
-  const observation = intent.investigation === "project-radar" ? radarObservation(datasetRows, intent)
+  const observation = quotaData ? quotaObservation(quotaData, intent)
+    : intent.investigation === "project-radar" ? radarObservation(datasetRows, intent)
     : intent.investigation === "spend-changes" ? spendObservation(datasetRows, intent)
     : rebuild ? rebuildObservation(datasetRows, selected, selectedSelector, claudeEvents)
     : intent.investigation === "cache-detective" ? cacheObservation(datasetRows, selected, selectedSelector)
@@ -204,7 +224,9 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent,
       rewrittenTokens: entry.rewrittenTokens, premiumUsd: entry.premiumUsd === null ? null : round6(entry.premiumUsd), borrowedRate: entry.borrowedRate,
       previous: previous ? { id: previous.id, model: previous.model, cacheReadTokens: previous.cacheReadTokens, cacheWriteTokens: previous.cacheWriteTokens } : null } };
   };
-  const rows = selectedEvidence.slice(intent.offset, intent.offset + intent.limit).map(row => {
+  // Without an expanded interval the offset pages the intervals, in the observation.
+  const rowOffset = quotaData && !expanded ? 0 : intent.offset;
+  const rows = selectedEvidence.slice(rowOffset, rowOffset + intent.limit).map(row => {
     const originalOrdinal = originalOrdinals.get(row)!;
     return {
       ...publicRow(row), ordinal: ordinals.get(row)!, originalOrdinal,
@@ -223,8 +245,8 @@ export function buildEvidenceCase(datasetRows: RequestRow[], intent: CaseIntent,
   return {
     ok: true as const, version: 1 as const, intent, scope: analysisScope(caseFilter(selectedSelector), selectedSelector.window),
     population, observation, rows,
-    page: { offset: intent.offset, limit: intent.limit, returned: rows.length, total: selectedEvidence.length,
-      nextOffset: intent.offset + rows.length < selectedEvidence.length ? intent.offset + rows.length : null },
+    page: { offset: rowOffset, limit: intent.limit, returned: rows.length, total: selectedEvidence.length,
+      nextOffset: rowOffset + rows.length < selectedEvidence.length ? rowOffset + rows.length : null },
   };
 }
 

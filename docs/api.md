@@ -157,7 +157,8 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/conversations/:id` | Shared; `sessionSource` | Source-qualified session summary, timeline, models, requests, [`anatomy`](metrics.md#session-anatomy) (chains with capped request ticks and context points, recorded compactions, stats) and scope/exclusion counts; no window parameters retains all history; 404 when missing, 409 when ambiguous |
 | `GET /api/scope` | Shared | Resolved `window`, `matched` and `windowTotal` request/token tallies, per-source tallies excluding only the source selection, optional project `coverage`, account scope |
 | `GET /api/labs/cache` | Shared; `limit` (default 100, capped at 1000) | Net cache economics for the selected scope, source-qualified sessions, unnamed rows, eligibility/exclusion counts and fixed evidence selectors; see below |
-| `GET /api/labs/evidence` | Fixed JSON `selector`, `investigation`, optional paired `priorSelector`/`period`, bounded `offset`/`limit` | Descriptive case, full-population totals and source-qualified request metadata; independent of toolbar mirrors |
+| `GET /api/labs/quota` | `sources`, `tz`; the window and request filters do not apply | Pace, forecast range and exchange rate per account and window; see below |
+| `GET /api/labs/evidence` | Fixed JSON `selector`, `investigation`, optional paired `priorSelector`/`period`, bounded `offset`/`limit`, optional `interval` for quota cases | Descriptive case, full-population totals and source-qualified request metadata; independent of toolbar mirrors |
 | `GET /api/projects` | Shared | Working directories in the window, each rolled up to its nearest git root: `projects: [{ project, gitRoot, folders, requests, tokens, cost, firstSeen, lastSeen }]`, largest first, ending with an `(unattributed)` row (always present) that also carries `reasons`, the same breakdown as `coverage.attribution.unattributed.reasons`. With `projects`, only matching folders are listed, plus `(unattributed)` and `coverage` |
 | `GET /api/export` | Shared; `dataset` (`requests`, `models`, `conversations`) | CSV attachment for the filtered rows, named for the local window, e.g. `yald-requests-2026-10-11T0900+0800--2026-10-11T1700+0800.csv` |
 | `GET /api/filters` | Shared | Window, and the available providers, models, efforts, and route kinds for the selected time/search filter |
@@ -496,6 +497,26 @@ are no Anthropic rows, `insufficient` below `minChains` eligible chains, else `o
 | `notes` | The basis and limits of these figures |
 `/api/conversations/:id` is not a substitute for case evidence.
 
+### `GET /api/labs/quota` — quota pace
+
+Returns `{ok,analysis:"quota-pace",version:1,entries,minimums,notes,scope}`. `scope`
+is the account scope with its `ignored` filters; a Claude-only selection has no
+entries. See [Quota pace](metrics.md#quota-pace) for the rules.
+
+| Entry field | Meaning |
+| --- | --- |
+| `account`, `window`, `lengthMs`, `sources` | The account label, window name, length and sample sources. `lengthMs` is null for an unknown name |
+| `state` | `current`, `expired`, `no-reset` or `unknown-length` |
+| `sampleCount`, `samplesWithoutReset`, `instanceCount` | History size. Samples without a reset belong to no instance |
+| `instance` | `startMs`, `resetAtMs`, `samples`, `sources` of the latest instance |
+| `age` | `sampleAt`, `ageMs`, and `fresh` within 24 hours |
+| `pace` | `usedPercent`, `evenPercent`, `deltaPoints`, `daysToReset`. Null unless `current` |
+| `otherOpenWindows` | Other unexpired instances under this label |
+| `forecast` | `state` (`range`, `insufficient`, `not-applicable`), `weekdays`, `history`, per-path `paths` dates, `runsOutIn`, and `earliestAt`/`latestAt`. `latestAt` is null unless all three paths run out |
+| `chart` | Even grid of `ts`, `used`, `even`, `low`, `typical`, `high` over the instance |
+| `exchange` | `state`, `reason` (`no-account-join`, `too-few-intervals`), interval and exclusion counts, and when available `tokensPerPoint`, `costPerPoint`, `spread`, `mix`, `ratios` |
+| `evidence` | Fixed `{selector,href}` for the instance |
+
 ### `GET /api/labs/evidence` — fixed case evidence
 
 The sibling `/labs/evidence` page is inside the existing Labs preference gate.
@@ -543,7 +564,17 @@ totals for the fixed window and cohort, its priced subtotals are plain priced-ro
 sums, and each row adds `rebuild` with `class`, `label`, `signals`, `reason`, `gapMs`,
 `agentId`, `rewrittenTokens`, `premiumUsd`, `borrowedRate` and the previous request's
 `id`, `model`, `cacheReadTokens` and `cacheWriteTokens`. A `cause` or a `chain` outside
-rebuild eligibility is a 400. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
+rebuild eligibility is a 400.
+
+A `quota-pace` case takes the selection `{kind:"account",account,window}`, must include
+source `ocx`, and has the instance `[start, reset)` as its window. Other cohort fields
+do not apply. It lists sample intervals, not requests: `observation.intervals` holds
+`index`, `fromTs`, `toTs`, `usedBefore`, `usedAfter`, `change`, `requests`, `tokens`,
+`costUsd` and `exclusion` (`reset`, `fell`, `no-change`, `gap`, or null), paged by
+`offset`/`limit` in `observation.intervalPage`. Request figures are null when the account
+is not joined. `interval=<index>` returns that interval's requests in `rows` instead,
+paged by `page`. An index outside the window is a 400, and so is `interval` on any other
+investigation. For Cache, `population.evidence.pricedCostUsd` is the accepted builder's
 `actualUsd`: exact eligible pricing amounts accumulated in original dataset order,
 then rounded once to six decimal USD places with ties away from zero.
 `population.original.pricedCostUsd` independently sums all selected priced row

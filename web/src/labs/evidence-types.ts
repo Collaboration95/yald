@@ -2,8 +2,16 @@ import type { CaseIntent } from "../../../server/src/labs/evidence-intent";
 import type { CacheEconomicsTotals, CacheRebuildCoverage, CacheRebuildTotals, LedgerRow, SpendDay, SpendDecomposition, SpendRule, ContextSession, MeasurementCoverage, ProjectCoverage, ProjectRadarResponse, RadarCohort, RadarPeriod, RadarWindow, RequestRow } from "../types";
 import type { ContextCounts } from "./context-types";
 
+export interface QuotaInterval {
+  index: number; fromTs: number; toTs: number; resetAtMs: number; usedBefore: number; usedAfter: number; change: number;
+  exclusion: "reset" | "fell" | "no-change" | "gap" | null;
+  requests: number | null; tokens: number | null; costUsd: number | null;
+  mix: { freshInput: number; cacheRead: number; output: number } | null;
+}
 type Finding = { state: "empty" | "insufficient" | "observed"; summary: string; notes: string[] };
 export type CaseObservation =
+  | (Finding & { investigation: "quota-pace"; joined: boolean; samples: number; sources: string[]; intervals: QuotaInterval[];
+    intervalPage: { offset: number; limit: number; returned: number; total: number; nextOffset: number | null } })
   | (Finding & { investigation: "spend-changes"; rule: SpendRule; day: SpendDay;
     decomposition: SpendDecomposition | null; baselineDays: { date: string; pricedCostUsd: number; pricedRequests: number; requests: number }[] })
   | (Finding & { investigation: "project-radar"; current: RadarPeriod; prior: RadarPeriod;

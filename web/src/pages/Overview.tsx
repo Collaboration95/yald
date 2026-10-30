@@ -4,6 +4,7 @@ import { Activity, CircleDollarSign, Flame, Gauge, Layers, Timer, Zap } from "lu
 import { conversationLink, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
+import { usePreferences } from "../lib/preferences";
 import { Badge, Card, CardHeader, InfoTip, MiniSpark, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { stackedAreaChart } from "../components/chartOptions";
@@ -14,6 +15,7 @@ import { displayNow } from "../lib/demo";
 const STALE_QUOTA_MS = 24 * 3_600_000;
 
 export function OverviewPage() {
+  const { labsEnabled } = usePreferences();
   const { filters, set } = useFilters();
   const { chartTheme } = useTheme();
   const { search } = useLocation();
@@ -168,6 +170,7 @@ export function OverviewPage() {
               <CardHeader
                 title={<span className="inline-flex items-center gap-1.5">Plan usage
                   <InfoTip label="About plan usage">An account-wide reading from opencodex, or from Codex rollouts where marked. It is not one project's own usage, so filters do not narrow it.</InfoTip></span>}
+                action={labsEnabled ? <Link to="/labs/quota-pace" className="text-[11px] font-medium text-accent">Pace</Link> : undefined}
               />
               <ul className="space-y-3">
                 {quotaWindows.map(window => {

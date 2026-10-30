@@ -3,19 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { caseQuery, parseCaseIntent, type CaseIntent, type CaseSelector } from "../../../../server/src/labs/evidence-intent";
 import { ApiError, fetchJson, sourceLabel } from "../../api";
-import type { EvidenceCaseResponse } from "../../labs/evidence-types";
+import type { EvidenceCaseResponse, QuotaInterval } from "../../labs/evidence-types";
 import { InfoTip, ModelTag, TableShell, Td, Th } from "../../components/ui";
-import { formatCompact, formatDuration, formatInteger, formatUsd, shortPath } from "../../lib/format";
+import { formatCompact, formatDuration, formatInteger, formatNumber, formatUsd, quotaLabel, shortPath } from "../../lib/format";
 import { LEDGER_NAMES } from "./CacheRebuilds";
 import { InvestigationState } from "./InvestigationState";
 
 const TABS = { "project-radar": { label: "Projects", path: "project-radar" }, "cache-detective": { label: "Cache savings", path: "cache-detective" },
-  "context-replay": { label: "Context growth", path: "context-replay" }, "spend-changes": { label: "Spikes", path: "spend-spikes" } } as const;
+  "context-replay": { label: "Context growth", path: "context-replay" }, "spend-changes": { label: "Spikes", path: "spend-spikes" }, "quota-pace": { label: "Quota pace", path: "quota-pace" } } as const;
 const control = "rounded-lg border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink disabled:opacity-40";
 const clock = (ts: number, tz: string) => new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(ts);
 
 function selectionText({ selection, eligibility, cause }: CaseSelector) {
   if (eligibility === "rebuild" && selection.kind === "scope") return cause ? LEDGER_NAMES[cause] : "All cache rebuilds";
+  if (selection.kind === "account") return `${quotaLabel(selection.window)} · ${selection.account === "codex-rollouts" ? "Codex sessions" : selection.account}`;
   return selection.kind === "scope" ? "All matching requests" : selection.kind === "project" ? shortPath(selection.project)
     : selection.kind === "chain" ? `Session ${selection.conversationId.slice(0, 6)} · ${selection.agentId === "main" ? "main agent" : "subagent"} · cache rebuilds`
     : selection.kind === "session" ? `Session ${selection.conversationId.slice(0, 6)} · ${sourceLabel(selection.source)}`
@@ -46,6 +47,23 @@ function EvidenceCaseQuery({ intent }: { intent: CaseIntent }) {
     detail={result.error instanceof ApiError && result.error.status === 400 ? result.error.message : "The requests could not be loaded. Try again."}
     onRetry={() => void result.refetch()} />;
   return <EvidenceCaseView data={result.data} />;
+}
+
+const EXCLUSIONS: Record<NonNullable<QuotaInterval["exclusion"]>, string> = { reset: "reset", fell: "used percent fell", "no-change": "no change", gap: "gap over 24 hours" };
+
+/** A quota case lists sample intervals, not requests. An interval with requests opens them. */
+function QuotaIntervals({ intervals, tz, open }: { intervals: QuotaInterval[]; tz: string; open: (index: number) => void }) {
+  return <TableShell>
+    <thead><tr><Th>From</Th><Th>To</Th><Th align="right">Before</Th><Th align="right">After</Th><Th align="right">Change</Th><Th align="right">Requests</Th><Th align="right">Tokens</Th><Th align="right">Cost</Th><Th>Left out</Th></tr></thead>
+    <tbody>{intervals.map(interval => <tr key={interval.index} className={interval.exclusion ? "opacity-60" : undefined}>
+      <Td className="whitespace-nowrap text-muted">{clock(interval.fromTs, tz)}</Td><Td className="whitespace-nowrap text-muted">{clock(interval.toTs, tz)}</Td>
+      <Td align="right">{formatNumber(interval.usedBefore)}%</Td><Td align="right">{formatNumber(interval.usedAfter)}%</Td><Td align="right">{formatNumber(interval.change)}</Td>
+      <Td align="right">{interval.requests ? <button type="button" className="text-accent" onClick={() => open(interval.index)}>{formatInteger(interval.requests)}</button> : interval.requests === null ? "unavailable" : "0"}</Td>
+      <Td align="right">{interval.tokens === null ? "unavailable" : formatCompact(interval.tokens)}</Td>
+      <Td align="right">{interval.costUsd === null ? "unavailable" : formatUsd(interval.costUsd)}</Td>
+      <Td>{interval.exclusion ? EXCLUSIONS[interval.exclusion] : ""}</Td>
+    </tr>)}</tbody>
+  </TableShell>;
 }
 
 /** Each row shows what the class was read from, so it can be checked by eye. */
@@ -81,11 +99,16 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
   const { intent, observation, population, page } = data;
   const tab = TABS[intent.investigation];
   const tz = data.scope.window.tz;
-  const change = (patch: { offset?: number; period?: "current" | "prior" }) => setParams(current => {
+  const change = (patch: { offset?: number; period?: "current" | "prior"; interval?: number | null }) => setParams(current => {
     const next = new URLSearchParams(current);
-    for (const [key, value] of Object.entries(patch)) next.set(key, String(value));
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) next.delete(key);
+      else next.set(key, String(value));
+    }
     return next;
   });
+  const intervals = observation.investigation === "quota-pace" && intent.interval === undefined ? observation : null;
+  const shown = intervals ? intervals.intervalPage : page;
   const info = <>
     <span className="block">{observation.summary}</span>
     <span className="mt-1 block">Window: {new Date(data.scope.window.from).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz })} to {new Date(data.scope.window.to).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz })} ({tz}). {formatInteger(population.eligibleRequests)} of {formatInteger(population.original.requests)} requests were usable for the comparison; {formatInteger(population.excludedRequests)} are left out of it but still listed.</span>
@@ -118,7 +141,10 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
           </tr>)}</tbody>
         </TableShell>
       </div> : null}
-      {intent.selector.eligibility === "rebuild" && data.rows.length ? <RebuildRows rows={data.rows} tz={tz} /> : data.rows.length ? <TableShell>
+      {intent.interval !== undefined ? <button type="button" className={control} onClick={() => change({ interval: null, offset: 0 })}>Back to intervals</button> : null}
+      {intervals ? (intervals.intervals.length ? <QuotaIntervals intervals={intervals.intervals} tz={tz} open={index => change({ interval: index, offset: 0 })} />
+        : <InvestigationState kind="empty" title="No intervals here" detail="A window needs two samples to have an interval." />)
+        : intent.selector.eligibility === "rebuild" && data.rows.length ? <RebuildRows rows={data.rows} tz={tz} /> : data.rows.length ? <TableShell>
         <thead>
           <tr><Th>Time</Th><Th>Model</Th><Th>Project</Th><Th align="right">Tokens</Th><Th align="right">Cost</Th></tr>
         </thead>
@@ -133,9 +159,9 @@ export function EvidenceCaseView({ data }: { data: EvidenceCaseResponse }) {
         </tbody>
       </TableShell> : <InvestigationState kind="empty" title={page.total ? "No requests on this page" : "No requests"} detail={page.total ? "Go back a page." : "This finding has no requests to list."} />}
       <nav className="flex flex-wrap items-center gap-2" aria-label="Pages">
-        <button className={control} type="button" disabled={page.offset === 0} onClick={() => change({ offset: Math.max(0, page.offset - page.limit) })}>Previous</button>
-        <button className={control} type="button" disabled={page.nextOffset === null} onClick={() => change({ offset: page.nextOffset! })}>Next</button>
-        <span className="text-[11.5px] text-muted" role="status" data-evidence-page>{page.returned ? `${page.offset + 1}–${page.offset + page.returned}` : "0"} of {formatInteger(page.total)} requests</span>
+        <button className={control} type="button" disabled={shown.offset === 0} onClick={() => change({ offset: Math.max(0, shown.offset - shown.limit) })}>Previous</button>
+        <button className={control} type="button" disabled={shown.nextOffset === null} onClick={() => change({ offset: shown.nextOffset! })}>Next</button>
+        <span className="text-[11.5px] text-muted" role="status" data-evidence-page>{shown.returned ? `${shown.offset + 1}–${shown.offset + shown.returned}` : "0"} of {formatInteger(shown.total)} {intervals ? "intervals" : "requests"}</span>
       </nav>
     </section>
   </div>;

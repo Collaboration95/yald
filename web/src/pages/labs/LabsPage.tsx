@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useEndpoint } from "../../api";
-import { formatInteger, formatRatio, formatShortDate, formatUsd, formatUsdDelta } from "../../lib/format";
-import type { CacheEconomicsResponse, ContextResponse, ProjectRadarResponse, SpendChangesResponse } from "../../types";
+import { formatInteger, formatNumber, formatRatio, formatShortDate, formatUsd, formatUsdDelta } from "../../lib/format";
+import type { CacheEconomicsResponse, ContextResponse, ProjectRadarResponse, QuotaPaceResponse, SpendChangesResponse } from "../../types";
 import { LABS_INVESTIGATIONS } from "./investigations";
 import { InvestigationState } from "./InvestigationState";
 import { projectLabel, projectMover } from "./ProjectRadar";
@@ -66,12 +66,24 @@ function GrowthCard() {
     detail={growth && growth.ranked > 0 ? `${formatInteger(growth.ranked)} sessions measured.` : undefined} />;
 }
 
+function QuotaCard() {
+  const filters = useLabsFilters();
+  const query = useEndpoint<QuotaPaceResponse>("/api/labs/quota", filters, {}, { keepPrevious: false, persist: false });
+  const entry = query.data?.entries.find(candidate => candidate.state === "current" && candidate.age?.fresh);
+  const delta = entry?.pace?.deltaPoints ?? 0;
+  return <CaseCard path="quota-pace" title="Quota pace" loading={query.isLoading} error={query.isError}
+    big={entry?.pace ? `${formatInteger(entry.pace.usedPercent)}%` : undefined}
+    headline={entry ? (Math.abs(delta) < 0.5 ? "On an even pace" : `${formatInteger(Math.abs(delta))} points ${delta > 0 ? "ahead of" : "behind"} an even pace`) : "No recent quota sample"}
+    detail={entry?.pace ? `${formatNumber(entry.pace.daysToReset)} days to reset.` : undefined} />;
+}
+
 export function LabsPage() {
   return <section aria-label="Investigations" className="grid gap-3 sm:grid-cols-2">
     <SpikesCard />
     <ProjectsCard />
     <CacheCard />
     <GrowthCard />
+    <QuotaCard />
   </section>;
 }
 

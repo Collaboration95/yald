@@ -55,6 +55,7 @@ import { spendStructure } from "./spendStructure";
 import { subagentBreakdown } from "./subagents";
 import { turnStructure } from "./turns";
 import { workingStyle } from "./workingStyle";
+import { buildQuotaPace } from "./labs/quota";
 import { buildCacheEconomics } from "./labs/cache";
 import { buildCacheRebuilds } from "./labs/cache-rebuild";
 import { pricingGeneration, pricingStatus } from "./ocx/pricing";
@@ -417,7 +418,7 @@ function metaPayload(dataset: Dataset): Record<string, unknown> {
 api.get("/api/labs/evidence", c => {
   const intent = parseCaseIntent(new URL(c.req.url).searchParams);
   const dataset = c.get("dataset");
-  const payload = buildEvidenceCase(dataset.rows, intent, dataset.claudeEvents);
+  const payload = buildEvidenceCase(dataset.rows, intent, dataset.claudeEvents, { quota: dataset.quota, now: c.get("now") });
   // Derived roots can change without a ledger revision. Validate and resolve before any 304.
   const etag = `W/"${createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24)}"`;
   c.header("ETag", etag);
@@ -908,6 +909,14 @@ api.get("/api/labs/cache", async c => {
     ...buildCacheEconomics(dataset.rows, query.filter, query.window, { limit: numberParam(c.req.query("limit")) }),
     rebuilds: buildCacheRebuilds(dataset.rows, query.filter, query.window, dataset.claudeEvents ?? []),
   });
+});
+
+// Account-wide, so the toolbar window and request filters do not apply; `scope.ignored` declares them.
+api.get("/api/labs/quota", async c => {
+  const dataset = c.get("dataset");
+  const scope = accountScope(c.req.query());
+  const tz = c.req.query("tz") || parseQuery(c.req.query(), dataset, c.get("now")).window.tz;
+  return c.json({ ...buildQuotaPace(scope.available ? dataset.quota : EMPTY_QUOTA, dataset.rows, { now: c.get("now"), tz }), scope });
 });
 
 api.get("/api/projects", async c => {
