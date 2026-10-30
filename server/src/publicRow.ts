@@ -42,5 +42,6 @@ export function publicRow(row: RequestRow) {
     attempts: row.attempts,
     account: row.account,
     codexSession: row.codexSession ?? null,
+    details: row.details,
   };
 }

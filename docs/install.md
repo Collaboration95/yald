@@ -65,8 +65,11 @@ Claude transcripts do not supply measured failures, retries, timing or quota.
 See [source coverage](metrics.md#source-capabilities-and-measurement-coverage).
 
 The Claude archive is append-only, deduplicated on read and has **no automatic
-retention expiry**. It retains normalized usage metadata (including IDs and cwd),
-not prompt/response bodies. More complete live records can fill gaps in older
+retention expiry**. It retains normalized usage metadata (including IDs, cwd, git
+branch, agent markers and tool names and counts), not prompt/response bodies or
+tool inputs and outputs. Records that are not requests (compactions, API errors,
+prompt times, PR links, agent types) go in `yald-claude-events.jsonl` beside it,
+under the same rules. More complete live records can fill gaps in older
 entries. Usage remains after transcripts are deleted or `CLAUDE_PROJECTS_DIR`
 is changed to an empty directory. Source filtering changes the displayed
 population; it neither deletes this archive nor stops ingestion from the
