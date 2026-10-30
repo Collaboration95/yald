@@ -61,11 +61,11 @@ async function checkApis(base, mode) {
   const meta = await json(base, "/api/meta"), overview = await json(base, "/api/overview");
   assert.equal(meta.demo.synthetic, true);
   assert.equal(meta.demo.clock, mode);
-  assert.equal(meta.totals.requests, 83);
+  assert.equal(meta.totals.requests, 175);
   assert.deepEqual(meta.sources, ["claude-code", "ocx"]);
   assert.match(meta.pricing.detail, /illustrative/);
   assert.ok(meta.pricing.modulePath.startsWith(dirname(meta.ocxHome)));
-  assert.equal(overview.summary.requests, 42);
+  assert.equal(overview.summary.requests, 134);
   assert.equal(overview.prior.requests, 40);
   assert.equal(overview.summary.unobserved, 7);
   assert.equal(overview.window.to - overview.window.from, 30 * 86400000);
@@ -74,7 +74,7 @@ async function checkApis(base, mode) {
   assert.ok(radar.projects.some(p => p.current.totals.requests === 0 && p.prior.totals.requests === 4));
   const current = await json(base, evidencePath(radar.current.evidence, "project-radar", { priorSelector: JSON.stringify(radar.prior.evidence.selector) }));
   const prior = await json(base, evidencePath(radar.current.evidence, "project-radar", { priorSelector: JSON.stringify(radar.prior.evidence.selector), period: "prior" }));
-  assert.equal(current.population.evidence.tokens, 451600);
+  assert.equal(current.population.evidence.tokens, 838000);
   assert.equal(prior.population.evidence.tokens, 672000);
   assert.equal(cache.totals.netUsd, -0.03514);
   assert.equal(cache.totals.actualUsd, 0.83474);
@@ -85,7 +85,7 @@ async function checkApis(base, mode) {
   assert.equal(cache.sessions.find(s => s.conversationId === "synthetic-zero-price").actualUsd, 0);
   const cacheEvidence = await json(base, evidencePath(cache.totals.evidence, "cache-detective"));
   assert.equal(cacheEvidence.population.evidence.pricedCostUsd, cache.totals.actualUsd);
-  assert.equal(cacheEvidence.population.original.requests, 42);
+  assert.equal(cacheEvidence.population.original.requests, 134);
   assert.equal(cacheEvidence.rows.length, 37);
   const selected = context.sessions.find(s => s.excludedRequests === 2);
   assert.deepEqual(selected.growth, { ranked: true, baseline: 2000, latest: 7000, absoluteChange: 5000, ratio: 3.5 });
@@ -122,7 +122,7 @@ async function checkApis(base, mode) {
     receipt.assets.push({ mode, path, bytes: bytes.byteLength, sha256: digest, type: response.headers.get("content-type") });
   }
   return { mode, sampleAt: meta.demo.sampleAt, now: meta.demo.now, window: overview.window,
-    counts: { all: 83, current: 42, prior: 40, cacheEligible: 37, contextEligible: 40 },
+    counts: { all: 175, current: 134, prior: 40, cacheEligible: 37, contextEligible: 132 },
     cacheActualUsd: cache.totals.actualUsd, contextGrowth: selected.growth,
     evidence: { radarCurrent: current.page.total, radarPrior: prior.page.total, cache: cacheEvidence.page.total, context: contextEvidence.page.total } };
 }
@@ -232,7 +232,7 @@ try {
         YALD_TEST_DEMO_GUARD: JSON.stringify({ forbidden: sentinel, receipt: auditFile, packageRoot: root }) } }) });
   try {
     await wait(() => logs.some(line => line.startsWith("Demo ready:")), () => errors.join("\n"));
-    assert.equal((await json(`http://127.0.0.1:${port}`, "/api/meta")).totals.requests, 83);
+    assert.equal((await json(`http://127.0.0.1:${port}`, "/api/meta")).totals.requests, 175);
     await json(`http://127.0.0.1:${port}`, "/api/labs/projects");
   } finally { signals.emit("SIGINT"); assert.equal(await done, 130); }
   const audit = await readFile(auditFile, "utf8");

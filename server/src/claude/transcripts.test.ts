@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { normalizeRow } from "../ocx/store";
-import { appendFile, copyFile, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectEntries, readClaudeEntries } from "./transcripts";
+import { claudeSessionTitles, collectEntries, readClaudeEntries, toAgentEvent, toEvent } from "./transcripts";
 
 const usage = {
   input_tokens: 2,
@@ -274,4 +274,148 @@ test("external archive appends, same-size rewrites and deletion refresh entries 
   expect(removed.entries).toEqual([]);
   expect(removed.signature).not.toBe(appended.signature);
   await Promise.all([dir, archiveDir].map(path => rm(path, { recursive: true })));
+});
+
+test("recorded session titles stay in memory: ranked, capped, and never in the archive", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-titles-"));
+  try {
+    const archive = join(dir, "archive.jsonl");
+    const usageLine = JSON.stringify({ type: "assistant", requestId: "req_title", sessionId: "s-title", timestamp: "2026-10-04T16:44:49.068Z", message: { model: "claude-opus-5-5", usage } });
+    await writeFile(join(dir, "s-title.jsonl"), [
+      JSON.stringify({ type: "summary", summary: "SECRET summary title", leafUuid: "u" }),
+      JSON.stringify({ type: "ai-title", aiTitle: "SECRET generated title", sessionId: "s-title" }),
+      JSON.stringify({ type: "user", sessionId: "s-title", message: { content: "ai-title is only a word in this prompt" } }),
+      usageLine, "",
+    ].join("\n"));
+    await writeFile(join(dir, "s-long.jsonl"), JSON.stringify({ type: "custom-title", customTitle: `SECRET ${"x".repeat(200)}`, sessionId: "s-long" }) + "\n");
+    await writeFile(join(dir, "s-summary.jsonl"), JSON.stringify({ type: "summary", summary: "SECRET from the file name" }) + "\n");
+    await readClaudeEntries(dir, archive);
+    const titles = claudeSessionTitles();
+    expect(titles.get("s-title")).toBe("SECRET generated title");
+    expect(titles.get("s-summary")).toBe("SECRET from the file name");
+    expect(titles.get("s-long")!.length).toBe(120);
+
+    await appendFile(join(dir, "s-title.jsonl"), JSON.stringify({ type: "custom-title", customTitle: "SECRET chosen title", sessionId: "s-title" }) + "\n");
+    await readClaudeEntries(dir, archive);
+    expect(claudeSessionTitles().get("s-title")).toBe("SECRET chosen title");
+    expect(await readFile(archive, "utf8")).not.toContain("SECRET");
+
+    await rm(join(dir, "s-title.jsonl"));
+    await readClaudeEntries(dir, archive);
+    expect(claudeSessionTitles().has("s-title")).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+const SECRET = "SECRET-TEXT";
+const richLine = (block: Record<string, unknown>, extra: Record<string, unknown> = {}) => JSON.stringify({
+  type: "assistant", requestId: "req_rich", sessionId: "s1", uuid: "u1", timestamp: "2026-10-04T16:44:49.068Z",
+  isSidechain: true, agentId: "a1", gitBranch: "feat/x", effort: "high", thinkingDurationMs: 900, promptId: "p1", attributionAgent: "explorer",
+  message: { id: "m1", model: "claude-opus-5-5", stop_reason: "tool_use", diagnostics: { cache_miss_reason: { type: "messages_changed" } }, content: [block],
+    usage: { ...usage, cache_creation: { ephemeral_5m_input_tokens: 375, ephemeral_1h_input_tokens: 2000 } } }, ...extra,
+});
+
+test("new transcript fields reach the row; an old line reads as unavailable, not zero", () => {
+  const lines = [
+    richLine({ type: "thinking", thinking: SECRET }),
+    richLine({ type: "tool_use", id: "t1", name: "Bash", input: { command: SECRET } }),
+    richLine({ type: "tool_use", id: "t2", name: "Bash", input: { command: SECRET } }),
+    richLine({ type: "tool_use", id: "t3", name: "Read", input: { file_path: SECRET } }),
+  ];
+  const [entry] = collectEntries([lines.join("\n"), lines.join("\n")]);
+  expect(JSON.stringify(entry)).not.toContain(SECRET);
+  const row = normalizeRow(entry!);
+  expect(row.effort).toBe("high");
+  expect(row.details).toMatchObject({ agent: "subagent", agentId: "a1", cacheWrite5m: 375, cacheWrite1h: 2000, cacheMissReason: "messages_changed", gitBranch: "feat/x", promptId: "p1", thinkingDurationMs: 900, attributionAgent: "explorer" });
+  expect(row.details!.toolCounts).toEqual({ Bash: 2, Read: 1 });
+
+  const old = normalizeRow(collectEntries([block("text")])[0]!);
+  expect(old.details).toMatchObject({ agent: null, cacheWrite1h: null, gitBranch: null, cacheMissReason: null });
+  const archived = { ...collectEntries([block("text")])[0]! };
+  delete archived.detail;
+  expect(normalizeRow(archived).details).toBeNull();
+});
+
+test("a later, larger snapshot keeps the structure of earlier copies", () => {
+  const first = richLine({ type: "tool_use", id: "t1", name: "Edit", input: {} });
+  const later = JSON.stringify({ type: "assistant", requestId: "req_rich", sessionId: "s1", timestamp: "2026-10-04T16:44:50.068Z",
+    message: { model: "claude-opus-5-5", usage: { ...usage, output_tokens: 999 }, content: [] } });
+  const row = normalizeRow(collectEntries([[first, later].join("\n")])[0]!);
+  expect(row.outputTokens).toBe(999);
+  expect(row.details).toMatchObject({ agentId: "a1", gitBranch: "feat/x", toolCounts: { Edit: 1 } });
+});
+
+test("events are classified from structure and keep no text", () => {
+  const base = { sessionId: "s1", timestamp: "2026-10-04T16:44:49.068Z", uuid: "u" };
+  expect(toEvent({ ...base, type: "system", subtype: "compact_boundary", content: SECRET, compactMetadata: { preTokens: 900, postTokens: 90, trigger: "auto", durationMs: 12 } }))
+    .toMatchObject({ kind: "compact", preTokens: 900, postTokens: 90, trigger: "auto", durationMs: 12 });
+  expect(toEvent({ ...base, type: "system", subtype: "compact_boundary" })).toMatchObject({ kind: "compact", preTokens: null, trigger: null });
+  expect(toEvent({ ...base, type: "system", subtype: "api_error", retryAttempt: 2, maxRetries: 10, error: { status: 529, message: SECRET } }))
+    .toMatchObject({ kind: "api-error", retryAttempt: 2, maxRetries: 10, status: 529 });
+  expect(toEvent({ ...base, type: "system", subtype: "turn_duration", durationMs: 1500, messageCount: 7 })).toMatchObject({ kind: "turn", durationMs: 1500, messageCount: 7 });
+  expect(toEvent({ ...base, type: "pr-link", prNumber: 42, prRepository: "owner/repo", prUrl: SECRET })).toMatchObject({ kind: "pr", prNumber: 42, prRepository: "owner/repo" });
+  expect(toEvent({ ...base, type: "user", message: { content: SECRET } })).toMatchObject({ kind: "prompt" });
+  expect(JSON.stringify(toEvent({ ...base, type: "user", promptId: "p", message: { content: SECRET } }))).not.toContain(SECRET);
+  expect(toEvent({ ...base, type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t", content: SECRET }] } })).toBeNull();
+  expect(toEvent({ ...base, type: "user", isMeta: true, message: { content: SECRET } })).toBeNull();
+  expect(toEvent({ ...base, type: "user", isSidechain: true, message: { content: SECRET } })).toBeNull();
+  expect(toAgentEvent("/x/s1/subagents/agent-a1.meta.json", JSON.stringify({ agentType: "Explore", spawnDepth: 2, toolUseId: "t1", description: SECRET })))
+    .toMatchObject({ kind: "agent", sessionId: "s1", agentId: "a1", agentType: "Explore", spawnDepth: 2, toolUseId: "t1" });
+});
+
+test("archives hold the new fields and no text, and events outlive their transcript", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-detail-"));
+  try {
+    const projects = join(dir, "projects", "p");
+    const archive = join(dir, "usage.jsonl");
+    await mkdir(join(projects, "s1", "subagents"), { recursive: true });
+    await writeFile(join(projects, "s1.jsonl"), [
+      JSON.stringify({ type: "user", sessionId: "s1", uuid: "prompt", timestamp: "2026-10-04T16:44:00Z", message: { content: SECRET } }),
+      richLine({ type: "tool_use", id: "t1", name: "Agent", input: { prompt: SECRET } }, { isSidechain: false, agentId: undefined }),
+      JSON.stringify({ type: "system", subtype: "compact_boundary", sessionId: "s1", uuid: "c1", timestamp: "2026-10-04T16:45:00Z", content: SECRET, compactMetadata: { preTokens: 5, postTokens: 1, trigger: "manual" } }),
+      JSON.stringify({ type: "user", sessionId: "s1", uuid: "tr", timestamp: "2026-10-04T16:45:01Z", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: SECRET }] } }),
+      "",
+    ].join("\n"));
+    await writeFile(join(projects, "s1", "subagents", "agent-a1.meta.json"), JSON.stringify({ agentType: "Explore", spawnDepth: 1, toolUseId: "t1", description: SECRET }));
+    const live = await readClaudeEntries(join(dir, "projects"), archive);
+    const kinds = live.events.map(event => event.kind).sort();
+    expect(kinds).toEqual(["agent", "captured", "compact", "prompt"]);
+    const written = (await readFile(archive, "utf8")) + (await readFile(`${archive}.events`, "utf8"));
+    expect(written).not.toContain(SECRET);
+    expect(written).toContain('"Agent"');
+
+    const again = await readClaudeEntries(join(dir, "projects"), archive);
+    expect(again).toBe(live);
+    expect((await readFile(`${archive}.events`, "utf8")).trim().split("\n")).toHaveLength(4);
+
+    await rm(join(dir, "projects"), { recursive: true });
+    const gone = await readClaudeEntries(join(dir, "projects"), archive);
+    expect(gone.events.map(event => event.kind).sort()).toEqual(kinds);
+    expect(normalizeRow(gone.entries[0]!).details).toMatchObject({ agent: "main", toolCounts: { Agent: 1 } });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("older archive lines stay valid and gain structure from a live copy once", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "yald-backfill-"));
+  try {
+    const archive = join(dir, "usage.jsonl");
+    const [entry] = collectEntries([richLine({ type: "text", text: SECRET })]);
+    const old = { ...entry! };
+    delete old.detail;
+    await writeFile(archive, JSON.stringify(old) + "\n");
+    await mkdir(join(dir, "projects"));
+    expect(normalizeRow((await readClaudeEntries(join(dir, "projects"), archive)).entries[0]!).details).toBeNull();
+    await writeFile(join(dir, "projects", "s1.jsonl"), richLine({ type: "text", text: SECRET }) + "\n");
+    const filled = await readClaudeEntries(join(dir, "projects"), archive);
+    expect(normalizeRow(filled.entries[0]!).details).toMatchObject({ agentId: "a1" });
+    expect((await readFile(archive, "utf8")).trim().split("\n")).toHaveLength(2);
+    await utimes(join(dir, "projects", "s1.jsonl"), new Date(), new Date(Date.now() + 5_000));
+    await readClaudeEntries(join(dir, "projects"), archive);
+    expect((await readFile(archive, "utf8")).trim().split("\n")).toHaveLength(2);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { conversationKey, readCodexSessionIndex } from "./sessions";
+import { zstdCompressSync } from "node:zlib";
+import { quotaView } from "../analytics";
+import { collapseRuns, mergeRolloutQuota, parseRateLimits, readRolloutQuotaSamples, ROLLOUT_ACCOUNT } from "./quota";
+import { conversationKey, parseSessionMeta, readCodexSessionIndex } from "./sessions";
 
 const ROOT = "019a1111-0000-7000-8000-000000000001";
 const SUBAGENT = "019a1111-0000-7000-8000-000000000002";
@@ -39,7 +42,7 @@ test("indexes live and archived rollouts by hashed session id from the first lin
 
   const index = await readCodexSessionIndex(home);
   expect(index.size).toBe(3);
-  expect(index.get(conversationKey(ROOT))).toEqual({ cwd: "/work/app-a", sessionId: ROOT, originator: "codex_cli_rs", startedAt: Date.parse("2026-10-11T01:00:00.000Z") });
+  expect(index.get(conversationKey(ROOT))).toEqual({ cwd: "/work/app-a", sessionId: ROOT, originator: "codex_cli_rs", startedAt: Date.parse("2026-10-11T01:00:00.000Z"), git: null, subagent: null });
   // The subagent's own id is indexed; traffic under the root id keeps the root's folder.
   expect(index.get(conversationKey(SUBAGENT))?.cwd).toBe("/work/app-a/server");
   expect(index.get(conversationKey("archived"))).toMatchObject({ cwd: "/tmp/app-a-1", originator: "codex_sdk_ts" });
@@ -106,4 +109,102 @@ test("capped metadata accepts JSON whitespace around fields", async () => {
   await writeFile(join(day, "rollout-spaced.jsonl"), meta({ id: ROOT, cwd: "/work/app-a" }, 100_000).replace(/":/g, '": '));
   expect((await readCodexSessionIndex(home)).get(conversationKey(ROOT))?.cwd).toBe("/work/app-a");
   await rm(home, { recursive: true });
+});
+
+test("compressed rollouts attribute like plain ones, and a bad frame is a miss, not an error", async () => {
+  const { home, day } = await codexHome();
+  const compressed = zstdCompressSync(Buffer.from(meta({ id: ROOT, cwd: "/work/compressed" }, 5_000) + "{}\n".repeat(1000)));
+  await writeFile(join(day, "rollout-a.jsonl.zst"), compressed);
+  await writeFile(join(day, "rollout-b.jsonl.zst"), "not a zstd frame");
+  await writeFile(join(day, "rollout-c.jsonl.zst"), "");
+  const index = await readCodexSessionIndex(home);
+  expect(index.size).toBe(1);
+  expect(index.get(conversationKey(ROOT))?.cwd).toBe("/work/compressed");
+  expect(await readCodexSessionIndex(home)).toBe(index);
+  await rm(home, { recursive: true, force: true });
+});
+
+test("a compressed first line past 64 KB keeps the fields before the cap", async () => {
+  const { home, day } = await codexHome();
+  const line = JSON.stringify({ type: "session_meta", payload: { id: ROOT, cwd: "/work/long", timestamp: "2026-10-11T01:00:00.000Z", instructions: "x".repeat(200_000) } }) + "\n";
+  await writeFile(join(day, "rollout-long.jsonl.zst"), zstdCompressSync(Buffer.from(line)));
+  expect((await readCodexSessionIndex(home)).get(conversationKey(ROOT))?.cwd).toBe("/work/long");
+  await rm(home, { recursive: true, force: true });
+});
+
+test("branch and spawn metadata are kept, and the repository URL never is", () => {
+  const line = meta({ id: SUBAGENT, cwd: "/w", git: { branch: "feat/x", commit_hash: "abc", repository_url: "https://token@example.invalid/r" },
+    source: { subagent: { thread_spawn: { parent_thread_id: ROOT, depth: 2, agent_role: "worker" } } } }).trim();
+  const parsed = parseSessionMeta(line)!;
+  expect(parsed.git).toEqual({ branch: "feat/x", commitHash: "abc" });
+  expect(parsed.subagent).toEqual({ parentThreadId: ROOT, depth: 2, agentRole: "worker" });
+  expect(JSON.stringify(parsed)).not.toContain("token@");
+  const plain = parseSessionMeta(meta({ id: ROOT, cwd: "/w" }).trim())!;
+  expect(plain).toMatchObject({ git: null, subagent: null });
+  const truncated = parseSessionMeta(line.slice(0, line.length - 30).replace(/}+$/, ""))!;
+  expect(truncated.git?.branch).toBe("feat/x");
+  expect(truncated.subagent?.depth).toBe(2);
+});
+
+const limits = (at: string, used: number, resets = 1_792_000_000, window = 10_080) => JSON.stringify({ timestamp: at, type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { input_tokens: 1 } },
+  rate_limits: { primary: { used_percent: used, window_minutes: window, resets_at: resets }, secondary: { used_percent: 3, window_minutes: 300, resets_at: resets - 100 }, credits: { balance: "1" } } } }) + "\n";
+
+test("rate limits parse per slot, and other lines give nothing", () => {
+  const samples = parseRateLimits(limits("2026-10-11T01:00:00.000Z", 40).trim());
+  expect(samples.map(sample => [sample.window, sample.usedPercent, sample.resetAtMs])).toEqual([["weekly", 40, 1_792_000_000_000], ["fiveHour", 3, 1_791_999_900_000]]);
+  expect(samples[0]).toMatchObject({ account: ROLLOUT_ACCOUNT, source: "rollout" });
+  expect(parseRateLimits('{"type":"token_count"}')).toEqual([]);
+  expect(parseRateLimits("torn \"token_count\" \"rate_limits\"")).toEqual([]);
+});
+
+test("rollout quota comes from plain and compressed files, deduplicated, re-reading only what was appended", async () => {
+  const { home, day } = await codexHome();
+  const plain = join(day, "rollout-plain.jsonl");
+  await writeFile(plain, meta({ id: ROOT, cwd: "/w" }) + limits("2026-10-11T01:00:00.000Z", 40));
+  await writeFile(join(day, "rollout-zip.jsonl.zst"), zstdCompressSync(Buffer.from(limits("2026-10-11T01:00:00.000Z", 40) + limits("2026-10-11T02:00:00.000Z", 44))));
+  await writeFile(join(day, "rollout-bad.jsonl.zst"), "not a frame");
+  const first = await readRolloutQuotaSamples(home);
+  expect(first.filter(sample => sample.window === "weekly").map(sample => sample.usedPercent)).toEqual([40, 44]);
+  expect(await readRolloutQuotaSamples(home)).toBe(first);
+  await appendFile(plain, limits("2026-10-11T03:00:00.000Z", 50));
+  const second = await readRolloutQuotaSamples(home);
+  expect(second.filter(sample => sample.window === "weekly").map(sample => sample.usedPercent)).toEqual([40, 44, 50]);
+  expect((await readFile(plain, "utf8")).length).toBeGreaterThan(0);
+  await rm(home, { recursive: true, force: true });
+});
+
+test("merging adds rollout samples without replacing a window opencodex reports", () => {
+  const quota = { windows: [{ account: "a", window: "weekly", usedPercent: 10, resetAtMs: null, updatedAt: 5 }], samples: [], updatedAt: 5 };
+  const samples = parseRateLimits(limits("2026-10-11T01:00:00.000Z", 40).trim());
+  const merged = mergeRolloutQuota(quota, samples, 1_791_000_000_000);
+  expect(merged.windows.map(window => [window.account, window.window])).toEqual([["a", "weekly"], [ROLLOUT_ACCOUNT, "fiveHour"]]);
+  expect(merged.samples).toHaveLength(2);
+  expect(mergeRolloutQuota(quota, [])).toBe(quota);
+});
+
+test("an unchanged run keeps its first and last sample, so the chart and burn do not move", () => {
+  const at = (observedAt: number, usedPercent: number) => ({ account: ROLLOUT_ACCOUNT, family: "account", window: "weekly", usedPercent, resetAtMs: 9, observedAt, source: "rollout" }) as Parameters<typeof collapseRuns>[0][number];
+  const kept = collapseRuns([at(1, 5), at(2, 5), at(3, 5), at(4, 5), at(5, 6), at(6, 6), at(7, 6)]);
+  expect(kept.map(sample => [sample.observedAt, sample.usedPercent])).toEqual([[1, 5], [4, 5], [5, 6], [7, 6]]);
+});
+
+test("a rollout window a minute short keeps its name, and a closed window adds history but no reading", () => {
+  const [short] = parseRateLimits(limits("2026-10-11T01:00:00.000Z", 40, 1_792_000_000, 10_079).trim());
+  expect(short!.window).toBe("weekly");
+  const quota = { windows: [], samples: [], updatedAt: null };
+  const merged = mergeRolloutQuota(quota, [short!], 1_793_000_000_000);
+  expect(merged.windows).toEqual([]);
+  expect(merged.samples).toHaveLength(1);
+});
+
+test("a long quota series is thinned for the response, keeping its count, ends and burn", () => {
+  const samples = Array.from({ length: 2_000 }, (_, index) => ({ account: "a", family: "account", window: "weekly", usedPercent: index / 40, resetAtMs: 9e12, observedAt: 1_000 + index * 1_000, source: "rollout" }));
+  const windows = [{ account: "a", window: "weekly", usedPercent: 50, resetAtMs: 9e12, updatedAt: 2_000_000 }];
+  const view = quotaView({ quota: { windows, samples, updatedAt: 2_000_000 } } as unknown as Parameters<typeof quotaView>[0], {}, 2_000_000);
+  const series = view.series[0]!;
+  expect(series.points).toHaveLength(500);
+  expect(series.sampleCount).toBe(2_000);
+  expect(series.points[0]!.ts).toBe(1_000);
+  expect(series.points.at(-1)!.ts).toBe(2_000_000);
+  expect(view.burn[0]!.percentPerDay).toBeGreaterThan(0);
 });

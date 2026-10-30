@@ -1,5 +1,6 @@
 import { stat, readFile } from "node:fs/promises";
-import { readClaudeEntries, transcriptBytesRead } from "../claude/transcripts";
+import { readClaudeEntries, transcriptBytesRead, type ClaudeEvent, type EntryDetail } from "../claude/transcripts";
+import { mergeRolloutQuota, readRolloutQuotaSamples } from "../codex/quota";
 import { readCodexSessionIndex, type CodexSession } from "../codex/sessions";
 import { readTail, TailChangedError, type TailCursor, type TailFile, type TailRead } from "../ingest/tail";
 import { SOURCE_CAPABILITIES, sourceOf, type Measurements } from "../report/source";
@@ -61,11 +62,52 @@ export interface RequestRow {
   cwd: string | null;
   /** True when a Codex rollout index was read and held no session for this row's conversationId. */
   rolloutMiss?: boolean;
+  /** What this row's Codex rollout recorded. Absent: no rollout, or it recorded none of this. */
+  codexSession?: { gitBranch: string | null; commitHash: string | null; parentThreadId: string | null; depth: number | null; agentRole: string | null };
   /**
    * The same recorded workload priced with and without its cache counters, under the
    * engine's own tier/service decisions (L04). Null/absent: unpriced or not computed.
    */
   cacheEconomics?: CacheEconomics | null;
+  /** Structure a Claude transcript recorded for this request (#96). Null: not available, not "none". */
+  details?: RequestDetails | null;
+}
+
+/** Each field is null when the transcript did not record it, so absence never reads as zero or as "main". */
+export interface RequestDetails {
+  /** From `isSidechain`. Null is unlabelled: never counted as main. */
+  agent: "main" | "subagent" | null;
+  agentId: string | null;
+  agentType: string | null;
+  spawnDepth: number | null;
+  /** The tool_use that spawned this agent, from the agent's sidecar. */
+  spawnToolUseId: string | null;
+  attributionAgent: string | null;
+  perTurnEffort: string | boolean | null;
+  thinkingDurationMs: number | null;
+  cacheWrite5m: number | null;
+  cacheWrite1h: number | null;
+  cacheMissReason: string | null;
+  gitBranch: string | null;
+  promptId: string | null;
+  /** Requested tool calls by tool name. Null on lines from before #96. */
+  toolCounts: Record<string, number> | null;
+  /** The tool_use ids of this request, so a spawn can be linked to it. Ids only. */
+  toolUseIds: string[] | null;
+}
+
+function requestDetails(detail: EntryDetail | undefined): RequestDetails | null {
+  if (!detail) return null;
+  const toolCounts: Record<string, number> = {};
+  for (const name of Object.values(detail.tools ?? {})) toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+  return {
+    agent: detail.isSidechain === undefined ? null : detail.isSidechain ? "subagent" : "main",
+    agentId: detail.agentId ?? null, agentType: null, spawnDepth: null, spawnToolUseId: null,
+    attributionAgent: detail.attributionAgent ?? null, perTurnEffort: detail.perTurnEffort ?? null,
+    thinkingDurationMs: detail.thinkingDurationMs ?? null, cacheWrite5m: detail.cacheWrite5m ?? null, cacheWrite1h: detail.cacheWrite1h ?? null,
+    cacheMissReason: detail.cacheMissReason ?? null, gitBranch: detail.gitBranch ?? null, promptId: detail.promptId ?? null,
+    toolCounts, toolUseIds: Object.keys(detail.tools ?? {}),
+  };
 }
 
 export interface QuotaSample {
@@ -95,6 +137,8 @@ export interface SpendEvent {
 
 export interface Dataset {
   rows: RequestRow[];
+  /** Claude Code records that are not requests, from transcripts and their archive. */
+  claudeEvents?: ClaudeEvent[];
   quota: {
     windows: QuotaWindowSnapshot[];
     samples: QuotaSample[];
@@ -237,7 +281,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     model: String(entry.model ?? "unknown"),
     requestedModel: str(entry.requestedModel),
     resolvedModel: str(entry.resolvedModel),
-    effort: str(entry.effectiveEffort) ?? str(entry.requestedEffort),
+    effort: str(entry.effectiveEffort) ?? str(entry.requestedEffort) ?? str(entry.detail?.effort),
     status: num(entry.status),
     ok: num(entry.status) > 0 && num(entry.status) < 400,
     durationMs: num(entry.durationMs),
@@ -275,6 +319,7 @@ export function normalizeRow(entry: Record<string, any>): RequestRow {
     attemptTokens: attemptTokens || totalTokens,
     cwd: str(entry.cwd),
     cacheEconomics,
+    details: requestDetails(entry.detail),
   };
 }
 
@@ -466,6 +511,15 @@ function codexSignature(index: CodexIndex): string {
   return `codex:${codexGeneration}`;
 }
 
+/** Branch and spawn facts for a row, only where the rollout recorded them, so absence stays unavailable. */
+function sessionFields(session: CodexSession): Pick<RequestRow, "codexSession"> | object {
+  if (!session.git && !session.subagent) return {};
+  return { codexSession: {
+    gitBranch: session.git?.branch ?? null, commitHash: session.git?.commitHash ?? null,
+    parentThreadId: session.subagent?.parentThreadId ?? null, depth: session.subagent?.depth ?? null, agentRole: session.subagent?.agentRole ?? null,
+  } };
+}
+
 /** Attributed copies per source row, for one index: an append re-attributes only its new rows. */
 let attributions: { index: CodexIndex; copies: WeakMap<RequestRow, RequestRow> } | null = null;
 
@@ -487,7 +541,7 @@ function attributeCodexRows(rows: RequestRow[], index: CodexIndex): RequestRow[]
     let copy = copies.get(row);
     if (!copy) {
       const session = index.get(row.conversationId);
-      copy = session ? { ...row, cwd: session.cwd } : { ...row, rolloutMiss: true };
+      copy = session ? { ...row, cwd: session.cwd, ...sessionFields(session) } : { ...row, rolloutMiss: true };
       copies.set(row, copy);
     }
     attributed ??= rows.slice();
@@ -516,6 +570,57 @@ function claudeRowsByTime(entries: Record<string, unknown>[], generation: string
     }
     return row;
   }).sort(byTime);
+}
+
+/** Rate-limit samples from rollouts. The scan reads whole files, so it runs beside builds and never holds one up. */
+let rolloutSamples: QuotaSample[] = [];
+let rolloutGeneration = 0;
+let rolloutScan: Promise<void> | null = null;
+
+function scanRollouts(): void {
+  rolloutScan ??= readRolloutQuotaSamples().then(samples => {
+    // Nothing found changes nothing: a revision must not move because a scan ran.
+    if (samples === rolloutSamples || (!samples.length && !rolloutSamples.length)) return;
+    rolloutSamples = samples;
+    rolloutGeneration++;
+  }).catch(() => {
+    // A failed scan leaves the last samples; the next build tries again.
+  }).finally(() => {
+    rolloutScan = null;
+  });
+}
+
+/** Resolves when the running scan has finished; for tests and benchmarks. */
+export const rolloutScanSettled = (): Promise<void> => rolloutScan ?? Promise.resolve();
+
+let mergedQuota: { base: Dataset["quota"]; samples: QuotaSample[]; value: Dataset["quota"] } | null = null;
+
+function quotaWithRollouts(base: Dataset["quota"]): Dataset["quota"] {
+  if (mergedQuota?.base !== base || mergedQuota.samples !== rolloutSamples) mergedQuota = { base, samples: rolloutSamples, value: mergeRolloutQuota(base, rolloutSamples) };
+  return mergedQuota.value;
+}
+
+/** Copies with agent type and depth per source row, for one set of agent records. */
+let agentCopies: { key: string; copies: WeakMap<RequestRow, RequestRow> } | null = null;
+
+/** A subagent's type and depth live in its sidecar, not on its lines; they join by (session, agent). */
+function withAgentRecords(rows: RequestRow[], events: readonly ClaudeEvent[]): RequestRow[] {
+  const agents = new Map<string, Extract<ClaudeEvent, { kind: "agent" }>>();
+  for (const event of events) if (event.kind === "agent") agents.set(`${event.sessionId}\0${event.agentId}`, event);
+  if (!agents.size) return rows;
+  const key = [...agents.keys()].join("\n");
+  if (agentCopies?.key !== key) agentCopies = { key, copies: new WeakMap() };
+  const copies = agentCopies.copies;
+  return rows.map(row => {
+    const agent = row.details?.agentId ? agents.get(`${row.conversationId}\0${row.details.agentId}`) : undefined;
+    if (!agent) return row;
+    let copy = copies.get(row);
+    if (!copy) {
+      copy = { ...row, details: { ...row.details!, agentType: agent.agentType, spawnDepth: agent.spawnDepth, spawnToolUseId: agent.toolUseId } };
+      copies.set(row, copy);
+    }
+    return copy;
+  });
 }
 
 interface Snapshot<T> {
@@ -558,7 +663,8 @@ async function build(force: boolean): Promise<Dataset> {
   const transcriptBytesBefore = transcriptBytesRead();
   const [initialFiles, claude, codex] = await Promise.all([currentFiles(), readClaudeEntries(undefined, undefined, { full: force }), readCodexSessionIndex()]);
   const transcriptIngest = { bytesRead: transcriptBytesRead() - transcriptBytesBefore };
-  const codexKey = codexSignature(codex);
+  scanRollouts();
+  const codexKey = `${codexSignature(codex)}|rollouts:${rolloutGeneration}`;
   // Preserve the existing file-driven whole-dataset fast path. Pricing-only
   // changes still require force; generation guards component reuse on rebuild.
   if (!force && dataset && `${initialFiles.signature}|${claude.signature}|${codexKey}` === signature) return dataset;
@@ -640,18 +746,20 @@ async function build(force: boolean): Promise<Dataset> {
         // Refresh recomputes every derived row.
         attributions = null;
         claudeRows = null;
+        agentCopies = null;
       }
       // Both sources are sorted by time, so one O(n) merge gives the order of concatenating
       // them and stably re-sorting: opencodex rows first at equal times, each source in its own
       // order. Labs evidence identities use these positions. Nothing published is modified.
-      const rows = mergeByTime(attributeCodexRows(usage.rows, codex), claudeRowsByTime(claude.entries, generation));
+      const rows = mergeByTime(attributeCodexRows(usage.rows, codex), withAgentRecords(claudeRowsByTime(claude.entries, generation), claude.events));
       nextMerged = { usage, claude: claude.signature, codex, rows };
     }
     const rows = nextMerged.rows;
     const nextSignature = `${files.signature}|${claude.signature}|${codexKey}`;
     const nextDataset: Dataset = {
       rows,
-      quota: nextQuota.value,
+      claudeEvents: claude.events,
+      quota: quotaWithRollouts(nextQuota.value),
       ledger: nextSpend.value,
       files: {
         usage: files.usage ? { path: PATHS.usage, bytes: files.usage.bytes, mtimeMs: files.usage.mtimeMs, lines: usage.lines } : null,

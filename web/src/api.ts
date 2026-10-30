@@ -230,6 +230,17 @@ function showsSaved(data: unknown, dataUpdatedAt: number): boolean {
   return savedAt !== undefined && savedAt === dataUpdatedAt;
 }
 
+/**
+ * Recorded Claude Code session titles by id. Never persisted: `docs/install.md` promises that
+ * what this browser keeps holds no prompt text, and a generated title is drawn from one.
+ */
+export function useSessionTitles(): Record<string, string> {
+  const query = useQuery<{ titles: Record<string, string> }>({
+    queryKey: ["/api/session-titles"], queryFn: () => fetchJson("/api/session-titles"), staleTime: 60_000, refetchOnWindowFocus: false,
+  });
+  return query.data?.titles ?? {};
+}
+
 /** `/api/meta`, shared by the layout and the chart palette; persisted like the views. */
 export function useMeta(): UseQueryResult<MetaResponse> {
   return useSavedQuery<MetaResponse>(["/api/meta"], "/api/meta", undefined, { persist: true, staleTime: 60_000, refetchInterval: false, enabled: true, keepPrevious: false });

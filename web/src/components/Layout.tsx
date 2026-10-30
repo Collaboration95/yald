@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  CalendarDays,
   CircleDollarSign,
   Layers,
   LayoutDashboard,
@@ -38,6 +39,7 @@ const NAV = [
   { to: "/performance", label: "Performance", icon: Timer },
   { to: "/context", label: "Context", icon: Layers },
   { to: "/sessions", label: "Sessions", icon: MessagesSquare },
+  { to: "/style", label: "Working style", icon: CalendarDays },
 ];
 
 const TITLES: Record<string, string> = {
@@ -47,6 +49,7 @@ const TITLES: Record<string, string> = {
   "/performance": "Performance",
   "/context": "Context",
   "/sessions": "Sessions",
+  "/style": "Working style",
 };
 
 function SettingsMenu() {

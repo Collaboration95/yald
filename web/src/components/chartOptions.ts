@@ -460,3 +460,37 @@ export function scatterChart(
     })),
   };
 }
+
+export interface TimelineBar { lane: number; start: number; end: number; label: string; color: string; tooltip: string }
+
+/** Bars on a time axis, one lane per category. A bar never gets thinner than `minWidth`, so a one-minute burst stays visible in a long window. */
+export function laneTimelineChart(theme: ThemeTokens, lanes: string[], bars: TimelineBar[], options: { minWidth?: number; zoom?: boolean } = {}): ChartOption {
+  const minWidth = options.minWidth ?? 6;
+  type Api = { value: (index: number) => number; coord: (point: [number, number]) => [number, number]; size: (point: [number, number]) => [number, number] };
+  return {
+    grid: baseGrid({ top: 12, bottom: options.zoom ? 40 : 8 }),
+    tooltip: { ...tooltipCommon(theme), trigger: "item" as const, formatter: (params: { dataIndex: number }) => bars[params.dataIndex]?.tooltip ?? "" },
+    xAxis: { type: "time" as const, ...axisCommon(theme), splitLine: { show: false } },
+    yAxis: { type: "category" as const, data: lanes, ...axisCommon(theme), splitLine: { show: false } },
+    ...(options.zoom ? { dataZoom: [{ type: "inside" as const }, { type: "slider" as const, height: 18, bottom: 6, showDetail: false, borderColor: theme.split }] } : {}),
+    series: [{
+      type: "custom",
+      encode: { x: [1, 2], y: 0 },
+      data: bars.map(bar => [bar.lane, bar.start, bar.end]),
+      renderItem: (params: { dataIndex: number }, api: Api) => {
+        const bar = bars[params.dataIndex]!;
+        const [x, y] = api.coord([api.value(1), api.value(0)]);
+        const [xEnd] = api.coord([api.value(2), api.value(0)]);
+        const height = Math.min(18, api.size([0, 1])[1] * 0.6);
+        const width = Math.max(minWidth, xEnd - x);
+        return {
+          type: "group",
+          children: [
+            { type: "rect", shape: { x, y: y - height / 2, width, height, r: 2 }, style: { fill: bar.color } },
+            { type: "text", style: { x: x + width + 4, y, text: bar.label, fill: theme.text, fontSize: 10, verticalAlign: "middle" } },
+          ],
+        };
+      },
+    }],
+  };
+}

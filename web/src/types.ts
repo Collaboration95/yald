@@ -239,7 +239,7 @@ export interface QuotaResponse extends QuotaView {
 
 export interface MetaResponse {
   sources: Source[];
-  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean }>;
+  sourceCapabilities: Record<Source, { outcomes: boolean; retries: boolean; timing: boolean; quota: boolean; cache: boolean; effort: boolean; agents: boolean }>;
   ok: boolean;
   ocxHome: string;
   timeZone: string;
@@ -318,6 +318,38 @@ export interface PerformanceResponse {
   context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };
 }
 
+export interface OutageEpisode {
+  start: number;
+  end: number;
+  durationMs: number | null;
+  size: number;
+  share: number;
+  statuses: { name: string; value: number; class: string }[];
+  errorCodes: { name: string; value: number }[];
+  dominantClass: string;
+  providers: string[];
+  models: string[];
+  successesInside: number;
+  clippedStart: boolean;
+  ongoing: boolean;
+  usage: { reportedRows: number; failedRows: number; tokens: number | null; costUsd: number | null };
+}
+
+export interface EpisodePersistence {
+  afterError: { errors: number; total: number; rate: number | null };
+  base: { errors: number; total: number; rate: number | null };
+}
+
+export interface OutageEpisodes {
+  gapMs: number;
+  episodes: OutageEpisode[];
+  concentration: { episodes: number; errors: number; share: number }[];
+  marks: { p50: number | null; p75: number | null };
+  persistence: EpisodePersistence & { byProvider: (EpisodePersistence & { provider: string })[] };
+  classMix: { name: string; value: number }[];
+  coverage: { totalRequests: number; observedRequests: number; unobservedRequests: number; errors: number; cancelled: number };
+}
+
 export interface ReliabilityResponse {
   measurementCoverage: MeasurementCoverage;
   successRate: number | null;
@@ -330,6 +362,7 @@ export interface ReliabilityResponse {
   attempts: { name: string; value: number }[];
   failureByModel: { name: string; failures: number; requests: number; rate: number }[];
   recentFailures: RequestRow[];
+  episodes: OutageEpisodes;
   waste: Summary["waste"];
   metering: Summary["metering"];
   retryOverhead: Summary["retryOverhead"];
@@ -924,4 +957,44 @@ export interface SpendChangesResponse {
     baselineDays: { date: string; pricedCostUsd: number; pricedRequests: number; requests: number }[];
     evidence: { selector: unknown; priorSelector: unknown; href: string } | null; limitations: string[];
   };
+}
+
+export interface ArchetypeRow {
+  name: "poke" | "quick" | "deep" | "marathon";
+  sessions: number;
+  requests: number;
+  costUsd: number;
+  sessionShare: number | null;
+  requestShare: number | null;
+  costShare: number | null;
+  medianRequests: number | null;
+  medianSpanMs: number | null;
+  unpricedRequests: number;
+  clippedSessions: number;
+}
+
+export interface WorkingStyleResponse {
+  ok: boolean;
+  archetypes: ArchetypeRow[];
+  totals: { sessions: number; requests: number; requestsWithoutSession: number; costUsd: number; unpricedRequests: number };
+  concurrency: {
+    binMinutes: number;
+    days: { date: string; peak: number }[];
+    medianPeak: number | null;
+    p90Peak: number | null;
+    maxPeak: number;
+    busiestDay: string | null;
+    busiestSeries: { ts: number; sessions: number }[];
+    peakHistogram: { peak: number; days: number }[];
+  };
+  activity: { days: { date: string; requests: number }[]; activeDays: number; windowDays: number; longestStreak: number; currentStreak: number };
+  hours: { hour: number; requests: number }[];
+  night: { requests: number; share: number | null };
+}
+
+export interface RecapNote { text: string; n: number; identifying?: boolean; money?: boolean }
+
+export interface RecapResponse {
+  ok: boolean;
+  report: { meta: { window: { label: string } }; kpis: { requests: number }; workingStyle?: { notes: RecapNote[] } };
 }

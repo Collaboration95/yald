@@ -52,11 +52,19 @@ quota then remains the last captured account observation.
   session growth. Statistics below their minimum sample read "few requests". The
   box-plot legend, caveats and coverage sit behind (i) tooltips; a **Partial**
   badge appears when under 95% of requests could be measured.
-- **Sessions:** source-qualified sessions, named by the project they ran in, ranked
+- **Outage episodes** on Performance group errors less than 10 minutes apart. A
+  timeline and table show their size, length and status mix, and the successes inside
+  them. Open an episode to see all of its requests. Classes are inferred from status codes.
+- **Sessions:** source-qualified sessions, named by the title Claude Code recorded
+  if there is one, otherwise by the project they ran in, ranked
   by tokens, cost, requests, recency or errors; the count and medians cover every
   session in the selection. Detail shows tokens over the session, context size
   per request and the requests, with cache misses (a request that reread none of
   its prompt from the cache) highlighted.
+
+- **Working style:** the Case file recap for the last 7 days, then session shapes,
+  sessions at once, days with data and requests by hour. Labels describe size and
+  span. `yald report --recap` prints the same recap, and the card can export a PNG.
 
 Models, Quota and Reliability are no longer pages: their links open Cost, Overview
 and Performance. `/conversations` links open `/sessions`.

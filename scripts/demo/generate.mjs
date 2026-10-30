@@ -63,6 +63,15 @@ export async function generateDemo(root, now) {
     rows.push(ocxRow(`even-${i}`, now - 2 * DAY + i * MINUTE, { cwd: lantern, conversationId: "synthetic-no-cache", usage: usage(5000, 0, 0) }));
     rows.push(ocxRow(`free-${i}`, now - 4 * HOUR + i * MINUTE, { cwd: lantern, model: "demo-zero", conversationId: "synthetic-zero-price" }));
   }
+  // One session of each working-style archetype, spread over the last week.
+  // Unknown cache provenance keeps them out of the cache investigation's exact figures.
+  const burst = (name, count, start, step) => {
+    for (let i = 0; i < count; i++) rows.push(ocxRow(`${name}-${i}`, start + i * step, { cwd: lantern, conversationId: `synthetic-${name}`, usage: usage(4000), cacheProvenance: undefined }));
+  };
+  for (let day = 1; day <= 5; day++) burst(`poke-${day}`, 2, now - day * DAY - 3 * HOUR, MINUTE);
+  burst("quick", 12, now - 3 * DAY - 2 * HOUR, 2 * MINUTE);
+  burst("deep", 30, now - 2 * DAY - 6 * HOUR, 3 * MINUTE);
+  burst("marathon", 40, now - 5 * DAY, 45 * MINUTE);
   rows.push(ocxRow("unknown-price", now - HOUR, { model: "demo-unpriced", conversationId: "synthetic-unknown-price", cwd: lantern }));
   rows.push(ocxRow("unknown-cache", now - 30 * MINUTE, { conversationId: "synthetic-unknown-cache", cacheProvenance: undefined }));
   rows.push(ocxRow("missing-cache", now - 20 * MINUTE, { conversationId: "synthetic-missing-cache", usage: { inputTokens: 1000, outputTokens: 200 } }));
