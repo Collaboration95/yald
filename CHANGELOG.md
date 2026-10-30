@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- **More Codex history is read.** Compressed rollouts (`.jsonl.zst`) now count for project attribution. `rate_limits` records in rollouts add quota history, labelled by source and account-scoped, shown on the Overview plan usage card. opencodex rows gain the rollout's git branch and subagent parent and depth where recorded ([#97](https://github.com/Collaboration95/yald/issues/97)).
+
 ### Changed
 
 - **A leaner dashboard.** Pages no longer open with a "Dashboard selection" box or a "09 / DASHBOARD" label. A small "Filtered: 2 projects · Reset" chip appears only when a filter narrows your data, with the project-exclusion note beside it when a project filter leaves requests out. The sidebar footer keeps only when the data was last updated and the opencodex and Yald versions, and the Labs and Hide artwork switches moved into a settings menu next to the theme toggle. Picking a range like 24h or 90d no longer counts as a filter, and Reset keeps your range ([#94](https://github.com/Collaboration95/yald/issues/94), [#121](https://github.com/Collaboration95/yald/issues/121), [#123](https://github.com/Collaboration95/yald/issues/123), [#132](https://github.com/Collaboration95/yald/issues/132)).
