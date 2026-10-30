@@ -35,6 +35,7 @@ import { CostPage } from "../src/pages/Cost";
 import { PerformancePage } from "../src/pages/Performance";
 import { ContextPage } from "../src/pages/Context";
 import { ConversationDetailPage, ConversationsPage } from "../src/pages/Conversations";
+import { WorkingStylePage } from "../src/pages/WorkingStyle";
 import { materializeFixtureHome, materializeFixturePricing } from "./fixtureHome";
 import { addContextReplayFixtures } from "./context-replay-fixtures";
 import { checkContextReplaySmoke } from "./context-replay-smoke";
@@ -162,6 +163,14 @@ const PAGES: PageSpec[] = [
     queries: [{ path: "/api/conversations", params: filtersToParams(DEFAULT_FILTERS, { sort: "tokens", limit: 200 }) }],
     expect: ["Sessions", "Median tokens"],
     expectFrom: payloads => [payloads[0]?.conversations?.[0] ? sessionLabel(payloads[0].conversations[0]) : undefined],
+  },
+  {
+    name: "WorkingStyle",
+    route: "/style",
+    Component: WorkingStylePage,
+    queries: [{ path: "/api/style", params: filtersToParams(DEFAULT_FILTERS, {}) }],
+    expect: ["Session shapes", "Sessions at once", "Days with data", "Requests by hour"],
+    expectFrom: () => [],
   },
   {
     name: "ConversationDetail",

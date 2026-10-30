@@ -58,6 +58,10 @@ quota then remains the last captured account observation.
   per request and the requests, with cache misses (a request that reread none of
   its prompt from the cache) highlighted.
 
+- **Working style:** the Case file recap for the last 7 days, then session shapes,
+  sessions at once, days with data and requests by hour. Labels describe size and
+  span. `yald report --recap` prints the same recap, and the card can export a PNG.
+
 Models, Quota and Reliability are no longer pages: their links open Cost, Overview
 and Performance. `/conversations` links open `/sessions`.
 

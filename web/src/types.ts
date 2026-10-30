@@ -925,3 +925,43 @@ export interface SpendChangesResponse {
     evidence: { selector: unknown; priorSelector: unknown; href: string } | null; limitations: string[];
   };
 }
+
+export interface ArchetypeRow {
+  name: "poke" | "quick" | "deep" | "marathon";
+  sessions: number;
+  requests: number;
+  costUsd: number;
+  sessionShare: number | null;
+  requestShare: number | null;
+  costShare: number | null;
+  medianRequests: number | null;
+  medianSpanMs: number | null;
+  unpricedRequests: number;
+  clippedSessions: number;
+}
+
+export interface WorkingStyleResponse {
+  ok: boolean;
+  archetypes: ArchetypeRow[];
+  totals: { sessions: number; requests: number; requestsWithoutSession: number; costUsd: number; unpricedRequests: number };
+  concurrency: {
+    binMinutes: number;
+    days: { date: string; peak: number }[];
+    medianPeak: number | null;
+    p90Peak: number | null;
+    maxPeak: number;
+    busiestDay: string | null;
+    busiestSeries: { ts: number; sessions: number }[];
+    peakHistogram: { peak: number; days: number }[];
+  };
+  activity: { days: { date: string; requests: number }[]; activeDays: number; windowDays: number; longestStreak: number; currentStreak: number };
+  hours: { hour: number; requests: number }[];
+  night: { requests: number; share: number | null };
+}
+
+export interface RecapNote { text: string; n: number; identifying?: boolean; money?: boolean }
+
+export interface RecapResponse {
+  ok: boolean;
+  report: { meta: { window: { label: string } }; kpis: { requests: number }; workingStyle?: { notes: RecapNote[] } };
+}

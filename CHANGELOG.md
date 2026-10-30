@@ -4,6 +4,10 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- **Working style.** A new page shows how sessions are shaped (poke, quick, deep, marathon), how many ran at once, days with data and requests by hour, with thresholds published in the metrics docs. A **Case file** card recaps the last 7 days in fixed sentences, and the same recap is available with `yald report --recap` and `GET /api/report?recap=1`, off by default. The card can export a PNG, which leaves out session ids unless you ask and carries a demo label on demo data ([#105](https://github.com/Collaboration95/yald/issues/105)).
+
 ### Changed
 
 - **A leaner dashboard.** Pages no longer open with a "Dashboard selection" box or a "09 / DASHBOARD" label. A small "Filtered: 2 projects · Reset" chip appears only when a filter narrows your data, with the project-exclusion note beside it when a project filter leaves requests out. The sidebar footer keeps only when the data was last updated and the opencodex and Yald versions, and the Labs and Hide artwork switches moved into a settings menu next to the theme toggle. Picking a range like 24h or 90d no longer counts as a filter, and Reset keeps your range ([#94](https://github.com/Collaboration95/yald/issues/94), [#121](https://github.com/Collaboration95/yald/issues/121), [#123](https://github.com/Collaboration95/yald/issues/123), [#132](https://github.com/Collaboration95/yald/issues/132)).

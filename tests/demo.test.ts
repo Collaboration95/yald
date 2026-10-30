@@ -108,9 +108,9 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
     const meta = await get(base, "/api/meta"), overview = await get(base, "/api/overview");
     expect(meta.demo).toMatchObject({ synthetic: true, clock: "fixed", now: fixed, sampleAt: fixed });
     expect(meta.sources).toEqual(["claude-code", "ocx"]);
-    expect(meta.totals.requests).toBe(83);
+    expect(meta.totals.requests).toBe(175);
     expect(meta.pricing.detail).toContain("illustrative");
-    expect(overview.window).toMatchObject({ from: fixed - 30 * 86400000, to: fixed, requests: 42 });
+    expect(overview.window).toMatchObject({ from: fixed - 30 * 86400000, to: fixed, requests: 134 });
     expect(overview.prior.requests).toBe(40);
     expect(overview.summary.unobserved).toBe(7); // Claude does not claim measured success.
     const radar = await get(base, "/api/labs/projects");
@@ -124,16 +124,16 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
       expect(ev.observation.comparison).toEqual(radar.comparison);
     }
     const cache = await get(base, "/api/labs/cache");
-    expect(cache.totals).toMatchObject({ totalRequests: 42, eligibleRequests: 37, netUsd: -0.03514, actualUsd: 0.83474 });
+    expect(cache.totals).toMatchObject({ totalRequests: 134, eligibleRequests: 37, netUsd: -0.03514, actualUsd: 0.83474 });
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-write-premium")).toMatchObject({ netUsd: -0.14, direction: "cost" });
     expect(cache.sessions.some((s: any) => s.netUsd > 0 && s.direction === "benefit")).toBe(true);
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-no-cache")).toMatchObject({ netUsd: 0, direction: "even" });
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-zero-price")).toMatchObject({ actualUsd: 0, eligibleRequests: 7, explicitFreeRequests: 7 });
-    expect(cache.totals.excluded).toMatchObject({ unpriced: 1, "cache-unknown": 1, "cache-unmeasured": 1, "input-missing": 1, "attempt-sum": 1 });
+    expect(cache.totals.excluded).toMatchObject({ unpriced: 1, "cache-unknown": 93, "cache-unmeasured": 1, "input-missing": 1, "attempt-sum": 1 });
     const ce = await get(base, apiEvidence(cache.totals.evidence, "cache-detective"));
     expect(ce.population.evidence.pricedCostUsd).toBe(cache.totals.actualUsd);
     expect(ce.rows).toHaveLength(37);
-    expect(ce.population.original.requests).toBe(42);
+    expect(ce.population.original.requests).toBe(134);
     const context = await get(base, "/api/labs/context");
     const growing = context.sessions.find((s: any) => s.excludedRequests === 2);
     expect(growing.growth).toMatchObject({ ranked: true, baseline: 2000, latest: 7000, absoluteChange: 5000 });
@@ -291,7 +291,7 @@ test("contaminated caller homes/.env/config/global pricing and retained Claude a
   try {
     await demo.ready();
     const meta = await get(`http://127.0.0.1:${n}`, "/api/meta");
-    expect(meta.totals.requests).toBe(83);
+    expect(meta.totals.requests).toBe(175);
     expect(meta.ocxHome.startsWith(demo.directory())).toBe(true);
     expect(existsSync(join(meta.ocxHome, "yald-claude-usage.jsonl"))).toBe(true);
     await get(`http://127.0.0.1:${n}`, "/api/labs/projects");

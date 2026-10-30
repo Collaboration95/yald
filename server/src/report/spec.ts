@@ -39,6 +39,8 @@ export interface ReportSpecInput {
   top?: number | string;
   /** Default true. Strings "false", "0", "no" and "off" turn it off. */
   redact?: boolean | string;
+  /** Default false: adds the working-style recap. Hour-of-day and streaks describe personal habits. */
+  recap?: boolean | string;
   title?: string;
 }
 
@@ -109,6 +111,7 @@ export function buildReportSpec(input: ReportSpecInput, ctx: { now: Instant; fir
     projects: list(input.projects),
     top: readTop(input.top),
     redact: readRedact(input.redact),
+    recap: input.recap === true || (typeof input.recap === "string" && ["1", "true", "yes", "on"].includes(input.recap.trim().toLowerCase())),
     ...(title ? { title } : {}),
   };
 }
