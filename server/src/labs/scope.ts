@@ -3,6 +3,7 @@ import type { RequestRow } from "../ocx/store";
 import { ALL_SOURCES, contextEligible, sourceOf } from "../report/source";
 import type { Source } from "../report/types";
 import { isoInZone } from "../time/window";
+import type { LedgerClass } from "./evidence-intent";
 
 /** An analysis resolves a rolling range once, then carries these exact bounds to evidence. */
 export interface AnalysisWindow {
@@ -28,9 +29,10 @@ export type EvidenceSelection =
   | { kind: "scope" }
   | { kind: "project"; project: string }
   | { kind: "session"; source: Source; conversationId: string }
-  | { kind: "unnamed"; source?: Source };
+  | { kind: "unnamed"; source?: Source }
+  | { kind: "chain"; source: Source; conversationId: string; agentId: string };
 
-export type EvidenceEligibility = "all" | "cache" | "context";
+export type EvidenceEligibility = "all" | "cache" | "context" | "rebuild";
 
 export interface EvidenceSelector {
   version: 1;
@@ -38,6 +40,7 @@ export interface EvidenceSelector {
   cohort: AnalysisCohort;
   selection: EvidenceSelection;
   eligibility: EvidenceEligibility;
+  cause?: LedgerClass;
 }
 
 export function analysisScope(filter: RowFilter, window: AnalysisWindow) {
@@ -70,7 +73,7 @@ export function evidenceParams(selector: EvidenceSelector): URLSearchParams {
     selector: JSON.stringify(selector),
   });
   if (selection.kind === "project") params.set("projectKey", selection.project);
-  if (selection.kind === "session") {
+  if (selection.kind === "session" || selection.kind === "chain") {
     params.set("sessionSource", selection.source);
     params.set("sessionId", selection.conversationId);
   }
@@ -78,9 +81,9 @@ export function evidenceParams(selector: EvidenceSelector): URLSearchParams {
   return params;
 }
 
-export function evidenceFor(filter: RowFilter, window: AnalysisWindow, selection: EvidenceSelection = { kind: "scope" }, eligibility: EvidenceEligibility = "all") {
+export function evidenceFor(filter: RowFilter, window: AnalysisWindow, selection: EvidenceSelection = { kind: "scope" }, eligibility: EvidenceEligibility = "all", cause?: LedgerClass) {
   const { cohort } = analysisScope(filter, window);
-  const selector: EvidenceSelector = { version: 1, window: { from: window.from, to: window.to, tz: window.tz, label: window.label }, cohort, selection, eligibility };
+  const selector: EvidenceSelector = { version: 1, window: { from: window.from, to: window.to, tz: window.tz, label: window.label }, cohort, selection, eligibility, ...(cause ? { cause } : {}) };
   return { selector, href: `/labs/evidence?${evidenceParams(selector)}` };
 }
 

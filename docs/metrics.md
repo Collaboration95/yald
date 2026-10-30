@@ -98,8 +98,7 @@ Tier flags count long-context, confirmed/requested-only, priority and lower-boun
 rows. The tier summary comes from the engine's evaluated provenance record,
 including authoritative attempt outcomes. A lower-bound price flags incomplete
 Fast/tier pricing on both sides; it does not guarantee the net is a savings floor.
-Claude writes use the engine's single write rate. The transcript conversion does
-not preserve separate write TTL accounting, so 1-hour writes can have an
+Claude writes use the engine's single write rate, so 1-hour writes have an
 understated premium. TTL reconstruction is outside this comparison.
 
 Existing `summary.cache.savingsUsd`, cache timeline `savingsUsd` and cost
@@ -415,6 +414,50 @@ remain viewable without ranked growth. Sessions are source-qualified; window and
 cohort limits and all excluded requests are disclosed. See the
 [Context Replay contract](labs-context.md) for denominators and history coverage.
 These request observations do not infer turns, compaction, waste or answer quality.
+
+### Cache rebuild ledger
+
+Cache Detective's second question is where the cache write cost comes from, and
+how much of it wrote again what was already cached. The ledger is separate from
+the net comparison: it has its own population, and the stricter net predicate does
+not shrink it. Anthropic only; other rows are not applicable, never zero.
+
+- **Population.** `provider === "anthropic"` with observed cache counters, a session
+  and an agent marker. Exclusions are counted: `cache-unmeasured`, `no-session`,
+  `no-agent-marker`.
+- **Chains.** `(source, conversationId, agentId ?? "main")`, the whole loaded
+  history in `orderedRequests` order, so a window never turns a continuing request
+  into a first one.
+- **Starts.** A chain's first request is `session-start` or `subagent-start`, with
+  the same first-request rule as the Subagents page. It is not a rebuild.
+- **Rebuild.** A later request with `cacheWriteTokens > cacheReadTokens`. This is a
+  threshold on counters and does not prove that an entry existed and expired.
+- **Rewritten tokens.** `min(write, max(0, prevRead + prevWrite - read))`.
+- **Premium.** Rewritten tokens × (write rate − read rate) at the row's effective
+  `cacheEconomics.rates`. It is an upper bound that assumes the earlier prefix
+  could have been reused. It is not Cache Detective's write premium, which compares
+  writes with uncached input, and the two are never added. The engine gives no read
+  rate to a row that read nothing, so such a row uses the effective read rate of an
+  earlier request in its chain with the same model and context tier
+  (`borrowedRateRequests`). Without one it is unpriced, never zero. Base rates are
+  not a fallback.
+- **Causes.** First match wins, and all matches stay on the row as `signals`:
+  `reported` (`cache_miss_reason`, raw value kept), `compaction` (an event between
+  the two requests, placed by `requestsBefore` as in Context Replay, in the chain it
+  was recorded in), `model-switch`, `idle-gap`, `no-evidence`. Only `reported` is
+  reported; the next three are inferred. The idle gap compares the time since the
+  previous request with the lifetime of the chain's latest write: one hour if it
+  wrote any 1-hour tokens, otherwise five minutes. Without a split it is not asserted.
+- **Warm rate by gap.** Share of later requests with read at least write, by gap
+  since the previous request in the chain. A bucket under 20 requests shows its
+  count and no rate.
+- **Interleaving.** The same rule ordered by session and by chain. `disappeared`
+  counts requests that only look like a lost cache in session order.
+
+The write bill reuses the Spend structure class mix on Anthropic rows, and adds
+write tokens by lifetime. Its dollars use the engine's single write rate, so 1-hour
+writes are understated. Chosen compactions, model switches and subagent start-ups
+are described as what happened, never as waste.
 
 ### Recorded compactions
 

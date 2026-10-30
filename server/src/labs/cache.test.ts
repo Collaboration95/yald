@@ -450,7 +450,7 @@ describe("eligibility and coverage", () => {
   test("the response echoes the fixed window, cohort and cache evidence selectors", () => {
     const filter = { from: window.from, to: window.to, sources: ["ocx" as const], models: ["m"] };
     // Compile-time contract check: the server result must satisfy the consumer's response shape.
-    const result: Omit<CacheEconomicsResponse, "window" | "pricing"> = buildCacheEconomics(all, filter, window, { limit: 0 });
+    const result: Omit<CacheEconomicsResponse, "window" | "pricing" | "rebuilds"> = buildCacheEconomics(all, filter, window, { limit: 0 });
     expect(result.scope.window).toMatchObject({ from: window.from, to: window.to, tz: "UTC", halfOpen: true });
     expect(result.scope.cohort).toMatchObject({ sources: ["ocx"], models: ["m"] });
     expect(result.totals.evidence.selector).toMatchObject({ version: 1, eligibility: "cache", selection: { kind: "scope" }, window });

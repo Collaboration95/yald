@@ -6,6 +6,7 @@ import { Card, CardHeader } from "../../components/ui";
 import { formatInteger, formatUsd, formatUsdAxis, formatUsdDelta } from "../../lib/format";
 import { useTheme } from "../../lib/theme";
 import type { CacheEconomicsResponse, CacheEconomicsTotals } from "../../types";
+import { RebuildSection } from "./CacheRebuilds";
 import { InvestigationState } from "./InvestigationState";
 import { TopList, Verdict, periodPhrase, useLabsFilters, type TopRow } from "./shared";
 
@@ -77,5 +78,6 @@ export function CacheResults({ data }: { data: CacheEconomicsResponse }) {
         <TopList rows={rows} />
       </Card> : null}
     </> : null}
+    <RebuildSection data={data.rebuilds} />
   </div>;
 }

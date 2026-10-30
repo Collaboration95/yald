@@ -137,6 +137,12 @@ test("real demo APIs reconcile current/prior, cache +/-/0/unknown, context gaps/
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-no-cache")).toMatchObject({ netUsd: 0, direction: "even" });
     expect(cache.sessions.find((s: any) => s.conversationId === "synthetic-zero-price")).toMatchObject({ actualUsd: 0, eligibleRequests: 7, explicitFreeRequests: 7 });
     expect(cache.totals.excluded).toMatchObject({ unpriced: 1, "cache-unknown": 93, "cache-unmeasured": 1, "input-missing": 1, "attempt-sum": 1 });
+    const start = cache.rebuilds.ledger.find((row: { class: string }) => row.class === "subagent-start");
+    expect(start.requests).toBeGreaterThan(0);
+    expect(cache.rebuilds.coverage.eligibleChains).toBeGreaterThan(0);
+    const rebuilt = await get(base, apiEvidence(start.evidence, "cache-detective"));
+    expect(rebuilt.page.total).toBe(start.requests);
+    expect(rebuilt.rows[0].rebuild.label).toBe("first request");
     const ce = await get(base, apiEvidence(cache.totals.evidence, "cache-detective"));
     expect(ce.population.evidence.pricedCostUsd).toBe(cache.totals.actualUsd);
     expect(ce.rows).toHaveLength(50);

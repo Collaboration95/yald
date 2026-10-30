@@ -29,9 +29,9 @@ export interface ContextEvidence {
     window: Pick<ContextWindow, "from" | "to" | "tz" | "label">;
     cohort: ContextCohort;
     selection: { kind: "scope" } | { kind: "session"; source: Source; conversationId: string }
-      | { kind: "project"; project: string } | { kind: "unnamed"; source?: Source };
+      | { kind: "project"; project: string } | { kind: "unnamed"; source?: Source } | { kind: "chain"; source: Source; conversationId: string; agentId: string };
     /** Context Replay emits "all" so excluded observations remain inspectable. */
-    eligibility: "all" | "cache" | "context";
+    eligibility: "all" | "cache" | "context" | "rebuild";
   };
 }
 
