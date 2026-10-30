@@ -145,7 +145,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/cost` | Shared | Summary, cost composition (with `adjustment`), `pricedTokens`, cost series/cumulative totals, cache savings, breakdowns, the ten costliest sessions across all sessions |
 | `GET /api/cost/structure` | Shared; `bucket` | Session cost concentration, blended price by price tier over time and token-class cost mix per source, priced rows only; see [`GET /api/cost/structure`](#get-apicoststructure) |
 | `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
-| `GET /api/reliability` | Shared | Outcome report, recent failures, waste, metering, retry overhead |
+| `GET /api/reliability` | Shared; `gapMinutes` (1-1440, default 10) | Outcome report, recent failures, [outage episodes](metrics.md#reliability-and-retries) in `episodes`, waste, metering, retry overhead |
 | `GET /api/quota` | Window parameters, `sources`; other shared filters are declared ignored | `quotaView`: current windows, selected-range burn estimates, coverage, projections, account `scope` |
 | `GET /api/ledger` | Window parameters, `sources`; other shared filters are declared ignored | Account-wide spend-ledger counts and selected-range buckets, send/token totals, account `scope` |
 | `GET /api/conversations` | Shared; `limit`, `sort` (`tokens`, `cost`, `requests`, `recent`, `errors`) | Sessions ranked by `sort` across every session in the selection, then cut to `limit`; each carries `project`, the folder it last ran in (or null). `totals.conversations` and the medians cover every session, not just the page returned |
