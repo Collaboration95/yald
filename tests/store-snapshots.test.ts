@@ -8,10 +8,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Dataset } from "../server/src/ocx/store";
 
 const root = resolve(import.meta.dir, "..");
-// Explicit baseline overrides must exist. CI can instead use a cold, forced
-// candidate parser; local PR2 verification uses the frozen PR1 checkout.
-const frozenBaseline = "/private/tmp/yald-relay-pr1-baseline";
-const baseline = process.env.YALD_SNAPSHOT_BASELINE ?? (existsSync(join(frozenBaseline, "server/src/ocx/store.ts")) ? frozenBaseline : root);
+// An explicit baseline is used as given (including failing if it is missing).
+// Otherwise each oracle starts a fresh process and forces this checkout's parser.
+const baseline = process.env.YALD_SNAPSHOT_BASELINE ?? root;
 const realPricing = process.env.YALD_SNAPSHOT_REAL_PRICING ?? "/opt/homebrew/lib/node_modules/@bitkyc08/opencodex";
 const helper = join(import.meta.dir, "helpers/store-probe.ts");
 const epoch = 1_791_000_000_000;
@@ -465,21 +464,23 @@ test("usage/spend EACCES errors reject after one read and recover after the faul
 }, 30_000);
 
 test("repeated ENOENT/ENOTDIR read races are bounded to three attempts and recover without publishing failed snapshots", async () => {
-  for (const code of ["ENOENT", "ENOTDIR"]) {
-    for (const component of ["usage", "spend", "quota"] as const) {
-      const f = await fixture();
-      const before: View = await f.probe.ask({ op: "get", freeze: true });
-      const file = f[component].split("/").at(-1)!;
-      await f.probe.ask({ op: "fault", file, code, count: 3 });
-      await expect(f.probe.ask({ op: "get", force: true })).rejects.toThrow(`injected ${code} read failure`);
-      const failed: View = await f.probe.ask({ op: "last" });
-      expect(failed.ids).toEqual(before.ids);
-      expect(failed.dataset).toEqual(before.dataset);
-      expect(failed.reads[file]).toBe(before.reads[file]! + 3);
-      const recovered: View = await f.probe.ask({ op: "get", force: true });
-      expect(recovered.ids.dataset).not.toBe(before.ids.dataset);
-      await oracle(f, recovered);
-    }
+  // Each component has its own catch; all three share disappearedDuringRead.
+  // ENOENT covers each catch, and ENOTDIR covers the predicate's other branch.
+  for (const [code, component] of [
+    ["ENOENT", "usage"], ["ENOENT", "spend"], ["ENOENT", "quota"], ["ENOTDIR", "usage"],
+  ] as const) {
+    const f = await fixture();
+    const before: View = await f.probe.ask({ op: "get", freeze: true });
+    const file = f[component].split("/").at(-1)!;
+    await f.probe.ask({ op: "fault", file, code, count: 3 });
+    await expect(f.probe.ask({ op: "get", force: true })).rejects.toThrow(`injected ${code} read failure`);
+    const failed: View = await f.probe.ask({ op: "last" });
+    expect(failed.ids).toEqual(before.ids);
+    expect(failed.dataset).toEqual(before.dataset);
+    expect(failed.reads[file]).toBe(before.reads[file]! + 3);
+    const recovered: View = await f.probe.ask({ op: "get", force: true });
+    expect(recovered.ids.dataset).not.toBe(before.ids.dataset);
+    await oracle(f, recovered);
   }
 }, 30_000);
 
@@ -835,13 +836,19 @@ test("Claude transcripts: appends, a replaced snapshot, duplicates across files 
   }) + "\n");
   const check = async () => {
     const view: View = await f.probe.ask({ op: "get", freeze: true });
-    await oracle(f, view);
+    // A fresh dataset oracle never shares the candidate's store or pricing caches.
+    const cold = await new Probe(baseline, f.home, f.pricing).ready();
+    const expected: View = await cold.ask({ op: "get", force: true });
+    expect(comparable(view)).toEqual(comparable(expected));
     expectMergedOrder(view.dataset.rows);
     // Labs evidence identities use row positions: Context Replay ordinals must match a full parse.
+    // An external dataset baseline may predate this route/schema; compare the current API.
+    // Reuse the forced cold parse when the baseline is this checkout.
+    const contextCold = baseline === root ? cold : await new Probe(root, f.home, f.pricing, true).ready();
     const path = "/api/labs/context?range=all";
-    const cold = await new Probe(root, f.home, f.pricing, true).ready();
-    expect((await f.probe.ask({ op: "api", paths: [path] }))[0].body).toEqual((await cold.ask({ op: "api", paths: [path] }))[0].body);
+    expect((await f.probe.ask({ op: "api", paths: [path] }))[0].body).toEqual((await contextCold.ask({ op: "api", paths: [path] }))[0].body);
     cold.stop();
+    if (contextCold !== cold) contextCold.stop();
     return view;
   };
   await check();

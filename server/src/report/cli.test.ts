@@ -5,15 +5,17 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { materializeFixtureHome, materializeFixturePricing } from "../../../web/scripts/fixtureHome";
 import committedSample from "./__fixtures__/report.sample.json";
-import { formatTokens, openCommand, openInBrowser, openPlan, summaryLine, USAGE } from "./cli";
+import { formatTokens, openCommand, openInBrowser, openPlan, parseCliArgs, summaryLine, UsageError, USAGE } from "./cli";
+import { WindowError } from "../time/window";
 import { SAMPLE_INPUT, SAMPLE_NOW } from "./sample";
-import { buildReportSpec, type ReportSpecInput } from "./spec";
+import { buildReportSpec, ReportSpecError, type ReportSpecInput } from "./spec";
 import type { ReportData } from "./types";
 
-// Every run is a child process: env.ts fixes data paths at import and bun shares one
-// module cache across test files, so running the CLI in-process would race them.
-// Each child also runs under tests/helpers/no-listener.ts, which exits 99 if the
-// process calls Bun.serve, listens on any node:net server, or loads
+// Data-reading CLI runs stay in child processes: env.ts fixes data paths at import
+// and bun shares one module cache across files. Pure argument/spec validation can
+// run in-process without loading that environment. Each child runs under
+// tests/helpers/no-listener.ts, which exits 99 if the process calls Bun.serve,
+// listens on any node:net server, or loads
 // server/src/index.ts. A passing run therefore proves no port was opened.
 const root = resolve(import.meta.dir, "../../..");
 const cli = join(root, "server/src/report/cli.ts");
@@ -203,10 +205,11 @@ describe("yald report", () => {
   });
 });
 
-describe("invalid input exits 2 with the message and writes nothing", () => {
+describe("invalid input mapping and CLI error boundaries", () => {
   const window = { tz: "Asia/Singapore", from: "2026-10-11 09:00", to: "2026-10-11 17:00" };
   const windowFlags = ["--tz", window.tz, "--from", window.from, "--to", window.to];
-  // [flags, the same request as a ReportSpecInput]: the CLI must print exactly the error buildReportSpec throws.
+  // Preserve every flag-to-spec mapping, including explicit blank strings. The
+  // independent input is the oracle; a dropped/renamed CLI field must not pass.
   const specCases: Array<[string[], ReportSpecInput]> = [
     [["--from", "nonsense"], { from: "nonsense" }],
     [["--last", "2x"], { last: "2x" }],
@@ -225,17 +228,35 @@ describe("invalid input exits 2 with the message and writes nothing", () => {
     [[...windowFlags, "--source", "claude,gemini"], { ...window, sources: "claude,gemini" }],
     [[...windowFlags, "--top", "0"], { ...window, top: "0" }],
   ];
+  const clock = { now: SAMPLE_NOW, first: 0 };
+  function specError(input: ReportSpecInput) {
+    try { buildReportSpec(input, clock); } catch (error) {
+      if (error instanceof WindowError || error instanceof ReportSpecError) return error;
+      throw error;
+    }
+    throw new Error(`Expected invalid report spec: ${JSON.stringify(input)}`);
+  }
+  async function assertCliError(flags: string[], message: string) {
+    const cwd = await emptyDir();
+    const result = run(flags, { cwd });
+    expect(result.code).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(message);
+    expect(await readdir(cwd)).toEqual([]);
+  }
   for (const [flags, input] of specCases) {
-    test(flags.join(" "), async () => {
-      let expected = "";
-      try { buildReportSpec(input, { now: Date.now(), first: 0 }); } catch (error) { expected = (error as Error).message; }
-      expect(expected).not.toBe("");
-      const cwd = await emptyDir();
-      const result = run(flags, { cwd });
-      expect(result.code).toBe(2);
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toContain(expected);
-      expect(await readdir(cwd)).toEqual([]);
+    test(JSON.stringify(flags), async () => {
+      const parsed = parseCliArgs(flags);
+      expect(parsed.spec).toMatchObject(input);
+      const expected = specError(input);
+      const actual = specError(parsed.spec);
+      expect(actual).toBeInstanceOf(expected.constructor);
+      expect({ code: actual.code, param: actual.param, message: actual.message })
+        .toEqual({ code: expected.code, param: expected.param, message: expected.message });
+      // Real CLI samples cover window errors (including blank --from) and the
+      // phase[index] -> --phase diagnostic mapping, exit code and no writes.
+      if (input.from === "") await assertCliError(flags, `--from: ${expected.message}`);
+      if (input.phases?.[0] === "no separator") await assertCliError(flags, `--phase: ${expected.message}`);
     });
   }
 
@@ -249,13 +270,19 @@ describe("invalid input exits 2 with the message and writes nothing", () => {
     [["--out", "report.html", "--json", "./report.html"], "must use different file paths"],
   ];
   for (const [flags, message] of usageCases) {
-    test(flags.join(" "), async () => {
-      const cwd = await emptyDir();
-      const result = run(flags, { cwd });
-      expect(result.code).toBe(2);
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toContain(message);
-      expect(await readdir(cwd)).toEqual([]);
+    test(JSON.stringify(flags), async () => {
+      // Collision checks belong to outputPaths after parsing and path resolution;
+      // keep both real CLI spellings, including relative-path equivalence.
+      if (message === "must use different file paths") {
+        await assertCliError(flags, message);
+        return;
+      }
+      const validate = () => buildReportSpec(parseCliArgs(flags).spec, clock);
+      expect(validate).toThrow(message);
+      expect(validate).toThrow(flags[0] === "--source" ? ReportSpecError : UsageError);
+      if (flags[0] === "--bogus") await assertCliError(flags, message);
+      // The plural spec param 'sources' has its own CLI flag-name mapping.
+      if (flags[0] === "--source") await assertCliError(flags, `--source: ${message}`);
     });
   }
 });

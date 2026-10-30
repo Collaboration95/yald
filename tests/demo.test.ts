@@ -73,17 +73,27 @@ const apiEvidence = (evidence: any, investigation: string, extra: Record<string,
 };
 
 test("demo help/invalid args exit before runtime/data; normal and report help still work", async () => {
-  for (const [args, code, text] of [
+  const cases = [
     [["demo", "--help"], 0, "--now ISO"], [["--help"], 0, "yald demo"], [["report", "--help"], 0, "yald report [window]"],
     [["demo", "--port", "0"], 2, "1 to 65535"], [["demo", "--port", "65536"], 2, "1 to 65535"],
     [["demo", "--port"], 2, "requires a value"], [["demo", "--now", "2026-10-20"], 2, "ISO timestamp"],
     [["demo", "--ocx-home", "/synthetic"], 2, "Unknown demo argument"], [["demo", "--open", "--open"], 2, "Duplicate"],
-  ] as const) {
-    const child = Bun.spawn(["node", join(root, "scripts/yald.mjs"), ...args], { stdout: "pipe", stderr: "pipe" });
-    const output = await new Response(child.stdout).text() + await new Response(child.stderr).text();
-    expect(await child.exited).toBe(code);
-    expect(output).toContain(text);
-    expect(output).not.toContain("Demo data:");
+  ] as const;
+  // Bound subprocess fan-out even when the outer suite runner has other workers.
+  for (let offset = 0; offset < cases.length; offset += 3) {
+    const batch = await Promise.all(cases.slice(offset, offset + 3).map(async ([args, code, text]) => {
+      const child = Bun.spawn([node, join(root, "scripts/yald.mjs"), ...args], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, actualCode] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      return { args, code, text, actualCode, output: stdout + stderr };
+    }));
+    // Reap every child before asserting, including when one argument case fails.
+    for (const { args, code, text, actualCode, output } of batch) {
+      expect(actualCode, args.join(" ")).toBe(code);
+      expect(output, args.join(" ")).toContain(text);
+      expect(output, args.join(" ")).not.toContain("Demo data:");
+    }
   }
   expect(parseDemoArgs(["--now", "2026-10-20T20:00:00+08:00"]).now).toBe(fixed);
 });

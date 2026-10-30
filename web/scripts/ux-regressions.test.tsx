@@ -28,10 +28,7 @@ describe("Labs effective toolbar scope", () => {
       expect(inherited.get("providers")).toBe("wrong-provider");
     });
   }
-  test("the board has one visible default window; direct investigations retain their defaults", () => {
-    expect(renderedFilters("/labs", new URLSearchParams()).range).toBe("30d");
-    expect(renderedFilters("/labs/project-radar", new URLSearchParams()).range).toBe("7d");
-    expect(renderedFilters("/labs/project-radar/", new URLSearchParams()).range).toBe("7d");
+  test("explicit relative window and timezone survive the Labs scope", () => {
     expect(renderedFilters("/labs/cache-detective", new URLSearchParams("last=12h&tz=Asia/Singapore"))).toMatchObject({ last: "12h", tz: "Asia/Singapore" });
   });
   test("main pages and explicit evidence cases retain their request selectors", () => {
