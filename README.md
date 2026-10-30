@@ -14,10 +14,10 @@ Dollar amounts are **API list-price equivalents**: what the same tokens would co
 They don't reflect your subscription bill and don't prove savings. Missing input or price is
 unavailable, not zero or free.
 
-## Install Yald 0.2.0
+## Install Yald 0.4.0
 
-Yald 0.2.0 ("Meet Yaldi", 2026-10-20) ships as `yald-dashboard-0.2.0.tgz` on the
-[v0.2.0 release page](https://github.com/Collaboration95/yald/releases/tag/v0.2.0), next to a
+Yald 0.4.0 (2026-10-30) ships as `yald-dashboard-0.4.0.tgz` on the
+[v0.4.0 release page](https://github.com/Collaboration95/yald/releases/tag/v0.4.0), next to a
 `SHA256SUMS` file. If the page doesn't have the tarball yet, use a
 [development checkout](docs/install.md#development-checkout). npm and Homebrew are unverified, so
 install from the GitHub tarball. The earlier
@@ -29,17 +29,17 @@ On macOS or Linux, you need Node.js 18+, npm, an authenticated `gh` CLI and `sha
 ```bash
 release_dir="$(mktemp -d)"
 yald_prefix="$HOME/.local"
-gh release download v0.2.0 --repo Collaboration95/yald \
-  --pattern 'yald-dashboard-0.2.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
+gh release download v0.4.0 --repo Collaboration95/yald \
+  --pattern 'yald-dashboard-0.4.0.tgz' --pattern SHA256SUMS --dir "$release_dir"
 (cd "$release_dir" && shasum -a 256 -c SHA256SUMS) && \
-npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.2.0.tgz"
+npm install --global --prefix "$yald_prefix" "$release_dir/yald-dashboard-0.4.0.tgz"
 export PATH="$yald_prefix/bin:$PATH"
 yald --version
 yald --help
 yald demo --open
 ```
 
-`yald --version` should print exactly `0.2.0`. The demo opens **http://127.0.0.1:4318** with
+`yald --version` should print exactly `0.4.0`. The demo opens **http://127.0.0.1:4318** with
 synthetic examples and illustrative prices. Press Ctrl+C to stop it and remove its temporary data,
 or run `yald --open` to use your own local sources instead.
 
