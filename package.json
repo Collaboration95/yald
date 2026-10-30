@@ -1,6 +1,6 @@
 {
   "name": "yald-dashboard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local, read-only analytics for opencodex and Claude Code usage, with Yaldi as Yald's detective companion",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/Collaboration95/yald.git" },
