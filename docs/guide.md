@@ -1,6 +1,6 @@
 # Investigating usage with Yald
 
-This guide describes 0.2.0, including Claude ingestion, reports, Yaldi and Labs.
+This guide describes 0.4.0, including Claude ingestion, reports, Yaldi and Labs.
 The earlier v0.1.0 prerelease has the opencodex dashboard only. See
 [installation](install.md) for GitHub asset availability and source setup.
 
@@ -157,7 +157,7 @@ for monetary precision, limitations and recovery from an invalid case URL.
 
 ## Reports
 
-The 0.2.0 package includes `yald report`. These examples use a
+The 0.4.0 package includes `yald report`. These examples use a
 [development checkout](install.md#development-checkout) with dependencies
 installed; replace `node scripts/yald.mjs` with `yald` in an installed package:
 
