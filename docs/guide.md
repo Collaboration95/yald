@@ -1,6 +1,6 @@
 # Investigating usage with Yald
 
-This guide describes 0.4.0, including Claude ingestion, reports, Yaldi and Labs.
+This guide describes 0.5.0, including Claude ingestion, reports, Yaldi and Labs.
 The earlier v0.1.0 prerelease has the opencodex dashboard only. See
 [installation](install.md) for GitHub asset availability and source setup.
 
