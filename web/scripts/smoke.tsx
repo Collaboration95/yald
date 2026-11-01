@@ -136,7 +136,7 @@ const PAGES: PageSpec[] = [
       { path: "/api/cost", params: filtersToParams(DEFAULT_FILTERS, { groupBy: DEFAULT_FILTERS.groupBy }) },
       { path: "/api/cost/structure", params: filtersToParams({ ...DEFAULT_FILTERS, groupBy: "", metric: "" }, {}) },
     ],
-    expect: ["Spend over time", "Cumulative spend", "Most expensive sessions", "Cost by model", "Top 10 sessions", "Where the tokens and dollars go"],
+    expect: ["Spend over time", "running total", "Most expensive sessions", "Cost by model", "Where the tokens and dollars go"],
     expectFrom: payloads => [payloads[0]?.byModel?.[0]?.key],
   },
   {
@@ -147,8 +147,8 @@ const PAGES: PageSpec[] = [
       { path: "/api/performance", params: filtersToParams(DEFAULT_FILTERS, {}) },
       { path: "/api/reliability", params: filtersToParams(DEFAULT_FILTERS, {}) },
     ],
-    expect: ["TTFT p50", "Latency and first token over time", "Slowest requests", "By model", "Codex only", "Success rate"],
-    expectFrom: payloads => [payloads[0]?.byModel?.find((m: any) => m.ttftP50 !== null || m.p50DurationMs !== null || m.outputTokensPerSecond)?.key],
+    expect: ["Output tok/s", "Generation speed", "First token vs output length", "Speed by model", "Codex only"],
+    expectFrom: () => [],
   },
   {
     name: "Context",

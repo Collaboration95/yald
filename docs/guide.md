@@ -33,28 +33,23 @@ quota then remains the last captured account observation.
   provider or effort, and the activity heatmap (click a cell for its busiest
   dates), with effort and provider tables. Reasoning is already within output.
   Claude Code records no effort level, so its requests read "Not recorded".
-- **Cost:** estimated cost, cost per million tokens and the share of spend held by
-  your ten costliest sessions; spend over time, cumulative spend, the most
-  expensive sessions, where tokens and dollars go by token class for each source,
-  and a cost-by-model table (top eight; models with no price fold into
-  "+N unpriced"). Dollars are API list-price equivalents, not a bill. Use Cache
-  savings in Labs for net cache economics.
-- **Performance:** speed and reliability for opencodex requests, tagged **Codex
-  only** because Claude transcripts record no timing or outcome: time to first
-  token and latency percentiles, generation speed, a first-token/output scatter,
-  timings by model and the slowest requests (requests open for over ten minutes
-  are stalled streams and are left out). When there are failures it adds
-  failures over time, an error breakdown and recent failures grouped by model and
-  error.
+- **Cost:** daily spend by model, provider or effort above a linked running-total
+  strip, with the final total as the headline. The (i) explains list-price
+  equivalents (not a bill) and unpriced requests. The most expensive sessions show
+  cost and total tokens together. Token-class shares and the cost-by-model table
+  (with CSV export and per-million-token prices) remain; models with no price fold
+  into "+N unpriced". Use Cache savings in Labs for net cache economics.
+- **Performance:** output tokens per second, generation speed, a speed-by-model
+  box plot and a first-token/output scatter, tagged **Codex only** because Claude
+  transcripts record no timing or outcome. Boxes need 10 eligible requests; models
+  beyond the top 12 fold into Other. The (i) explains the marks and linear scale.
+  Failures over time appears when there are failed or cancelled requests.
 - **Context:** how long contexts are (`inputTokens`, including cached tokens):
   median and p90, requests by context size, a box plot per model, length over
   time, a per-model table, what longer contexts coincide with by band, and
   session growth. Statistics below their minimum sample read "few requests". The
   box-plot legend, caveats and coverage sit behind (i) tooltips; a **Partial**
   badge appears when under 95% of requests could be measured.
-- **Outage episodes** on Performance group errors less than 10 minutes apart. A
-  timeline and table show their size, length and status mix, and the successes inside
-  them. Open an episode to see all of its requests. Classes are inferred from status codes.
 - **Sessions:** source-qualified sessions, named by the title Claude Code recorded
   if there is one, otherwise by the project they ran in, ranked
   by tokens, cost, requests, recency or errors; the count and medians cover every

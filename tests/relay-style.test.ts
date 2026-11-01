@@ -275,3 +275,14 @@ describe("Relay production chart styles", () => {
     });
   }
 });
+
+test("linear speed boxes retain sub-one rates without changing Context's log default", () => {
+  const rows = [{ label: "model", n: 100, box: [0.1, 0.2, 0.3, 0.4, 0.5] as [number, number, number, number, number], p99: 0.8, max: 0.9 }];
+  const linear = inspect(boxplotChart(theme(false), rows, { scale: "linear" }));
+  expect(linear.xAxis.type).toBe("value");
+  expect(linear.xAxis.min).toBe(0);
+  expect(linear.series[0].data[0]).toEqual(rows[0]!.box);
+  expect(linear.series[1].data).toEqual([[0.8, 0]]);
+  expect(linear.series[2].data).toEqual([[0.9, 0]]);
+  expect(inspect(boxplotChart(theme(false), rows)).xAxis.type).toBe("log");
+});

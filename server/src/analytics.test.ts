@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as analytics from "./analytics";
+import { speedByModel } from "./performanceView";
 import type { Dataset, RequestRow } from "./ocx/store";
 import { parseWindow } from "./time/window";
 
@@ -273,4 +274,31 @@ test("agent filters and groups never count a missing marker as main", () => {
   expect(ids({ agentTypes: ["Explore"] })).toEqual(["sub"]);
   expect(rows.map(item => analytics.groupKey(item, "agent"))).toEqual(["main", "subagent", "subagent", "unlabelled", "unlabelled"]);
   expect(rows.map(item => analytics.groupKey(item, "agentType"))).toEqual(["main", "Explore", "unknown", "unknown", "unknown"]);
+});
+
+
+test("speed boxes use eligible output over duration and withhold small samples", () => {
+  const samples = Array.from({ length: 100 }, (_, i) => row({ outputTokens: (i + 1) * 2, durationMs: 2000 }));
+  const full = speedByModel(samples);
+  expect(full.minimums).toEqual({ box: 10, p99: 100 });
+  expect(full.box[0]).toMatchObject({ n: 100, p10: 10.9, p25: 25.75, p50: 50.5, p75: 75.25, p99: 99.01, max: 100 });
+  expect(full.box[0]!.p90).toBeCloseTo(90.1, 10);
+  expect(speedByModel(samples.slice(0, 9)).box[0]).toMatchObject({ n: 9, p10: null, p25: null, p50: null, p75: null, p90: null, p99: null, max: 9 });
+  expect(speedByModel(samples.slice(0, 10)).box[0]).toMatchObject({ n: 10, p50: 5.5, p99: null });
+  const excluded = [
+    row({ durationMs: 0 }), row({ outputTokens: 0 }),
+    row({ measurements: { ...samples[0]!.measurements, duration: false } }),
+    row({ measurements: { ...samples[0]!.measurements, output: false } }),
+    row({ protocol: "claude-code" }),
+  ];
+  expect(speedByModel([...samples, ...excluded])).toEqual(full);
+  expect(speedByModel(excluded).box).toEqual([]);
+});
+
+test("speed boxes rank by eligible sample count and pool the long tail", () => {
+  const samples = Array.from({ length: 14 }, (_, i) => Array.from({ length: i < 12 ? 11 : 5 }, () => row({ model: `model-${String(i).padStart(2, "0")}`, outputTokens: i < 13 ? 10 : 30 }))).flat();
+  const boxes = speedByModel(samples).box;
+  expect(boxes).toHaveLength(13);
+  expect(boxes[0]!.model).toBe("model-00");
+  expect(boxes.at(-1)).toMatchObject({ model: null, n: 10, p10: 10, p25: 10, p50: 20, p75: 30, p90: 30, p99: null, max: 30 });
 });

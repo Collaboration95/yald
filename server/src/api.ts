@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { speedByModel } from "./performanceView";
 import { DEMO, requestNow } from "./demo/mode";
 import { publicRow } from "./publicRow";
 import { EvidenceIntentError, parseCaseIntent } from "./labs/evidence-intent";
@@ -643,6 +644,7 @@ api.get("/api/performance", async c => {
       throughput: { p50: percentileOfSorted(throughputSample, 0.5), p10: percentileOfSorted(throughputSample, 0.1), mean: throughputs.length ? round(throughputs.reduce((a, b) => a + b, 0) / throughputs.length, 2) : null },
     },
     byModel,
+    speedByModel: speedByModel(rows),
     ttftVsOutput: rows
       .filter(row => row.measurements.ttft && row.measurements.output && row.outputTokens > 0)
       .slice(-2000)
