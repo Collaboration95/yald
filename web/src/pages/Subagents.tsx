@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { conversationLink, useEndpoint } from "../api";
 import { Card, CardHeader, Expandable, InfoTip, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
 import { Chart } from "../components/Chart";
-import { barChart, lineChart, pairedBarChart, scatterChart, stackedBarChart } from "../components/chartOptions";
+import { barChart, lineChart, scatterChart, stackedBarChart } from "../components/chartOptions";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { useChartStyle } from "../lib/chartStyle";
@@ -78,12 +78,7 @@ function ClaudeViews({ data }: { data: SubagentsResponse["claude"] }) {
   const coverage = useMemo(() => lineChart(chartTheme, data.overTime.map(point => point.label), [
     { name: "Labelled", data: data.overTime.map(point => (point.labelledShare === null ? null : point.labelledShare * 100)) },
   ], { formatter: percent, showLegend: false, preserveGaps: true }), [data, chartTheme]);
-  const fanOut = useMemo(() => barChart(chartTheme, data.fanOut.bins.map(bin => bin.label), data.fanOut.bins.map(bin => bin.sessions), { formatter: formatInteger, color: () => colorAt(1), wholeNumbers: true }), [data, chartTheme]);
   const types = useMemo(() => barChart(chartTheme, [...data.byType].reverse().map(row => row.type), [...data.byType].reverse().map(row => (row.costShare === null ? null : row.costShare * 100)), { horizontal: true, formatter: percent, color: () => colorAt(1), showLabels: true }), [data, chartTheme]);
-  const depth = useMemo(() => pairedBarChart(chartTheme, data.byDepth.map(row => `Depth ${row.depth}`), [
-    { name: "Requests", data: data.byDepth.map(row => (row.requestShare === null ? null : row.requestShare * 100)) },
-    { name: "Priced cost", data: data.byDepth.map(row => (row.costShare === null ? null : row.costShare * 100)) },
-  ], { formatter: percent }), [data, chartTheme]);
   const startup = useMemo(() => {
     const option = scatterChart(chartTheme, [{ name: "Subagent", points: data.startup.points.map(point => [point.requests, point.costShare * 100]) }], {
       xLog: true, yMax: 100, xName: "Requests", yName: "First-request write", xFormatter: formatInteger, yFormatter: percent,
@@ -106,17 +101,6 @@ function ClaudeViews({ data }: { data: SubagentsResponse["claude"] }) {
       <p className="mt-2 text-[11px] text-muted">Share of requests labelled</p>
       <Chart option={coverage} height={84} />
     </Card>
-
-    <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-      <Card>
-        <CardHeader title="Fan-out" subtitle={`Subagents per session · median ${formatNumber(data.fanOut.median)}, p90 ${formatNumber(data.fanOut.p90)}, max ${formatInteger(data.fanOut.max)}`} />
-        <StateBlock empty={!data.fanOut.sessions} emptyLabel="No labelled sessions"><Chart option={fanOut} height={220} /></StateBlock>
-      </Card>
-      <Card>
-        <CardHeader title="Spawn depth" subtitle="As Claude Code recorded it" />
-        <StateBlock empty={!data.byDepth.length} emptyLabel="No subagent requests"><Chart option={depth} height={220} /></StateBlock>
-      </Card>
-    </div>
 
     <Card>
       <CardHeader title="By agent type" subtitle="Share of subagent priced cost" />

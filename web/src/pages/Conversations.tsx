@@ -36,10 +36,8 @@ export function ConversationsPage() {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3">
         <Stat label="Sessions" value={data ? formatInteger(data.totals.conversations) : "—"} icon={<MessagesSquare size={13} />} />
-        <Stat label="Median requests" value={data?.totals.medianRequests ? formatInteger(data.totals.medianRequests) : "—"} hint="per session" tone="info" />
-        <Stat label="Median tokens" value={data?.totals.medianTokens ? formatCompact(data.totals.medianTokens) : "—"} hint="per session" tone="good" />
       </div>
 
       <Card>

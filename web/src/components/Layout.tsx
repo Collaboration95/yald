@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Bot,
-  CalendarDays,
   CircleDollarSign,
   Layers,
   LayoutDashboard,
@@ -12,7 +11,6 @@ import {
   MessagesSquare,
   Moon,
   RefreshCw,
-  Repeat2,
   Search,
   Settings,
   Sun,
@@ -22,16 +20,17 @@ import { fetchJson, hasScope, RANGES, selectionFilters, useEndpoint, useMeta } f
 import { usePlaceholderShown, useSavedShown } from "../lib/staleness";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
-import { CheckList, Popover, Segmented } from "./ui";
+import { Popover, Segmented } from "./ui";
 import { Wordmark } from "./Wordmark";
 import { Delight } from "./Delight";
-import { AgentFilter, FilterNotes, ModelFilter, NoScopeMatches, OUTCOME_LABELS, ProjectFilter, SourceFilter, effortLabel } from "./ScopeControls";
+import { AgentFilter, FilterNotes, ModelFilter, NoScopeMatches, ProjectFilter, SourceFilter } from "./ScopeControls";
 import { formatDateTime, formatRelative } from "../lib/format";
 import type { ScopeResponse } from "../types";
 import { usePreferences } from "../lib/preferences";
 import { DEMO } from "../lib/demo";
 import { YaldiDemoArtwork } from "./YaldiArtwork";
 import { IdleYaldi } from "./IdleYaldi";
+import { MoreFilters } from "./MoreFilters";
 import { isLabsAnalysis } from "../lib/labsFilters";
 
 const NAV = [
@@ -42,8 +41,6 @@ const NAV = [
   { to: "/context", label: "Context", icon: Layers },
   { to: "/sessions", label: "Sessions", icon: MessagesSquare },
   { to: "/subagents", label: "Subagents", icon: Bot },
-  { to: "/turns", label: "Agent turns", icon: Repeat2 },
-  { to: "/style", label: "Working style", icon: CalendarDays },
 ];
 
 const TITLES: Record<string, string> = {
@@ -54,8 +51,6 @@ const TITLES: Record<string, string> = {
   "/context": "Context",
   "/sessions": "Sessions",
   "/subagents": "Subagents",
-  "/turns": "Agent turns",
-  "/style": "Working style",
 };
 
 function SettingsMenu() {
@@ -77,7 +72,7 @@ function SettingsMenu() {
 
 export function Layout() {
   const { labsEnabled } = usePreferences();
-  const { filters, set, toggleIn } = useFilters();
+  const { filters, set } = useFilters();
   const { theme, toggle } = useTheme();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -150,24 +145,9 @@ export function Layout() {
               {filters.from || filters.to || filters.last ? <span className="px-1 text-[11px] text-accent">Custom window</span> : null}
               <SourceFilter scope={scopeData} />
               <ProjectFilter />
-              {showRequestFilters ? <Popover
-                label={filters.providers.length ? `Provider · ${filters.providers.length}` : "Provider"}
-                active={filters.providers.length > 0}
-              >
-                <CheckList
-                  items={meta.data?.providers ?? []}
-                  selected={filters.providers}
-                  onToggle={value => toggleIn("providers", value)}
-                />
-              </Popover> : null}
               <ModelFilter scope={scopeData} />
               {showRequestFilters ? <AgentFilter /> : null}
-              {showRequestFilters ? <><Popover label={filters.efforts.length ? `Effort · ${filters.efforts.length}` : "Effort"} active={filters.efforts.length > 0} width={200}>
-                <CheckList items={meta.data?.efforts ?? []} selected={filters.efforts} onToggle={value => toggleIn("efforts", value)} labelFor={effortLabel} />
-              </Popover>
-              <Popover label={filters.statuses.length ? `Outcome · ${filters.statuses.length}` : "Outcome"} active={filters.statuses.length > 0} width={220}>
-                <CheckList items={["ok", "error", "cancelled", "unobserved"]} selected={filters.statuses} onToggle={value => toggleIn("statuses", value)} labelFor={status => OUTCOME_LABELS[status] ?? status} />
-              </Popover></> : null}
+              {showRequestFilters ? <MoreFilters providers={meta.data?.providers ?? []} efforts={meta.data?.efforts ?? []} /> : null}
               </> : null}
               {showRequestFilters ? <div className="relative">
                 <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
