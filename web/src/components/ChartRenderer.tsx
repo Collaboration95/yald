@@ -9,7 +9,7 @@ import type { ChartProps } from "./Chart";
 
 echarts.use([BarChart, BoxplotChart, CustomChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart, DataZoomComponent, GraphicComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 
-export function ChartRenderer({ option, height = 260, className, onEvents, loading }: ChartProps) {
+export function ChartRenderer({ option, height = 260, className, onEvents, loading, highlightedSeries }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const { theme } = useTheme();
@@ -32,6 +32,13 @@ export function ChartRenderer({ option, height = 260, className, onEvents, loadi
     if (!chart) return;
     chart.setOption(option, { notMerge: true, lazyUpdate: true });
   }, [option, theme]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.dispatchAction({ type: "downplay" });
+    if (highlightedSeries) chart.dispatchAction({ type: "highlight", seriesName: highlightedSeries });
+  }, [highlightedSeries, option, theme]);
 
   useEffect(() => {
     const chart = chartRef.current;

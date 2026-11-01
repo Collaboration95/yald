@@ -72,7 +72,7 @@
 
 /* Money stats turn green and shed a few dollar signs on hover. */
 :root .stat-value { transition: color 240ms; }
-:root .stat-card:is([data-stat="Estimated cost"], [data-stat="Cache savings"], [data-stat="Output spend"], [data-stat^="Cost /"]):hover {
+:root .stat-card:is([data-stat="Output spend"], [data-stat^="Cost /"]):hover {
   & .stat-value { color: var(--accent); }
   &::after {
     content: "$";

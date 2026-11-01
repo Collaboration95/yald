@@ -23,16 +23,19 @@ so. Unavailable values stay unavailable in saved results. See
 [data locations](install.md#data-locations-and-local-archive) for what the browser keeps. Recorded usage is available with the proxy stopped;
 quota then remains the last captured account observation.
 
-- **Overview:** six headline figures with the change against the previous period
-  (hover a change for what it compares), usage over time by model, provider or
-  effort, the top models, plan usage and the biggest sessions. Success rate and
-  time to first token are tagged **Codex only**. Plan usage is an account-wide
-  opencodex reading; a reading older than a day is marked stale. It shows only
-  when your selection includes opencodex.
-- **Usage:** cached versus new tokens, the cache hit rate, tokens by model,
-  provider or effort, and the activity heatmap (click a cell for its busiest
-  dates), with effort and provider tables. Reasoning is already within output.
-  Claude Code records no effort level, so its requests read "Not recorded".
+- **Overview:** account-wide Codex plan usage first, then Requests and Tokens
+  with changes against the previous period, usage over time and biggest sessions.
+  The ranked model, provider or effort list is the chart legend: hover to emphasise,
+  click to isolate, and click again to restore all series. Cost values are API
+  list-price equivalents, not a bill; its info tip reports unpriced requests.
+  Plan readings older than a day or past their reset are marked stale. The latest
+  observed account appears first; other accounts expand. The source does not
+  identify the active account. Claude Code plan readings are not available here yet.
+- **Usage:** total, output and reasoning tokens, the cache hit rate tile, and a
+  compact activity grid. Drag weekday/hour cells to total tokens or requests;
+  Shift+Arrow extends a keyboard selection. These are recurring weekday/hour
+  cells, not a date range. Click a cell for its busiest dates below the grid.
+  Reasoning is already included in output.
 - **Cost:** estimated cost, cost per million tokens and the share of spend held by
   your ten costliest sessions; spend over time, cumulative spend, the most
   expensive sessions, where tokens and dollars go by token class for each source,

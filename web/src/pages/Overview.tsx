@@ -1,15 +1,18 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, CircleDollarSign, Flame, Gauge, Layers, Timer, Zap } from "lucide-react";
-import { conversationLink, sourceLabel, useEndpoint } from "../api";
+import { Activity, Flame, Layers } from "lucide-react";
+import { conversationLink, filtersKey, sourceLabel, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { usePreferences } from "../lib/preferences";
-import { Badge, Card, CardHeader, InfoTip, MiniSpark, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { Badge, Card, CardHeader, InfoTip, MiniSpark, ProgressBar, Segmented, Stat, StateBlock } from "../components/ui";
 import { Chart } from "../components/Chart";
 import { stackedAreaChart } from "../components/chartOptions";
-import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatShortDate, formatUsd, quotaLabel, sessionLabel } from "../lib/format";
+import { formatCompact, formatCountdown, formatInteger, formatPercent, formatRelative, formatShortDate, formatUsd, quotaLabel, sessionLabel } from "../lib/format";
 import type { OverviewResponse } from "../types";
+import { useChartStyle } from "../lib/chartStyle";
+import { colorAt } from "../lib/palette";
+import { overviewSeries, planAccounts } from "../lib/overviewUsage";
 import { displayNow } from "../lib/demo";
 
 const STALE_QUOTA_MS = 24 * 3_600_000;
@@ -25,25 +28,71 @@ export function OverviewPage() {
   const query = useEndpoint<OverviewResponse>("/api/overview", filters, { metric, groupBy });
   const data = query.data;
 
+  const design = useChartStyle();
+  const [isolated, setIsolated] = useState<string | null>(null);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const scopeKey = filtersKey(filters);
+  useEffect(() => { setIsolated(null); setHighlighted(null); }, [scopeKey, metric, groupBy]);
+  useEffect(() => {
+    if (data && isolated && !data.series.groups.some(group => group.name === isolated)) setIsolated(null);
+  }, [data, isolated]);
+  const colors = useMemo(() => Object.fromEntries((data?.series.groups ?? []).map((group, index) => [group.name, group.name === "Other" ? "#64748b" : colorAt(index)])), [data]);
+
   const seriesOption = useMemo(() => {
     if (!data) return null;
     const labels = data.series.buckets.map(bucket => bucket.label);
-    const names = data.series.groups.map(group => group.name);
-    const series = names.map(name => ({
-      name,
-      data: data.series.buckets.map(bucket => bucket.groups[name] ?? 0),
-    }));
+    const series = overviewSeries(data.series, isolated);
     const formatter = metric === "cost" ? (value: number) => formatUsd(value) : (value: number) => formatCompact(value);
-    return stackedAreaChart(chartTheme, labels, series, { formatter });
-  }, [data, chartTheme, metric]);
+    return stackedAreaChart(chartTheme, labels, series, { formatter, showLegend: false, colors });
+  }, [data, chartTheme, metric, isolated, colors]);
 
   const summary = data?.summary;
-  const unpricedShare = summary ? summary.unpricedRequests / Math.max(1, summary.requests) : 0;
   const quotaWindows = data?.quotaScope.available === false ? [] : data?.quota.windows ?? [];
+
+  const accounts = planAccounts(quotaWindows);
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      {quotaWindows.length > 0 ? (
+        <Card>
+          <CardHeader
+            title={<span className="inline-flex items-center gap-1.5">Plan usage
+              <InfoTip label="About plan usage">An account-wide reading from opencodex, or from Codex rollouts where marked. It is not one project's own usage, so filters do not narrow it.</InfoTip></span>}
+            action={labsEnabled ? <Link to="/labs/quota-pace" className="text-[11px] font-medium text-accent">Pace</Link> : undefined}
+          />
+          <p className="mb-2 text-[11px] text-muted">Codex · latest observed account first; active account is not reported by the source.</p>
+          {accounts.map((account, index) => {
+            const rows = <ul className="space-y-3">
+              {account.windows.map(window => {
+                const burn = data?.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
+                const tone = window.usedPercent >= 90 ? "bad" : window.usedPercent >= 70 ? "warn" : "accent";
+                const now = displayNow();
+                const stale = now - window.updatedAt > STALE_QUOTA_MS || (window.resetAtMs !== null && window.resetAtMs < now);
+                const history = data?.quota.series.find(entry => entry.account === window.account && entry.window === window.window)?.points ?? [];
+                return (
+                  <li key={`${window.account}-${window.window}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-[11.5px] font-medium text-ink">Codex · Account {index + 1} · {quotaLabel(window.window)}</p>
+                      <span className="num text-[12px] font-semibold text-ink">{stale ? `${window.usedPercent}% at last reading` : `${window.usedPercent}% used`}</span>
+                    </div>
+                    <ProgressBar value={window.usedPercent} max={100} tone={tone} className="mt-1.5" />
+                    {history.length > 1 ? <MiniSpark values={history.map(point => point.usedPercent)} className="mt-1 h-5 w-full" /> : null}
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[10.5px] text-muted">
+                      {window.account === "codex-rollouts" ? <span>from Codex rollouts</span> : null}
+                      {window.resetAtMs && !stale ? <span>resets {formatCountdown(window.resetAtMs)}</span> : null}
+                      {stale ? <Badge tone="warn">Stale · last reading {formatRelative(window.updatedAt)}</Badge> : null}
+                      {burn?.willExhaustBeforeReset && !stale ? <span className="inline-flex items-center gap-1 font-medium text-warn"><Flame size={11} /> on track to run out before reset</span> : null}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>;
+            return index === 0 ? <div key={account.key}>{rows}</div> : <details key={account.key} className="mt-3"><summary className="cursor-pointer text-[11px] text-muted">Codex · Account {index + 1}</summary><div className="mt-2">{rows}</div></details>;
+          })}
+        </Card>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-3">
         <Stat
           label="Requests"
           value={summary ? formatInteger(summary.requests) : "—"}
@@ -62,50 +111,13 @@ export function OverviewPage() {
           spark={data?.sparkline.tokens}
           icon={<Activity size={13} />}
         />
-        <Stat
-          label="Estimated cost"
-          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cost) : "—"}
-          info={unpricedShare >= 0.05 && summary ? `${formatInteger(summary.unpricedRequests)} of ${formatInteger(summary.requests)} requests have no list price (subscription or free routes) and add no dollars. Costs are API list-price equivalents, not a bill.` : "API list-price equivalents, not a bill."}
-          delta={data?.deltas.cost}
-          deltaTone="none"
-          spark={data?.sparkline.cost}
-          tone="good"
-          icon={<CircleDollarSign size={13} />}
-        />
-        <Stat
-          label="Success rate"
-          tag="Codex only"
-          value={summary ? formatPercent(summary.successRate) : "—"}
-          delta={data?.deltas.successRate}
-          tone={summary && summary.successRate !== null && summary.successRate < 0.95 ? "warn" : "neutral"}
-          icon={<Gauge size={13} />}
-        />
-        <Stat
-          label="Median TTFT"
-          tag="Codex only"
-          value={summary ? formatDuration(summary.ttft.p50) : "—"}
-          delta={data?.deltas.ttftP50}
-          deltaTone="inverse"
-          tone="info"
-          icon={<Timer size={13} />}
-        />
-        <Stat
-          label="Cache savings"
-          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cache.savingsUsd) : "—"}
-          hint={summary && summary.cache.hitRate !== null ? `${formatPercent(summary.cache.hitRate, 0)} cache hit` : undefined}
-          info="What caching saved against paying the full input price for every cached token."
-          delta={data?.deltas.cacheHitRate}
-          deltaTone="none"
-          tone="good"
-          icon={<Zap size={13} />}
-        />
       </div>
 
       <Card>
         <CardHeader
-          title="Usage over time"
+          title={<span className="inline-flex items-center gap-1.5">Usage over time{metric === "cost" ? <InfoTip label="About cost">API list-price equivalents, not a bill. {summary && summary.unpricedRequests > 0 ? `${formatInteger(summary.unpricedRequests)} of ${formatInteger(summary.requests)} requests have no list price and add no dollars.` : ""}</InfoTip> : null}</span>}
           action={
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Segmented
                 size="sm"
                 value={metric}
@@ -130,75 +142,24 @@ export function OverviewPage() {
           }
         />
         <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
-          {seriesOption ? <Chart option={seriesOption} height={288} /> : null}
+          <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(180px,1fr)]">
+            {seriesOption ? <Chart option={seriesOption} height={288} highlightedSeries={highlighted} /> : null}
+            <ul className="space-y-1" aria-label="Usage series">
+              {data?.series.groups.map(group => <li key={group.name}><button type="button" aria-pressed={isolated === group.name}
+                className="flex w-full items-center gap-2 rounded p-2 text-left text-[11px] hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+                onMouseEnter={() => setHighlighted(group.name)} onMouseLeave={() => setHighlighted(null)} onFocus={() => setHighlighted(group.name)} onBlur={() => setHighlighted(null)}
+                onClick={() => setIsolated(current => current === group.name ? null : group.name)}>
+                <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: design?.colorFor(group.name, colors[group.name]!) ?? colors[group.name] }} />
+                <span className="min-w-0 flex-1 truncate">{group.name}</span><span className="num">{metric === "cost" ? formatUsd(group.total) : formatCompact(group.total)}</span>
+                <span className="num text-muted">{formatPercent(group.total / Math.max(1e-9, data.series.groups.reduce((sum, row) => sum + row.total, 0)), 0)}</span>
+              </button></li>)}
+            </ul>
+          </div>
         </StateBlock>
       </Card>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader
-            title="Top models"
-            action={<Link to={{ pathname: "/cost", search }} className="text-[11px] font-medium text-accent">All models</Link>}
-          />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topModels.length === 0}>
-            <TableShell>
-              <thead>
-                <tr>
-                  <Th>Model</Th>
-                  <Th align="right">Tokens</Th>
-                  <Th align="right">Share</Th>
-                  <Th align="right">Cost</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.topModels.slice(0, 6).map(model => (
-                  <tr key={model.key} className="transition hover:bg-surface-2">
-                    <Td className="max-w-[260px]"><ModelTag model={model.key} /></Td>
-                    <Td align="right">{formatCompact(model.tokens)}</Td>
-                    <Td align="right">{formatPercent(model.share, 0)}</Td>
-                    <Td align="right">{model.pricedRequests > 0 ? formatUsd(model.cost) : <span className="text-muted">—</span>}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </TableShell>
-          </StateBlock>
-        </Card>
-
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="space-y-3">
-          {quotaWindows.length > 0 ? (
-            <Card>
-              <CardHeader
-                title={<span className="inline-flex items-center gap-1.5">Plan usage
-                  <InfoTip label="About plan usage">An account-wide reading from opencodex, or from Codex rollouts where marked. It is not one project's own usage, so filters do not narrow it.</InfoTip></span>}
-                action={labsEnabled ? <Link to="/labs/quota-pace" className="text-[11px] font-medium text-accent">Pace</Link> : undefined}
-              />
-              <ul className="space-y-3">
-                {quotaWindows.map(window => {
-                  const burn = data?.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
-                  const tone = window.usedPercent >= 90 ? "bad" : window.usedPercent >= 70 ? "warn" : "accent";
-                  const now = displayNow();
-                  const stale = now - window.updatedAt > STALE_QUOTA_MS || (window.resetAtMs !== null && window.resetAtMs < now);
-                  const history = data?.quota.series.find(entry => entry.account === window.account && entry.window === window.window)?.points ?? [];
-                  return (
-                    <li key={`${window.account}-${window.window}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-[11.5px] font-medium text-ink">{quotaLabel(window.window)}</p>
-                        <span className="num text-[12px] font-semibold text-ink">{window.usedPercent}% used</span>
-                      </div>
-                      <ProgressBar value={window.usedPercent} max={100} tone={tone} className="mt-1.5" />
-                      {history.length > 1 ? <MiniSpark values={history.map(point => point.usedPercent)} className="mt-1 h-5 w-full" /> : null}
-                      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[10.5px] text-muted">
-                        {window.account === "codex-rollouts" ? <span>from Codex rollouts</span> : null}
-                        {window.resetAtMs && !stale ? <span>resets {formatCountdown(window.resetAtMs)}</span> : null}
-                        {stale ? <Badge tone="warn">Stale · last reading {formatRelative(window.updatedAt)}</Badge> : null}
-                        {burn?.willExhaustBeforeReset && !stale ? <span className="inline-flex items-center gap-1 font-medium text-warn"><Flame size={11} /> on track to run out before reset</span> : null}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Card>
-          ) : null}
           <Card>
             <CardHeader title="Biggest sessions" action={<Link to={{ pathname: "/sessions", search }} className="text-[11px] font-medium text-accent">All</Link>} />
             <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>

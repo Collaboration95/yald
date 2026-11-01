@@ -406,7 +406,7 @@
 }
 
 :root .stat-card[data-stat="Tokens"] .stat-value,
-:root .stat-card[data-stat="Estimated cost"] .stat-value {
+:root .stat-card[data-stat="Total tokens"] .stat-value {
   font-size: clamp(30px, 3vw, 40px);
 }
 
