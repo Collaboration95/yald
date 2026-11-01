@@ -722,12 +722,16 @@
   :root .editorial-usage > .grid { grid-column: 10 / span 3; grid-template-columns: minmax(0, 1fr); }
   :root .editorial-cost > .widget-card:first-child { grid-column: span 8; }
   :root .editorial-cost > .widget-card:last-child { grid-column: span 7; }
-  :root .editorial-cost > [aria-hidden="true"] { display: none; }
   :root .editorial-performance > .flex { grid-column: 1 / -1; }
   :root .editorial-performance > .widget-card { grid-column: span 8; }
   :root .editorial-performance > .grid:has(.widget-card) { grid-column: 1 / -1; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
 }
+.activity-grid { touch-action: none; }
 @media (max-width: 600px) {
+  /* Comfortable tap targets scroll sideways, so a touch drag selects along one hour. */
+  :root .activity-grid-scroll { overflow-x: auto; }
+  :root .activity-grid { min-width: 640px; touch-action: pan-x; }
+  :root .activity-grid [data-heatmap-cell] { height: 24px; }
   :root .relay-workspace { padding-inline: 16px; }
   :root .stat-card .stat-value { font-size: 34px; }
   :root .widget-card { padding: 16px; }

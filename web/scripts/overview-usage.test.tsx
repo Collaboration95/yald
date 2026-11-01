@@ -10,6 +10,10 @@ const series = {
 } as OverviewResponse["series"];
 
 describe("Overview series isolation", () => {
+  test("an unpriced group plots no cost, while a priced free group plots zero", () => {
+    const cost = { ...series, metric: "cost", groups: [{ name: "Unpriced", total: 0, pricedRequests: 0 }, { name: "Free", total: 0, pricedRequests: 1 }], buckets: [{ label: "one", ts: 0, groups: {} }] } as OverviewResponse["series"];
+    expect(overviewSeries(cost, null)).toEqual([{ name: "Unpriced", data: [null] }, { name: "Free", data: [0] }]);
+  });
   test("draws the response groups including Other, and fills missing buckets", () => {
     expect(overviewSeries(series, null)).toEqual([{ name: "Synthetic small", data: [2, 0] }, { name: "Other", data: [9, 0] }]);
   });
@@ -40,12 +44,11 @@ describe("weekday/hour range selection", () => {
     expect(heatmapTotals(cells, { anchor: point, end: { weekday: 6, hour: 23 } })).toEqual({ value: 168 * 169 / 2, requests: 168 });
   });
   test("one real accessible grid replaces the hidden controls", () => {
-    const html = renderToString(<ActivityGrid cells={cells} disabled={false} unit="tokens" onChoose={() => {}} />);
+    const html = renderToString(<ActivityGrid cells={cells} disabled={false} unit="tokens" onChoose={() => {}} onClearChoice={() => {}} />);
     expect(html.match(/role="gridcell"/g)?.length).toBe(168);
     expect(html.match(/tabindex="0"/g)?.length).toBe(1);
     for (const role of ["grid", "row", "columnheader", "rowheader"]) expect(html).toContain(`role="${role}"`);
     expect(html).toContain('aria-live="polite"');
-    expect(html).toContain("touch-action:none");
     expect(html).not.toContain("sr-only");
   });
 });
@@ -58,6 +61,13 @@ describe("Codex plan grouping", () => {
     expect(groups.map(group => group.key)).toEqual(["synthetic-b", "synthetic-a"]);
     expect(groups[1]!.windows.map(row => row.window)).toEqual(["weekly", "daily"]);
     expect(input[0]!.account).toBe("synthetic-a");
+  });
+  test("a newer reading reorders accounts without renaming them", () => {
+    const before = planAccounts([window("synthetic-a", 2), window("synthetic-b", 1)]);
+    const after = planAccounts([window("synthetic-a", 2), window("synthetic-b", 3)]);
+    expect(before.map(group => group.key)).toEqual(["synthetic-a", "synthetic-b"]);
+    expect(after.map(group => group.key)).toEqual(["synthetic-b", "synthetic-a"]);
+    expect(after.find(group => group.key === "synthetic-a")!.number).toBe(before.find(group => group.key === "synthetic-a")!.number);
   });
   test("empty and Codex-only readings need no Claude placeholder", () => {
     expect(planAccounts([])).toEqual([]);

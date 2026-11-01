@@ -82,7 +82,7 @@ export function stackedAreaChart(
   const colorOf = (name: string, index: number) => options.colors?.[name] ?? colorAt(index);
   return {
     grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
-    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
+    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => typeof value === "number" && Number.isFinite(value) ? formatter(value) : "—" },
     legend: legendCommon(theme, options.showLegend !== false),
     xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
     yAxis: { type: "value", ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },

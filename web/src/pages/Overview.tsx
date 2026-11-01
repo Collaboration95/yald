@@ -74,7 +74,7 @@ export function OverviewPage() {
                   return (
                     <li key={`${window.account}-${window.window}`}>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-[11.5px] font-medium text-ink">Codex · Account {index + 1} · {quotaLabel(window.window)}</p>
+                        <p className="truncate text-[11.5px] font-medium text-ink">Codex · Account {account.number} · {quotaLabel(window.window)}</p>
                         <span className="num text-[12px] font-semibold text-ink">{stale ? `${window.usedPercent}% at last reading` : `${window.usedPercent}% used`}</span>
                       </div>
                       <ProgressBar value={window.usedPercent} max={100} tone={tone} className="mt-1.5" />
@@ -89,7 +89,7 @@ export function OverviewPage() {
                   );
                 })}
               </ul>;
-              return index === 0 ? <div key={account.key}>{rows}</div> : <details key={account.key} className="mt-3"><summary className="cursor-pointer text-[11px] text-muted">Codex · Account {index + 1}</summary><div className="mt-2">{rows}</div></details>;
+              return index === 0 ? <div key={account.key}>{rows}</div> : <details key={account.key} className="mt-3"><summary className="cursor-pointer text-[11px] text-muted">Codex · Account {account.number}</summary><div className="mt-2">{rows}</div></details>;
             })}
           </Card>
         ) : null}

@@ -38,7 +38,8 @@ Small animations respect reduced motion and do not replay on background refresh.
   identify the active account. Claude Code plan readings are not available here yet.
 - **Usage:** total, output and reasoning tokens, the cache hit rate tile, and a
   compact activity grid. Drag weekday/hour cells to total tokens or requests;
-  Shift+Arrow extends a keyboard selection. These are recurring weekday/hour
+  Shift+Arrow extends a keyboard selection. On narrow
+  screens the grid scrolls sideways, so a touch drag selects along one hour. These are recurring weekday/hour
   cells, not a date range. Click a cell for its busiest dates below the grid.
   Reasoning is already included in output.
 - **Cost:** daily spend by model, provider or effort above a linked running-total

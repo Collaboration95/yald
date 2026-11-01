@@ -40,6 +40,7 @@ export function UsagePage() {
     value: heatmapMetric === "tokens" ? cell.value : cell.requests,
   })) ?? [], [heatmap, heatmapMetric]);
   const heatmapUnit = heatmapMetric === "tokens" ? "tokens" : "requests";
+  const clearChoice = () => { setSelection(null); setDetailRows([]); setDetailOffset(0); };
   const chooseCell = (weekday: number, hour: number) => {
     // Cells from the previous selection are not this selection's cells.
     if (query.isPlaceholderData) return;
@@ -66,12 +67,12 @@ export function UsagePage() {
           <Segmented size="sm" value={heatmapMetric} options={[{ id: "tokens", label: "Tokens" }, { id: "requests", label: "Requests" }]} onChange={setHeatmapMetric} />
         } />
         <StateBlock loading={query.isLoading} error={query.error} empty={!heatmap}>
-          {heatmap ? <ActivityGrid key={`${filterKey}:${heatmapMetric}`} cells={heatmapCells} disabled={query.isPlaceholderData} unit={heatmapUnit} onChoose={chooseCell} /> : null}
+          {heatmap ? <ActivityGrid key={`${filterKey}:${heatmapMetric}`} cells={heatmapCells} disabled={query.isPlaceholderData} unit={heatmapUnit} onChoose={chooseCell} onClearChoice={clearChoice} /> : null}
         </StateBlock>
         {activeSelection ? <section className="mt-3 border-t border-line pt-3" aria-live="polite" aria-label="Selected heatmap cell dates">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div><h3 className="text-[13px] font-semibold text-ink">{WEEKDAYS[activeSelection.weekday]} at {String(activeSelection.hour).padStart(2, "0")}:00</h3><p className="text-[11px] text-muted">Busiest dates by {heatmapUnit}</p></div>
-            <button type="button" className="rounded px-2 py-1 text-[11px] text-muted hover:bg-surface-2 hover:text-ink" onClick={() => { setSelection(null); setDetailRows([]); setDetailOffset(0); }}>Clear selection</button>
+            <button type="button" className="rounded px-2 py-1 text-[11px] text-muted hover:bg-surface-2 hover:text-ink" onClick={clearChoice}>Clear selection</button>
           </div>
           {detailQuery.isLoading && detailOffset === 0 ? <p className="py-4 text-center text-[12px] text-muted">Loading dates…</p> : null}
           {detailQuery.error ? <div className="py-3 text-center text-[12px] text-danger">Could not load dates. <button className="underline" onClick={() => void detailQuery.refetch()}>Try again</button></div> : null}

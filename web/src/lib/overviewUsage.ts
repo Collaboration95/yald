@@ -4,14 +4,17 @@ export function overviewSeries(series: OverviewResponse["series"], isolated: str
   const selected = isolated && series.groups.some(group => group.name === isolated) ? isolated : null;
   return series.groups.filter(group => !selected || group.name === selected).map(group => ({
     name: group.name,
-    data: series.buckets.map(bucket => bucket.groups[group.name] ?? 0),
+    // A group with no list price has no cost to plot, which is not a cost of zero.
+    data: series.metric === "cost" && group.pricedRequests === 0 ? series.buckets.map(() => null) : series.buckets.map(bucket => bucket.groups[group.name] ?? 0),
   }));
 }
 
 export function planAccounts(windows: QuotaWindowSnapshot[]) {
   const accounts = new Map<string, QuotaWindowSnapshot[]>();
   for (const window of windows) accounts.set(window.account, [...(accounts.get(window.account) ?? []), window]);
-  return [...accounts].map(([key, rows]) => ({ key, windows: rows }))
+  // Numbered by account, not freshness, so a newer reading never renames an account.
+  const numbers = new Map([...accounts.keys()].sort((a, b) => a.localeCompare(b)).map((key, index) => [key, index + 1]));
+  return [...accounts].map(([key, rows]) => ({ key, number: numbers.get(key)!, windows: rows }))
     .sort((a, b) => Math.max(...b.windows.map(row => row.updatedAt)) - Math.max(...a.windows.map(row => row.updatedAt)) || a.key.localeCompare(b.key));
 }
 

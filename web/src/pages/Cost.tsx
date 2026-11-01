@@ -115,8 +115,7 @@ export function CostPage() {
         </StateBlock>
       </Card>
 
-      <div ref={sentinel} aria-hidden="true" />
-      <TokenClassCard {...section} />
+      <TokenClassCard {...section} sentinel={sentinel} />
 
       <Card>
         <CardHeader

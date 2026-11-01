@@ -5,11 +5,13 @@ import { formatCompact, formatInteger, formatPercent } from "../lib/format";
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const hourLabel = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
 
-export function ActivityGrid({ cells, disabled, unit, onChoose }: {
+export function ActivityGrid({ cells, disabled, unit, onChoose, onClearChoice }: {
   cells: (GridPoint & { value: number; requests: number })[];
   disabled: boolean;
   unit: string;
   onChoose: (weekday: number, hour: number) => void;
+  /** The dates below describe one cell, so a wider or cleared range closes them. */
+  onClearChoice: () => void;
 }) {
   const [focus, setFocus] = useState(0);
   const [range, setRange] = useState<GridRange | null>(null);
@@ -27,8 +29,9 @@ export function ActivityGrid({ cells, disabled, unit, onChoose }: {
   return <>
     <p className="mb-2 text-[11px] text-muted">Drag to total a range, click a cell for its dates. Shift+Arrow extends the selection.</p>
     <div className="flex flex-wrap items-start gap-4">
+      <div className="activity-grid-scroll min-w-0 flex-1" style={{ maxWidth: 660, minWidth: 260 }}>
       <div ref={grid} role="grid" aria-label={`Activity by weekday and hour, ${unit}`} aria-multiselectable="true" aria-disabled={disabled}
-        className="min-w-0 flex-1 select-none" style={{ touchAction: "none", maxWidth: 660, minWidth: 260 }}
+        className="activity-grid select-none"
         onPointerDown={event => {
           if (disabled || event.button !== 0) return;
           const point = pointAt(event.clientX, event.clientY);
@@ -47,7 +50,9 @@ export function ActivityGrid({ cells, disabled, unit, onChoose }: {
         onPointerUp={event => {
           const selected = drag.current; drag.current = null;
           if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-          if (!disabled && selected && selected.anchor.weekday === selected.end.weekday && selected.anchor.hour === selected.end.hour) onChoose(selected.end.weekday, selected.end.hour);
+          if (disabled || !selected) return;
+          if (selected.anchor.weekday === selected.end.weekday && selected.anchor.hour === selected.end.hour) onChoose(selected.end.weekday, selected.end.hour);
+          else onClearChoice();
         }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}>
         <div role="row" className="grid gap-0.5" style={{ gridTemplateColumns: "30px repeat(24,minmax(0,1fr))" }}>
           <span role="columnheader" aria-label="Weekday" />
@@ -72,16 +77,19 @@ export function ActivityGrid({ cells, disabled, unit, onChoose }: {
                 };
                 const next = moves[event.key]; if (!next) return;
                 event.preventDefault();
-                setRange(current => ({ anchor: event.shiftKey ? current?.anchor ?? cell : next, end: next }));
+                setRange({ anchor: event.shiftKey ? range?.anchor ?? cell : next, end: next });
+                if (event.shiftKey) onClearChoice();
+                else onChoose(next.weekday, next.hour);
                 const nextIndex = next.weekday * 24 + next.hour;
                 setFocus(nextIndex); grid.current?.querySelector<HTMLElement>(`[data-heatmap-cell="${nextIndex}"]`)?.focus();
               }} />;
           })}
         </div>)}
       </div>
+      </div>
       <div aria-live="polite" className="max-w-64 text-[12px] text-ink">
         {range && totals ? <>{DAYS[Math.min(range.anchor.weekday, range.end.weekday)]}–{DAYS[Math.max(range.anchor.weekday, range.end.weekday)]}, {hourLabel(Math.min(range.anchor.hour, range.end.hour))}–{hourLabel(Math.max(range.anchor.hour, range.end.hour) + 1)} · {formatCompact(totals.value)} {unit} · {formatPercent(total > 0 ? totals.value / total : 0, 0)} of the window · {formatInteger(totals.requests)} requests
-          <button type="button" disabled={disabled} className="mt-2 block text-accent disabled:opacity-50" onClick={() => setRange(null)}>Clear range</button></> : "Select weekday and hour cells to total activity in this window."}
+          <button type="button" disabled={disabled} className="mt-2 block text-accent disabled:opacity-50" onClick={() => { setRange(null); onClearChoice(); }}>Clear range</button></> : "Select weekday and hour cells to total activity in this window."}
       </div>
     </div>
   </>;

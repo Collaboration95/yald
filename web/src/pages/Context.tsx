@@ -61,6 +61,10 @@ export function ContextPage() {
     const value = spread?.[key];
     return value === null || value === undefined ? (spread && spread.n > 0 ? "few requests" : "—") : formatCompact(value);
   };
+  const spreadExact = (key: "p50" | "p90", spread: ContextSpread | undefined) => {
+    const value = spread?.[key];
+    return value === null || value === undefined ? undefined : formatInteger(value);
+  };
   const left = data?.eligibility.excludedRequests ?? 0;
   const leftOutShare = data && data.eligibility.totalRequests > 0 ? left / data.eligibility.totalRequests : 0;
 
@@ -72,8 +76,8 @@ export function ContextPage() {
         </div>
       ) : null}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Median context" value={spreadStat("p50", data?.overall)} hint="input tokens per request" info="Input tokens already include cache reads and writes." />
-        <Stat label="p90" value={spreadStat("p90", data?.overall)} hint="9 in 10 requests are smaller" />
+        <Stat label="Median context" value={spreadStat("p50", data?.overall)} exact={spreadExact("p50", data?.overall)} hint="input tokens per request" info="Input tokens already include cache reads and writes." />
+        <Stat label="p90" value={spreadStat("p90", data?.overall)} exact={spreadExact("p90", data?.overall)} hint="9 in 10 requests are smaller" />
         <Stat label="Requests ≥150k" value={formatPercent(at(1)?.requestShare)} hint={at(1) ? `${formatInteger(at(1)!.requests)} requests` : undefined} tone="info" />
         <Stat label="Cost ≥150k" value={formatPercent(at(1)?.costShare)} hint="of list-price cost" tone="warn" />
       </div>
