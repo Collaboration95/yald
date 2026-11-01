@@ -451,7 +451,7 @@ export interface Series {
   bucket: Bucket;
   metric: Metric;
   groupBy: string;
-  groups: { name: string; total: number }[];
+  groups: { name: string; total: number; pricedRequests: number }[];
   buckets: SeriesBucket[];
 }
 
@@ -487,6 +487,7 @@ export function buildSeries(rows: RequestRow[], options: { bucket: Bucket; metri
   const { bucket, metric, groupBy, from, to, tz } = options;
   const buckets = new Map<number, SeriesBucket>();
   const groupTotals = new Map<string, number>();
+  const pricedCounts = new Map<string, number>();
 
   if (options.fill !== false) {
     for (const ts of bucketStarts(bucket, from, to, tz)) {
@@ -504,6 +505,7 @@ export function buildSeries(rows: RequestRow[], options: { bucket: Bucket; metri
     }
     const value = metricValue(row, metric);
     const group = groupKey(row, groupBy);
+    pricedCounts.set(group, (pricedCounts.get(group) ?? 0) + Number(row.priced));
     entry.total += value;
     entry.groups[group] = (entry.groups[group] ?? 0) + value;
     entry.requests += 1;
@@ -526,9 +528,9 @@ export function buildSeries(rows: RequestRow[], options: { bucket: Bucket; metri
       return { ...entry, total: round(entry.total, 6), groups };
     });
 
-  const groups = ranked.slice(0, limit).map(([name, total]) => ({ name, total: round(total, 6) }));
+  const groups = ranked.slice(0, limit).map(([name, total]) => ({ name, total: round(total, 6), pricedRequests: pricedCounts.get(name) ?? 0 }));
   const otherTotal = ranked.slice(limit).reduce((sum, [, total]) => sum + total, 0);
-  if (otherTotal > 0) groups.push({ name: "Other", total: round(otherTotal, 6) });
+  if (otherTotal > 0) groups.push({ name: "Other", total: round(otherTotal, 6), pricedRequests: ranked.slice(limit).reduce((sum, [name]) => sum + (pricedCounts.get(name) ?? 0), 0) });
 
   return { bucket, metric, groupBy, groups, buckets: collapsed };
 }

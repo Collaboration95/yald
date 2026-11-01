@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { conversationLink, exportUrl, sourceLabel, useEndpoint } from "../api";
+import { exportUrl, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Card, CardHeader, Expandable, InfoTip, ModelTag, ProgressBar, Segmented, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { SessionLink } from "../components/SessionLink";
 import { Chart } from "../components/Chart";
 import { axisCommon, stackedBarChart, tooltipCommon } from "../components/chartOptions";
-import { formatCompact, formatInteger, formatPercent, formatShortDate, formatUsd, formatUsdAxis, sessionLabel } from "../lib/format";
+import { formatCompact, formatInteger, formatPercent, formatUsd, formatUsdAxis } from "../lib/format";
 import { TokenClassCard, useInView } from "./CostStructure";
 import type { CostResponse, SpendStructureResponse } from "../types";
 
@@ -73,7 +74,7 @@ export function CostPage() {
   const finalTotal = data?.cumulative.at(-1)?.cumulative;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 editorial editorial-cost">
       <Card>
         <CardHeader
           title={<span className="inline-flex items-center gap-1.5">Spend over time
@@ -104,9 +105,7 @@ export function CostPage() {
             {data?.topConversations.slice(0, 6).map(session => (
               <li key={JSON.stringify([session.source, session.id])}>
                 <div className="flex items-center justify-between gap-2">
-                  <Link to={conversationLink(session, search)} className="min-w-0 truncate text-[11.5px] text-info hover:underline" title={`${session.project ?? session.id} · ${sourceLabel(session.source)}`}>
-                    {sessionLabel(session)} <span className="text-[10.5px] text-muted">· {formatShortDate(session.startedAt)}</span>
-                  </Link>
+                  <SessionLink session={session} search={search} date />
                   <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{session.pricedRequests > 0 ? formatUsd(session.cost) : "—"} · {formatCompact(session.tokens)} tokens</span>
                 </div>
                 <ProgressBar value={session.cost} max={data.topConversations[0]?.cost ?? 1} className="mt-1.5" />

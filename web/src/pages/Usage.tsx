@@ -53,11 +53,11 @@ export function UsagePage() {
     ? `Partial: measured on ${formatInteger(cacheCoverage.eligibleRequests)} of ${formatInteger(cacheCoverage.totalRequests)} requests.` : undefined;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 editorial editorial-usage">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Total tokens" value={summary ? formatCompact(summary.tokens.total) : "—"} hint={summary ? `${formatPercent(summary.tokens.cacheRead / Math.max(1, summary.tokens.total), 0)} from cache` : undefined} tone="neutral" />
-        <Stat label="Output tokens" value={summary ? formatCompact(summary.tokens.output) : "—"} tone="info" />
-        <Stat label="Reasoning tokens" value={summary ? formatCompact(summary.tokens.reasoning) : "—"} hint="Included in output" tone="violet" />
+        <Stat label="Total tokens" value={summary ? formatCompact(summary.tokens.total) : "—"} exact={summary ? formatInteger(summary.tokens.total) : undefined} hint={summary ? `${formatPercent(summary.tokens.cacheRead / Math.max(1, summary.tokens.total), 0)} from cache` : undefined} tone="neutral" />
+        <Stat label="Output tokens" value={summary ? formatCompact(summary.tokens.output) : "—"} exact={summary ? formatInteger(summary.tokens.output) : undefined} tone="info" />
+        <Stat label="Reasoning tokens" value={summary ? formatCompact(summary.tokens.reasoning) : "—"} exact={summary ? formatInteger(summary.tokens.reasoning) : undefined} hint="Included in output" tone="violet" />
         <Stat label="Cache hit rate" value={summary ? formatPercent(summary.cache.hitRate) : "—"} info={cachePartial} tone="good" />
       </div>
 

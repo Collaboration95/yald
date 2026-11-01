@@ -302,3 +302,14 @@ test("speed boxes rank by eligible sample count and pool the long tail", () => {
   expect(boxes[0]!.model).toBe("model-00");
   expect(boxes.at(-1)).toMatchObject({ model: null, n: 10, p10: 10, p25: 10, p50: 20, p75: 30, p90: 30, p99: null, max: 30 });
 });
+
+test("series price coverage distinguishes free and unavailable across Overview groupings", () => {
+  const samples = [
+    row({ model: "free", provider: "free", effort: "low", cost: 0, priced: true }),
+    row({ model: "unknown", provider: "unknown", effort: "high", cost: 0, priced: false }),
+  ];
+  for (const groupBy of ["model", "provider", "effort"]) {
+    const series = analytics.buildSeries(samples, { bucket: "day", metric: "cost", groupBy, from: now, to: now + 1, tz });
+    expect(series.groups.map(group => [group.total, group.pricedRequests])).toEqual([[0, 1], [0, 0]]);
+  }
+});

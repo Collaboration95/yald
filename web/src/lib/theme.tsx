@@ -1,3 +1,4 @@
+import { reducedMotion } from "./motion";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Theme = "light" | "dark";
@@ -49,7 +50,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [theme]);
 
-  const toggle = useCallback(() => setTheme(current => (current === "dark" ? "light" : "dark")), []);
+  const toggle = useCallback(() => {
+    const update = () => {
+      const next = document.documentElement.classList.contains("dark") ? "light" : "dark";
+      document.documentElement.classList.toggle("dark", next === "dark");
+      setTheme(next);
+    };
+    if (!reducedMotion() && document.startViewTransition) document.startViewTransition(update);
+    else update();
+  }, []);
 
   const value = useMemo<ThemeContextValue>(() => ({
     theme,

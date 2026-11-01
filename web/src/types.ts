@@ -79,7 +79,7 @@ export interface Series {
   bucket: "hour" | "day" | "week";
   metric: string;
   groupBy: string;
-  groups: { name: string; total: number }[];
+  groups: { name: string; total: number; pricedRequests?: number }[];
   buckets: SeriesBucket[];
 }
 

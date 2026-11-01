@@ -53,6 +53,21 @@ try {
     assert.equal(html.includes("resets in 1h"), !stale, `${label}: countdown agrees with staleness`);
     client.clear();
   }
+  for (const groupBy of ["model", "provider", "effort"]) {
+    const filters = { ...DEFAULT_FILTERS, metric: "cost", groupBy };
+    const costParams = filtersToParams(filters);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["/api/overview", costParams], { ...data, series: { ...data.series, groups: [
+      { name: "Synthetic free", total: 0, pricedRequests: 1 },
+      { name: "Synthetic unavailable", total: 0, pricedRequests: 0 },
+    ] } });
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/?metric=cost&groupBy=${groupBy}`]}><FiltersProvider><YaldiSmokeProviders>
+      <OverviewPage />
+    </YaldiSmokeProviders></FiltersProvider></MemoryRouter></QueryClientProvider>);
+    assert.match(html, /Synthetic free<\/span><span class="num">\$0\.00<\/span>/, `${groupBy}: priced zero`);
+    assert.match(html, /Synthetic unavailable<\/span><span class="num">—<\/span>/, `${groupBy}: unavailable`);
+    client.clear();
+  }
   console.log("PASS Overview fixed-clock fresh, old and expired quota renders");
 } finally {
   Date.now = wallNow;

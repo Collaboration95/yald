@@ -11,7 +11,7 @@ explains what Yald reads and writes.
 
 ## Dashboard views
 
-The desktop dashboard supports light and dark themes. Visible views poll every
+The dashboard supports light and dark themes, with navigation wrapping above the page on narrow screens. Visible views poll every
 30 seconds, unchanged responses use ETags, and hidden tabs pause polling.
 Refresh forces a re-read. After a filter or range change, the previous numbers
 stay on screen, dimmed under an "Updating" notice, until the new selection's
@@ -23,8 +23,13 @@ so. Unavailable values stay unavailable in saved results. See
 [data locations](install.md#data-locations-and-local-archive) for what the browser keeps. Recorded usage is available with the proxy stopped;
 quota then remains the last captured account observation.
 
-- **Overview:** account-wide Codex plan usage first, then Requests and Tokens
-  with changes against the previous period, usage over time and biggest sessions.
+Compact token tiles reveal exact counts on hover or focus; tap or press Enter to
+keep the exact count visible. Session links across the dashboard use recorded
+Claude Code titles when available, with project or session labels as the fallback.
+Small animations respect reduced motion and do not replay on background refresh.
+
+- **Overview:** account-wide Codex plan usage and usage over time lead the page,
+  with Requests, Tokens and biggest sessions beside them on desktop.
   The ranked model, provider or effort list is the chart legend: hover to emphasise,
   click to isolate, and click again to restore all series. Cost values are API
   list-price equivalents, not a bill; its info tip reports unpriced requests.

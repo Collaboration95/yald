@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { clsx } from "clsx";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -96,13 +97,29 @@ export function Layout() {
     await queryClient.invalidateQueries();
   };
 
+  const nav = useRef<HTMLElement>(null);
+  const [marker, setMarker] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  useEffect(() => {
+    const element = nav.current;
+    if (!element) return;
+    const measure = () => {
+      const active = element.querySelector<HTMLElement>('[aria-current="page"]');
+      if (active) setMarker({ x: active.offsetLeft, y: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [location.pathname, labsEnabled]);
+
   return (
     <div className="relay-app">
       <a className="relay-skip" href="#main-content">Skip to content</a>
       <div className="relay-frame">
       <aside className="relay-sidebar">
         <Wordmark />
-        <nav className="relay-nav" aria-label="Analytics sections">
+        <nav ref={nav} className="relay-nav" aria-label="Analytics sections">
+          <span aria-hidden="true" className="nav-marker" style={{ width: marker.width, height: marker.height, transform: `translate(${marker.x}px, ${marker.y}px)` }} />
           {[...NAV, ...(labsEnabled ? [{ to: "/labs", label: "Labs", icon: FlaskConical }] : [])].map(item => (
             <NavLink
               key={item.to}
@@ -194,7 +211,7 @@ export function Layout() {
               : `Showing saved results from ${formatDateTime(saved.savedAt)} while they refresh.`}
           </p> : null}
           {hasScope(filters) && scopeData?.matched.requests === 0 && page !== "session" && !isLabs
-            ? <NoScopeMatches /> : <Outlet />}
+            ? <NoScopeMatches /> : <div key={location.pathname} className="route-content"><Outlet /></div>}
         </main>
       </div>
       </div>

@@ -67,7 +67,7 @@ export function PerformancePage() {
   const cancelled = outcomes?.outcomes.find(entry => entry.name === "cancelled")?.value ?? 0;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 editorial editorial-performance">
       <div className="flex items-center gap-2 px-1 text-[11.5px] text-muted">
         <span>Speed and reliability</span> <CodexOnly />
       </div>

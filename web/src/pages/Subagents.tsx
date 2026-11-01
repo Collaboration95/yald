@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { conversationLink, useEndpoint } from "../api";
+import { useEndpoint } from "../api";
 import { Card, CardHeader, Expandable, InfoTip, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { SessionLink } from "../components/SessionLink";
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, scatterChart, stackedBarChart } from "../components/chartOptions";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { useChartStyle } from "../lib/chartStyle";
 import { colorAt } from "../lib/palette";
-import { formatCompact, formatInteger, formatNumber, formatPercent, formatUsd, formatUsdAxis, sessionLabel, shortPath } from "../lib/format";
+import { formatCompact, formatInteger, formatNumber, formatPercent, formatUsd, formatUsdAxis, shortPath } from "../lib/format";
 import type { AgentKind, AgentSplit, SubagentsResponse } from "../types";
 
 const KIND_LABELS: Record<AgentKind, string> = { main: "Main thread", subagent: "Subagents", unlabelled: "Unlabelled" };
@@ -143,7 +144,7 @@ function ClaudeViews({ data }: { data: SubagentsResponse["claude"] }) {
         {rows => <TableShell>
           <thead><tr><Th>Session</Th><Th align="right">Subagents</Th></tr></thead>
           <tbody>{rows.map(session => <tr key={session.id}>
-            <Td><Link to={conversationLink(session, search)} className="text-info hover:underline">{sessionLabel(session)}</Link></Td>
+            <Td><SessionLink session={session} search={search} /></Td>
             <Td align="right">{formatInteger(session.subagents)}</Td>
           </tr>)}</tbody>
         </TableShell>}
