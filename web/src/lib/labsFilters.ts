@@ -7,6 +7,8 @@ export const LAB_TABS = [
   { path: "cache-detective", label: "Cache savings", range: "7d" },
   { path: "context-replay", label: "Context growth", range: "30d" },
   { path: "quota-pace", label: "Quota pace", range: "30d" },
+  { path: "style", label: "Working style", range: "7d" },
+  { path: "turns", label: "Agent turns", range: "7d" },
 ] as const;
 export type LabPath = (typeof LAB_TABS)[number]["path"];
 export const labRange = (pathname: string): string => LAB_TABS.find(tab => pathname.replace(/\/+$/, "") === `/labs/${tab.path}`)?.range ?? "30d";

@@ -154,19 +154,20 @@ const PAGES: PageSpec[] = [
     route: "/context",
     Component: ContextPage,
     queries: [{ path: "/api/context", params: filtersToParams(DEFAULT_FILTERS, {}) }],
-    expect: ["Context length by model", "Requests by context size", "By model", "What longer contexts coincide with", "Session growth"],
-    expectFrom: payloads => [payloads[0]?.models?.[0]?.model],
+    expect: ["Context length by model", "Requests by context size", "What longer contexts coincide with"],
+    expectFrom: () => [],
   },
   {
     name: "Sessions",
     route: "/sessions",
     Component: ConversationsPage,
     queries: [{ path: "/api/conversations", params: filtersToParams(DEFAULT_FILTERS, { sort: "tokens", limit: 200 }) }],
-    expect: ["Sessions", "Median tokens"],
+    expect: ["Sessions"],
     expectFrom: payloads => [payloads[0]?.conversations?.[0] ? sessionLabel(payloads[0].conversations[0]) : undefined],
   },
   {
-    name: "WorkingStyle",
+    name: "WorkingStyle (Labs)",
+    // Direct component smoke; Labs routing and gating are covered in labs-navigation.test.tsx.
     route: "/style",
     Component: WorkingStylePage,
     queries: [{ path: "/api/style", params: filtersToParams(DEFAULT_FILTERS, {}) }],
@@ -179,10 +180,12 @@ const PAGES: PageSpec[] = [
     Component: SubagentsPage,
     queries: [{ path: "/api/subagents", params: filtersToParams(DEFAULT_FILTERS, {}) }],
     expect: ["Subagent share", "Label coverage"],
-    expectFrom: () => [],
+    expectFrom: payloads => payloads[0]?.claude?.labelledRequests > 0
+      ? ["By agent type", "Cost of a subagent&#x27;s first request", "By project", "By model"] : [],
   },
   {
-    name: "AgentTurns",
+    name: "AgentTurns (Labs)",
+    // Direct component smoke; Labs routing and gating are covered in labs-navigation.test.tsx.
     route: "/turns",
     Component: TurnsPage,
     queries: [{ path: "/api/turns", params: filtersToParams({ ...DEFAULT_FILTERS, groupBy: "", metric: "" }, {}) }],

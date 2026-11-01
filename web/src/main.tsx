@@ -11,6 +11,7 @@ import { RelayProvider } from "./lib/RelayProvider";
 import { FiltersProvider } from "./lib/useFilters";
 import { PreferencesProvider } from "./lib/preferences";
 import { LabsLayout } from "./pages/labs/LabsLayout";
+import { MovedTo } from "./components/MovedTo";
 import { Layout } from "./components/Layout";
 import { loadingQuip } from "./components/ui";
 const OverviewPage = lazy(() => import("./pages/Overview").then(m => ({ default: m.OverviewPage })));
@@ -20,18 +21,10 @@ const ContextPage = lazy(() => import("./pages/Context").then(m => ({ default: m
 const PerformancePage = lazy(() => import("./pages/Performance").then(m => ({ default: m.PerformancePage })));
 const ConversationsPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationsPage })));
 const ConversationDetailPage = lazy(() => import("./pages/Conversations").then(m => ({ default: m.ConversationDetailPage })));
-const WorkingStylePage = lazy(() => import("./pages/WorkingStyle").then(m => ({ default: m.WorkingStylePage })));
 const SubagentsPage = lazy(() => import("./pages/Subagents").then(m => ({ default: m.SubagentsPage })));
-const TurnsPage = lazy(() => import("./pages/Turns").then(m => ({ default: m.TurnsPage })));
 const LabsPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsPage })));
 const LabsInvestigationPage = lazy(() => import("./pages/labs/LabsPage").then(m => ({ default: m.LabsInvestigationPage })));
 const EvidenceCase = lazy(() => import("./pages/labs/EvidenceCase").then(m => ({ default: m.EvidenceCase })));
-
-/** Old addresses keep working: the page moved, the filters in the query string stay. */
-function MovedTo({ to }: { to: string }) {
-  const { search } = useLocation();
-  return <Navigate to={{ pathname: to, search }} replace />;
-}
 
 function MovedSession() {
   const { id = "" } = useParams();
@@ -79,8 +72,8 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="sessions" element={<ConversationsPage />} />
                 <Route path="sessions/:id" element={<ConversationDetailPage />} />
                 <Route path="subagents" element={<SubagentsPage />} />
-                <Route path="turns" element={<TurnsPage />} />
-                <Route path="style" element={<WorkingStylePage />} />
+                <Route path="turns" element={<MovedTo to="/labs/turns" />} />
+                <Route path="style" element={<MovedTo to="/labs/style" />} />
                 <Route path="conversations" element={<MovedTo to="/sessions" />} />
                 <Route path="conversations/:id" element={<MovedSession />} />
                 <Route path="labs" element={<LabsLayout />}>

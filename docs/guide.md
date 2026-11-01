@@ -51,8 +51,8 @@ quota then remains the last captured account observation.
   error.
 - **Context:** how long contexts are (`inputTokens`, including cached tokens):
   median and p90, requests by context size, a box plot per model, length over
-  time, a per-model table, what longer contexts coincide with by band, and
-  session growth. Statistics below their minimum sample read "few requests". The
+  time and what longer contexts coincide with by band. Session growth lives in
+  Labs. Statistics below their minimum sample read "few requests". The
   box-plot legend, caveats and coverage sit behind (i) tooltips; a **Partial**
   badge appears when under 95% of requests could be measured.
 - **Outage episodes** on Performance group errors less than 10 minutes apart. A
@@ -60,14 +60,27 @@ quota then remains the last captured account observation.
   them. Open an episode to see all of its requests. Classes are inferred from status codes.
 - **Sessions:** source-qualified sessions, named by the title Claude Code recorded
   if there is one, otherwise by the project they ran in, ranked
-  by tokens, cost, requests, recency or errors; the count and medians cover every
+  by tokens, cost, requests, recency or errors; the count covers every
   session in the selection. Detail shows tokens over the session, context size
   per request and the requests, with cache misses (a request that reread none of
   its prompt from the cache) highlighted.
 
-- **Working style:** the Case file recap for the last 7 days, then session shapes,
+- **Working style (Labs):** the Case file recap for the last 7 days, then session shapes,
   sessions at once, days with data and requests by hour. Labels describe size and
-  span. `yald report --recap` prints the same recap, and the card can export a PNG.
+  span. Old `/style` links open `/labs/style`, preserving query parameters.
+  `yald report --recap` prints the same recap, and the card can export a PNG.
+
+- **Subagents:** Claude Code agent shares, trends, agent types, first-request cache-write
+  cost, sessions to inspect, and project/model splits. The fan-out distribution
+  and spawn-depth chart are omitted; session links lead to the delegation tree.
+- **Agent turns (Labs):** turn depth, autonomy, stop reasons and tool use.
+  Old `/turns` links open `/labs/turns`, preserving query parameters. Both moved
+  pages default to 7 days and use Labs' time, Source, Project and Model filters;
+  Provider, Agent, Effort, Outcome and Search do not constrain them. Labs must be on.
+
+Provider, Effort and Outcome live in **More filters**. Its count shows how many
+of these three filters are active. Clear them in the menu; existing URL parameters
+still work.
 
 Models, Quota and Reliability are no longer pages: their links open Cost, Overview
 and Performance. `/conversations` links open `/sessions`.
@@ -87,8 +100,8 @@ and stops their queries; a disabled Labs link offers to turn it back on. **Hide
 artwork**, in the same menu, hides Yaldi's decorative images while keeping every
 explanation, value and control. Artwork supplies no evidence of its own.
 
-Labs opens on a board of four cases, each a finding and one number. Every
-investigation uses one layout: Yaldi's one-line verdict with a big number, one
+Labs opens on a board of seven cases, including Working style and Agent turns.
+The original metric investigations use one layout: Yaldi's one-line verdict with a big number, one
 chart, a top-five list with short names, a **See the requests** button, and an (i)
 holding the rule, coverage, scope and windows. The board shows one 30-day window
 until you pick a range; its Investigate links keep that window. Direct investigation

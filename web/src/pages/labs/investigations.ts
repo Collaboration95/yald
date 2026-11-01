@@ -5,6 +5,9 @@ import { ContextReplay } from "./ContextReplay";
 import { QuotaPace } from "./QuotaPace";
 import { SpendChanges } from "./SpendChanges";
 
+import { WorkingStylePage } from "../WorkingStyle";
+import { TurnsPage } from "../Turns";
+
 export interface LabsInvestigation {
   path: string;
   title: string;
@@ -20,4 +23,6 @@ export const LABS_INVESTIGATIONS: readonly LabsInvestigation[] = [
   { path: "cache-detective", title: "Cache savings", description: "What caching saved against paying full input price.", Component: CacheDetective },
   { path: "context-replay", title: "Context growth", description: "How much sessions grow from their first request to their last.", Component: ContextReplay },
   { path: "quota-pace", title: "Quota pace", description: "A quota window against an even pace, with a range of scenarios.", Component: QuotaPace },
+  { path: "style", title: "Working style", description: "Session shapes and activity patterns.", Component: WorkingStylePage },
+  { path: "turns", title: "Agent turns", description: "Turn depth, autonomy and tool use.", Component: TurnsPage },
 ];

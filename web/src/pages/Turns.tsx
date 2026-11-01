@@ -4,7 +4,7 @@ import { Card, CardHeader, Expandable, InfoTip, Stat, StateBlock, TableShell, Td
 import { Chart } from "../components/Chart";
 import { barChart, lineChart, pairedBarChart, stackedAreaChart, stackedBarChart } from "../components/chartOptions";
 import { useChartStyle } from "../lib/chartStyle";
-import { useFilters } from "../lib/useFilters";
+import { useLabsFilters } from "./labs/shared";
 import { useTheme } from "../lib/theme";
 import { colorAt } from "../lib/palette";
 import { formatInteger, formatNumber, formatPercent, shortPath } from "../lib/format";
@@ -71,7 +71,7 @@ function ToolViews({ data, tools }: { data: TurnsResponse; tools: NonNullable<Tu
 }
 
 export function TurnsPage() {
-  const { filters } = useFilters();
+  const filters = useLabsFilters();
   const { chartTheme } = useTheme();
   const query = useEndpoint<TurnsResponse>("/api/turns", { ...filters, groupBy: "", metric: "" });
   const data = query.data;
