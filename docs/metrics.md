@@ -117,9 +117,9 @@ by total duration in seconds, matching the summary throughput formula. The serve
 returns interpolated p10, p25, p50, p75, p90, p99 and max in
 `/api/performance.speedByModel`. Boxes (p25–p75, median line, p10/p90 whiskers)
 require 10 eligible samples; p99 diamonds require 100. Max is a ring. Below those
-minimums the relevant percentiles are null, never zero. The top 12 models by
-eligible count (ties by name) remain individual; the long tail pools its raw
-samples into Other before computing percentiles. Claude Code contributes no rows.
+minimums the relevant percentiles are null, never zero. Only the top 10 models by
+eligible count (ties by name) appear; less-used models are left out, with no Other
+row. Claude Code contributes no rows.
 The plot uses a linear tok/s axis to keep differences in a narrow range visible.
 
 ## Reliability and retries

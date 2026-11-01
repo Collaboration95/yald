@@ -11,7 +11,7 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 - **Usage over time and top models in one pane.** The ranked list on Overview is now the chart's legend: hover a row to emphasise it, click to isolate it, and click again to restore every series. It follows the Tokens, Cost and Requests switch and the Model, Provider and Effort grouping. A group with no list price reads "—", never $0.00.
 - **Drag across When you work.** The smaller activity grid totals tokens and requests for any weekday and hour range, by mouse, touch or Shift+Arrow. Clicking a cell still lists its busiest dates.
 - **Daily and running spend together.** Cost shows daily bars above a running-total strip on the same dates, and the final total is the page's headline.
-- **Speed by model on Performance.** A Codex-only box plot of output tokens per second, from the new `speedByModel` field on `/api/performance`. Boxes need 10 eligible requests and p99 needs 100.
+- **Speed by model on Performance.** A Codex-only box plot of output tokens per second, from the new `speedByModel` field on `/api/performance`. It shows the 10 most used models. Boxes need 10 eligible requests and p99 needs 100.
 - **More filters.** Provider, Effort and Outcome moved into one toolbar menu, with a count when any of them is active. URL parameters are unchanged.
 
 ### Changed

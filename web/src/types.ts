@@ -315,7 +315,7 @@ export interface PerformanceResponse {
   byModel: BreakdownRow[];
   speedByModel: {
     minimums: { box: number; p99: number };
-    box: { model: string | null; n: number; p10: number | null; p25: number | null; p50: number | null; p75: number | null; p90: number | null; p99: number | null; max: number | null }[];
+    box: { model: string; n: number; p10: number | null; p25: number | null; p50: number | null; p75: number | null; p90: number | null; p99: number | null; max: number | null }[];
   };
   ttftVsOutput: { ttftMs: number; outputTokens: number; model: string; ts: number }[];
   slowest: RequestRow[];

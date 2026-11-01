@@ -54,7 +54,7 @@ export function PerformancePage() {
   }, [outcomes, chartTheme]);
 
   const boxRows = useMemo(() => (data?.speedByModel.box ?? []).map(row => ({
-    label: row.model ?? "Other", n: row.n, p99: row.p99, max: row.max,
+    label: row.model, n: row.n, p99: row.p99, max: row.max,
     box: row.p10 !== null && row.p25 !== null && row.p50 !== null && row.p75 !== null && row.p90 !== null
       ? [row.p10, row.p25, row.p50, row.p75, row.p90] as [number, number, number, number, number] : null,
   })), [data]);
@@ -77,10 +77,10 @@ export function PerformancePage() {
 
       <Card>
         <CardHeader title={<span className="inline-flex items-center gap-1.5">Speed by model
-          <InfoTip label="How to read this chart">Box: p25 to p75 with a line at the median. Whiskers: p10 and p90. Diamond: p99 (100+ requests). Ring: max. Linear scale, output tokens per second. Models need 10 eligible requests; models beyond the top 12 fold into Other.</InfoTip></span>} />
+          <InfoTip label="How to read this chart">Box: p25 to p75 with a line at the median. Whiskers: p10 and p90. Diamond: p99 (100+ requests). Ring: max. Linear scale, output tokens per second. Shows the 10 most used models. Each needs 10 eligible requests.</InfoTip></span>} />
         <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
           {boxOption ? <Chart option={boxOption} height={Math.max(180, drawn * 30 + 50)} /> : <p className="py-8 text-center text-[12px] text-muted">No model has 10 eligible requests yet.</p>}
-          {boxRows.length > drawn ? <p className="mt-2 text-[10.5px] text-muted">{boxRows.length - drawn} model groups have too few requests to draw.</p> : null}
+          {boxRows.length > drawn ? <p className="mt-2 text-[10.5px] text-muted">Too few requests to draw: {boxRows.length - drawn} of {boxRows.length} models.</p> : null}
         </StateBlock>
       </Card>
 

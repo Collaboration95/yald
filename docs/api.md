@@ -276,7 +276,7 @@ HTTP 200. Without an outcome filter, transcript rows retain their volume and cos
 (`box: 10`, `p99: 100`) and `box` rows: `{ model, n, p10, p25, p50,
 p75, p90, p99, max }`. Samples use `throughputEligible(row)` and
 `outputTokens / (durationMs / 1000)`. Models rank by eligible count (name breaks
-ties); the top 12 remain individual and the rest pool into `model: null` (Other).
+ties); only the top 10 are returned, and the rest are left out rather than pooled.
 p10 through p90 are null below 10 samples; p99 is null below 100. Max is the
 observed maximum. No Claude Code rows are included. Existing `byModel`, timing,
 `slowest` and reliability fields remain available independently of the UI.

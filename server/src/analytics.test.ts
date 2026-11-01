@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as analytics from "./analytics";
-import { speedByModel } from "./performanceView";
+import { speedByModel, SPEED_TOP_MODELS } from "./performanceView";
 import type { Dataset, RequestRow } from "./ocx/store";
 import { parseWindow } from "./time/window";
 
@@ -295,12 +295,11 @@ test("speed boxes use eligible output over duration and withhold small samples",
   expect(speedByModel(excluded).box).toEqual([]);
 });
 
-test("speed boxes rank by eligible sample count and pool the long tail", () => {
-  const samples = Array.from({ length: 14 }, (_, i) => Array.from({ length: i < 12 ? 11 : 5 }, () => row({ model: `model-${String(i).padStart(2, "0")}`, outputTokens: i < 13 ? 10 : 30 }))).flat();
-  const boxes = speedByModel(samples).box;
-  expect(boxes).toHaveLength(13);
-  expect(boxes[0]!.model).toBe("model-00");
-  expect(boxes.at(-1)).toMatchObject({ model: null, n: 10, p10: 10, p25: 10, p50: 20, p75: 30, p90: 30, p99: null, max: 30 });
+test("speed boxes keep only the most used models", () => {
+  const samples = Array.from({ length: SPEED_TOP_MODELS + 2 }, (_, i) => Array.from({ length: 30 - i }, () => row({ model: `model-${String(i).padStart(2, "0")}` }))).flat();
+  const boxes = speedByModel(samples.reverse()).box;
+  expect(boxes.map(box => box.model)).toEqual(Array.from({ length: SPEED_TOP_MODELS }, (_, i) => `model-${String(i).padStart(2, "0")}`));
+  expect(boxes[0]!.n).toBe(30);
 });
 
 test("series price coverage distinguishes free and unavailable across Overview groupings", () => {
