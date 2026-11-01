@@ -109,11 +109,24 @@ price/provenance coverage differs from Labs. The normalized `rateIn`, `rateOut`,
 rates, and are never a fallback for Labs net economics. Gross values are not net
 savings and should not be compared as if they had the same eligible population.
 
+## Speed by model
+
+Performance's box plot uses Codex requests passing `throughputEligible`: measured
+positive duration and measured positive output. Each sample is output tokens divided
+by total duration in seconds, matching the summary throughput formula. The server
+returns interpolated p10, p25, p50, p75, p90, p99 and max in
+`/api/performance.speedByModel`. Boxes (p25–p75, median line, p10/p90 whiskers)
+require 10 eligible samples; p99 diamonds require 100. Max is a ring. Below those
+minimums the relevant percentiles are null, never zero. The top 12 models by
+eligible count (ties by name) remain individual; the long tail pools its raw
+samples into Other before computing percentiles. Claude Code contributes no rows.
+The plot uses a linear tok/s axis to keep differences in a narrow range visible.
+
 ## Reliability and retries
 
 Success rate uses observed logical request outcomes, not physical sends or Claude transcript compatibility statuses. Retry overhead is the metered attempt-token volume beyond the logical request's token volume. Metering coverage is reported independently so failed requests without provider usage are not assigned invented costs.
 
-**Outage episodes** group errors (`outcome = error`, so never cancelled or unobserved requests) in time order: a gap of 10 minutes or more (`gapMinutes`) starts a new episode. Only requests with an observed outcome count, which today means opencodex rows; `episodes.coverage` gives the numbers.
+**Outage episodes** remain available in the reliability API but are no longer shown on Performance. They group errors (`outcome = error`, so never cancelled or unobserved requests) in time order: a gap of 10 minutes or more (`gapMinutes`) starts a new episode. Only requests with an observed outcome count, which today means opencodex rows; `episodes.coverage` gives the numbers.
 
 - An episode lists its first and last error, its status and error-code mix, providers, models, and the successful requests inside its span, which separate a hard outage from a partial one. A single error has no duration.
 - `clippedStart` and `ongoing` mark an episode within one gap of the window's start or end. Its size and length are then lower bounds.
