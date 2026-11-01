@@ -90,7 +90,7 @@ export function SessionAnatomySection({ anatomy }: { anatomy: SessionAnatomy }) 
         {rows => <TableShell className="mt-3">
           <thead><tr><Th>Chain</Th><Th>Model</Th><Th align="right">Depth</Th><Th align="right">Requests</Th><Th align="right">Tokens</Th><Th align="right">Priced cost</Th><Th>Spawn</Th></tr></thead>
           <tbody>{rows.map(item => <tr key={item.key}>
-            <Td className="font-medium text-ink"><button type="button" onClick={() => setSelected(item.key)} className="text-info hover:underline">{chainName(item)}</button></Td>
+            <Td className="font-medium text-ink"><button type="button" onClick={() => setSelected(item.key)} className="text-ink hover:text-accent hover:underline">{chainName(item)}</button></Td>
             <Td className="max-w-[180px] truncate">{item.model ?? "—"}</Td>
             <Td align="right">{item.depth ?? "—"}</Td>
             <Td align="right">{formatInteger(item.requests)}</Td>

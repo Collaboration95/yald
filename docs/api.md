@@ -145,7 +145,7 @@ curl -s 'http://127.0.0.1:4318/api/report?from=2026-10-11T09:00:00%2B08:00&to=20
 | `GET /api/context` | Shared | Context length per `(source, model)`, over time, by band, above thresholds and as session growth, each with eligible coverage; see [`GET /api/context`](#get-apicontext) |
 | `GET /api/cost` | Shared | Summary, cost composition (with `adjustment`), `pricedTokens`, cost series/cumulative totals, cache savings, breakdowns, the ten costliest sessions across all sessions |
 | `GET /api/cost/structure` | Shared; `bucket` | Session cost concentration, blended price by price tier over time and token-class cost mix per source, priced rows only; see [`GET /api/cost/structure`](#get-apicoststructure) |
-| `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, TTFT/output points, slowest rows |
+| `GET /api/performance` | Shared | Latency timeline, histograms, percentiles, model breakdown, `speedByModel` (below), TTFT/output points, slowest rows |
 | `GET /api/subagents` | Shared | [Subagents](metrics.md#subagents): `claude` with `labelledShare`, `shares` per agent kind, `overTime`, `fanOut`, `byType`, `byDepth`, `startup` (capped `points`), `byProject` and `byModel`; `codex` with `rootThread` and `subagentThread` |
 | `GET /api/turns` | Shared | [Agent turns](metrics.md#agent-turns-and-tools), Claude Code only: `coverage`, `turns` (depth bins with share of turns and of priced cost, recorded ends), `autonomy` (null without prompt counts), `tools` (null without transcript structure), `overTime`, `stops`. Names and counts only |
 | `GET /api/style` | Shared | [Working style](metrics.md#working-style): `archetypes` with shares of sessions, requests and priced cost, `concurrency`, `activity` (days with data, streaks), `hours`, `night` and `totals` |
@@ -271,6 +271,15 @@ JSON in quoted cells.
 `outcome` and the shared `statuses` filter accept `unobserved` in addition to `ok`,
 `error` and `cancelled`. An observed outcome filter never selects Claude's synthetic
 HTTP 200. Without an outcome filter, transcript rows retain their volume and cost.
+
+`/api/performance.speedByModel` is Codex-only and contains `minimums`
+(`box: 10`, `p99: 100`) and `box` rows: `{ model, n, p10, p25, p50,
+p75, p90, p99, max }`. Samples use `throughputEligible(row)` and
+`outputTokens / (durationMs / 1000)`. Models rank by eligible count (name breaks
+ties); only the top 10 are returned, and the rest are left out rather than pooled.
+p10 through p90 are null below 10 samples; p99 is null below 100. Max is the
+observed maximum. No Claude Code rows are included. Existing `byModel`, timing,
+`slowest` and reliability fields remain available independently of the UI.
 
 Summaries, model breakdown rows, `/api/performance` and `/api/reliability` expose
 `measurementCoverage`: `totalRequests`, plus `{eligibleRequests, totalRequests}`

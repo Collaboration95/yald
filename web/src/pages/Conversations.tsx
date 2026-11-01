@@ -2,10 +2,11 @@ import { SessionAnatomySection } from "./SessionAnatomy";
 import { useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, MessagesSquare } from "lucide-react";
-import { conversationLink, sourceLabel, useEndpoint, useSessionTitles } from "../api";
+import { sourceLabel, useEndpoint, useSessionTitles } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { Badge, Card, CardHeader, Expandable, ModelTag, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { SessionLink } from "../components/SessionLink";
 import { Chart } from "../components/Chart";
 import { lineChart } from "../components/chartOptions";
 import { formatCompact, formatDuration, formatInteger, formatRelative, formatShortDate, formatUsd, sessionLabel, shortPath } from "../lib/format";
@@ -36,10 +37,8 @@ export function ConversationsPage() {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3">
         <Stat label="Sessions" value={data ? formatInteger(data.totals.conversations) : "—"} icon={<MessagesSquare size={13} />} />
-        <Stat label="Median requests" value={data?.totals.medianRequests ? formatInteger(data.totals.medianRequests) : "—"} hint="per session" tone="info" />
-        <Stat label="Median tokens" value={data?.totals.medianTokens ? formatCompact(data.totals.medianTokens) : "—"} hint="per session" tone="good" />
       </div>
 
       <Card>
@@ -67,9 +66,7 @@ export function ConversationsPage() {
                   {rows.map(session => (
                     <tr key={JSON.stringify([session.source, session.id])} className="transition hover:bg-surface-2">
                       <Td className="max-w-[260px]">
-                        <Link to={conversationLink(session, search)} className="block truncate font-medium text-info hover:underline" title={session.project ?? session.id}>
-                          {sessionTitle(session, titles) ?? sessionLabel(session)}
-                        </Link>
+                        <SessionLink session={session} search={search} />
                         <span className="block truncate text-[10.5px] text-muted">{sessionTitle(session, titles) ? `${sessionLabel(session)} · ` : ""}{sourceLabel(session.source)} · {formatShortDate(session.startedAt)}</span>
                       </Td>
                       <Td className="max-w-[240px]">
@@ -150,7 +147,7 @@ export function ConversationDetailPage() {
       {data ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
           <Stat label="Requests" value={formatInteger(data.summary.requests)} />
-          <Stat label="Tokens" value={formatCompact(data.summary.tokens.total)} hint={formatCompact(data.summary.tokens.cacheRead) + " cached"} tone="good" />
+          <Stat label="Tokens" value={formatCompact(data.summary.tokens.total)} exact={formatInteger(data.summary.tokens.total)} hint={formatCompact(data.summary.tokens.cacheRead) + " cached"} tone="good" />
           <Stat label="Cost" value={data.summary.pricedRequests > 0 ? formatUsd(data.summary.cost) : "—"} tone="good" />
           <Stat label="Span" value={data.points.length ? formatDuration(data.points[data.points.length - 1]!.ts - data.points[0]!.ts) : "—"} hint={data.points.length ? `from ${formatShortDate(data.points[0]!.ts)}` : undefined} icon={<MessagesSquare size={13} />} />
           {timed ? <Stat label="Median latency" tag="Codex only" value={formatDuration(data.summary.latency.p50)} hint={"p95 " + formatDuration(data.summary.latency.p95)} tone="info" /> : null}

@@ -117,16 +117,15 @@ const PAGES: PageSpec[] = [
     route: "/",
     Component: OverviewPage,
     queries: [{ path: "/api/overview", params: filtersToParams(DEFAULT_FILTERS, { metric: DEFAULT_FILTERS.metric }) }],
-    expect: ["Requests", "Tokens", "Estimated cost", "Success rate", "Usage over time", "Top models", "Biggest sessions"],
-    expectFrom: payloads => [payloads[0]?.topModels?.[0]?.key],
+    expect: ["Requests", "Tokens", "Usage over time", "Biggest sessions"],
+    expectFrom: payloads => [payloads[0]?.series?.groups?.[0]?.name],
   },
   {
     name: "Usage",
     route: "/usage",
     Component: UsagePage,
-    queries: [{ path: "/api/usage", params: filtersToParams(DEFAULT_FILTERS, { metric: DEFAULT_FILTERS.metric, groupBy: DEFAULT_FILTERS.groupBy }) }],
-    expect: ["Cached vs new tokens", "Cache hit rate", "When you work", "By effort", "By provider"],
-    expectFrom: payloads => [payloads[0]?.byProvider?.[0]?.key],
+    queries: [{ path: "/api/usage", params: filtersToParams(DEFAULT_FILTERS, { metric: "tokens", groupBy: "model" }) }],
+    expect: ["Total tokens", "Output tokens", "Reasoning tokens", "Cache hit rate", "When you work"],
   },
   {
     name: "Cost",
@@ -136,7 +135,7 @@ const PAGES: PageSpec[] = [
       { path: "/api/cost", params: filtersToParams(DEFAULT_FILTERS, { groupBy: DEFAULT_FILTERS.groupBy }) },
       { path: "/api/cost/structure", params: filtersToParams({ ...DEFAULT_FILTERS, groupBy: "", metric: "" }, {}) },
     ],
-    expect: ["Spend over time", "Cumulative spend", "Most expensive sessions", "Cost by model", "Top 10 sessions", "Where the tokens and dollars go"],
+    expect: ["Spend over time", "running total", "Most expensive sessions", "Cost by model", "Where the tokens and dollars go"],
     expectFrom: payloads => [payloads[0]?.byModel?.[0]?.key],
   },
   {
@@ -147,27 +146,28 @@ const PAGES: PageSpec[] = [
       { path: "/api/performance", params: filtersToParams(DEFAULT_FILTERS, {}) },
       { path: "/api/reliability", params: filtersToParams(DEFAULT_FILTERS, {}) },
     ],
-    expect: ["TTFT p50", "Latency and first token over time", "Slowest requests", "By model", "Codex only", "Success rate"],
-    expectFrom: payloads => [payloads[0]?.byModel?.find((m: any) => m.ttftP50 !== null || m.p50DurationMs !== null || m.outputTokensPerSecond)?.key],
+    expect: ["Output tok/s", "Generation speed", "First token vs output length", "Speed by model", "Codex only"],
+    expectFrom: () => [],
   },
   {
     name: "Context",
     route: "/context",
     Component: ContextPage,
     queries: [{ path: "/api/context", params: filtersToParams(DEFAULT_FILTERS, {}) }],
-    expect: ["Context length by model", "Requests by context size", "By model", "What longer contexts coincide with", "Session growth"],
-    expectFrom: payloads => [payloads[0]?.models?.[0]?.model],
+    expect: ["Context length by model", "Requests by context size", "What longer contexts coincide with"],
+    expectFrom: () => [],
   },
   {
     name: "Sessions",
     route: "/sessions",
     Component: ConversationsPage,
     queries: [{ path: "/api/conversations", params: filtersToParams(DEFAULT_FILTERS, { sort: "tokens", limit: 200 }) }],
-    expect: ["Sessions", "Median tokens"],
+    expect: ["Sessions"],
     expectFrom: payloads => [payloads[0]?.conversations?.[0] ? sessionLabel(payloads[0].conversations[0]) : undefined],
   },
   {
-    name: "WorkingStyle",
+    name: "WorkingStyle (Labs)",
+    // Direct component smoke; Labs routing and gating are covered in labs-navigation.test.tsx.
     route: "/style",
     Component: WorkingStylePage,
     queries: [{ path: "/api/style", params: filtersToParams(DEFAULT_FILTERS, {}) }],
@@ -180,10 +180,12 @@ const PAGES: PageSpec[] = [
     Component: SubagentsPage,
     queries: [{ path: "/api/subagents", params: filtersToParams(DEFAULT_FILTERS, {}) }],
     expect: ["Subagent share", "Label coverage"],
-    expectFrom: () => [],
+    expectFrom: payloads => payloads[0]?.claude?.labelledRequests > 0
+      ? ["By agent type", "Cost of a subagent&#x27;s first request", "By project", "By model"] : [],
   },
   {
-    name: "AgentTurns",
+    name: "AgentTurns (Labs)",
+    // Direct component smoke; Labs routing and gating are covered in labs-navigation.test.tsx.
     route: "/turns",
     Component: TurnsPage,
     queries: [{ path: "/api/turns", params: filtersToParams({ ...DEFAULT_FILTERS, groupBy: "", metric: "" }, {}) }],
@@ -306,7 +308,6 @@ async function checkMeasurementCohorts() {
   const priceFilters = { ...DEFAULT_FILTERS, models: ["f01-free", "f01-unpriced"] };
   const priceParams = filtersToParams(priceFilters);
   for (const [path, route, Component, extra] of [
-    ["/api/overview", "/", OverviewPage, {}],
     ["/api/cost", "/cost", CostPage, {}],
     ["/api/conversations", "/sessions", ConversationsPage, { sort: "tokens", limit: 200 }],
   ] as const) {

@@ -1,3 +1,4 @@
+import { motionDuration, reducedMotion } from "../lib/motion";
 import { useChartStyle } from "../lib/chartStyle";
 import { clsx } from "clsx";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -74,11 +75,22 @@ export function CoverageBadge({ sample, what = "measured" }: { sample: { eligibl
 export function Expandable<T>({ items, limit = 8, children }: { items: T[]; limit?: number; children: (rows: T[]) => ReactNode }) {
   const [all, setAll] = useState(false);
   const rows = all ? items : items.slice(0, limit);
+  const ref = useRef<HTMLDivElement>(null);
+  const previous = useRef<number | null>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const height = element.getBoundingClientRect().height;
+    if (previous.current !== null && !reducedMotion()) {
+      element.animate([{ height: `${previous.current}px` }, { height: `${height}px` }], { duration: motionDuration("normal"), easing: "ease-out" });
+    }
+    previous.current = height;
+  }, [all]);
   return (
     <>
-      {children(rows)}
+      <div ref={ref} className="expandable-content">{children(rows)}</div>
       {items.length > limit ? (
-        <button type="button" onClick={() => setAll(current => !current)} className="mt-2 text-[11.5px] font-medium text-accent hover:underline">
+        <button type="button" onClick={() => { previous.current = ref.current?.getBoundingClientRect().height ?? null; setAll(current => !current); }} className="mt-2 text-[11.5px] font-medium text-accent hover:underline">
           {all ? "Show fewer" : `Show all ${items.length.toLocaleString("en-US")}`}
         </button>
       ) : null}
@@ -116,9 +128,11 @@ export function Stat({
   tone = "neutral",
   info,
   tag,
+  exact,
 }: {
   label: string;
   value: ReactNode;
+  exact?: string;
   hint?: ReactNode;
   delta?: number | null;
   deltaTone?: "auto" | "inverse" | "none";
@@ -130,6 +144,7 @@ export function Stat({
   /** Short scope tag next to the label, e.g. "Codex only". */
   tag?: string;
 }) {
+  const [pinned, setPinned] = useState(false);
   const deltaColor = delta === null || delta === undefined
     ? "text-muted"
     : deltaTone === "none"
@@ -148,7 +163,7 @@ export function Stat({
     violet: "bg-violet",
   };
   return (
-    <div className="card stat-card relative overflow-hidden p-3.5" data-stat={label} data-tone={tone}>
+    <div className="card stat-card relative overflow-hidden p-3.5" data-stat={label} data-tone={tone} role="group" aria-label={exact ? `${label}: ${exact}` : label} data-exact={pinned || undefined} tabIndex={0} onClick={event => { if (!(event.target as HTMLElement).closest("button, a")) setPinned(current => !current); }} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); setPinned(current => !current); } }}>
       <div className={clsx("stat-accent absolute left-0 top-0 h-full w-[3px]", accentBar[tone])} />
       <div className="flex items-start justify-between gap-2">
         <p className="stat-label flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.04em] text-muted">
@@ -157,7 +172,7 @@ export function Stat({
         </p>
         {icon ? <span className="text-muted">{icon}</span> : null}
       </div>
-      <p className="stat-value num mt-2 text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink">{value}</p>
+      <p className="stat-value num mt-2 text-[22px] font-semibold leading-none tracking-[-0.02em] text-ink"><span className="stat-compact"><StatValue value={value} /></span>{exact ? <span className="stat-exact">{exact}</span> : null}</p>
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="stat-hint flex min-w-0 items-center gap-1.5 truncate text-[11px] text-muted">{tag ? <Badge className="normal-case tracking-normal">{tag}</Badge> : null}{hint}</div>
         {delta !== undefined ? (
@@ -169,6 +184,36 @@ export function Stat({
       {spark && spark.length > 1 ? <MiniSpark values={spark} className="mt-2.5" /> : null}
     </div>
   );
+}
+
+function StatValue({ value }: { value: ReactNode }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const started = useRef(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof value !== "string" || !/\d/.test(value)) return;
+    if (started.current) { element.textContent = value; return; }
+    started.current = true;
+    if (element.closest('[data-updating="true"]')) return;
+    if (reducedMotion()) return;
+    const match = value.match(/[\d,.]+/);
+    if (!match) return;
+    const target = Number(match[0].replaceAll(",", ""));
+    if (!Number.isFinite(target)) return;
+    const decimals = match[0].split(".")[1]?.length ?? 0;
+    let frame = 0;
+    const start = performance.now();
+    const duration = Math.max(1, motionDuration("enter"));
+    const tick = (now: number) => {
+      if (reducedMotion() || element.closest('[data-updating="true"]')) { element.textContent = value; return; }
+      const progress = Math.min(1, (now - start) / duration);
+      element.textContent = progress === 1 ? value : value.replace(match[0], (target * (1 - (1 - progress) ** 3)).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+  return <span ref={ref}>{value}</span>;
 }
 
 export function MiniSpark({ values, className, color = "var(--accent)" }: { values: number[]; className?: string; color?: string }) {
@@ -188,8 +233,23 @@ export function MiniSpark({ values, className, color = "var(--accent)" }: { valu
 }
 
 export function Segmented<T extends string>({ value, options, onChange, size = "md" }: { value: T; options: { id: T; label: string }[]; onChange: (value: T) => void; size?: "sm" | "md" }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState({ left: 2, width: 0 });
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const active = element.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+      setThumb({ left: active?.offsetLeft ?? 2, width: active?.offsetWidth ?? 0 });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [value]);
   return (
-    <div className="segmented flex items-center gap-0.5 rounded-lg bg-surface-3 p-0.5">
+    <div ref={ref} className="segmented flex items-center gap-0.5 rounded-lg bg-surface-3 p-0.5">
+      <span aria-hidden="true" className="segmented-thumb" style={{ width: thumb.width, transform: `translateX(${thumb.left}px)` }} />
       {options.map(option => (
         <button
           key={option.id}
@@ -199,7 +259,7 @@ export function Segmented<T extends string>({ value, options, onChange, size = "
           className={clsx(
             "rounded-[7px] font-medium transition",
             size === "sm" ? "px-2 py-[3px] text-[11px]" : "px-2.5 py-1 text-[11.5px]",
-            value === option.id ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink-soft",
+            value === option.id ? "text-ink" : "text-muted hover:text-ink-soft",
           )}
         >
           {option.label}
@@ -213,6 +273,13 @@ export function Popover({ label, children, active, width = 280, align = "right",
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const [present, setPresent] = useState(false);
+  useEffect(() => {
+    if (open) { setPresent(true); return; }
+    if (reducedMotion()) { setPresent(false); return; }
+    const timer = setTimeout(() => setPresent(false), motionDuration("fast"));
+    return () => clearTimeout(timer);
+  }, [open]);
   const id = useId();
 
   useEffect(() => {
@@ -251,10 +318,12 @@ export function Popover({ label, children, active, width = 280, align = "right",
         {label}
         {chevron ? <ChevronDown size={12} className={clsx("transition", open && "rotate-180")} /> : null}
       </button>
-      {open ? (
+      {open || present ? (
         <div
+          inert={!open}
+          data-open={open}
           id={id}
-          className={clsx("fade-in absolute z-40 mt-1.5 max-h-[380px] overflow-auto rounded-xl border border-line bg-surface p-2 shadow-xl", align === "right" ? "right-0" : "left-0")}
+          className={clsx("popover-panel absolute z-40 mt-1.5 max-h-[380px] overflow-auto rounded-xl border border-line bg-surface p-2 shadow-xl", align === "right" ? "right-0" : "left-0")}
           style={{ width, maxWidth: "calc(100vw - 1.5rem)" }}
         >
           {children}
@@ -323,7 +392,7 @@ export function ProgressBar({ value, max = 1, tone = "accent", className }: { va
   const percent = Math.max(0, Math.min(100, (value / (max || 1)) * 100));
   return (
     <div className={clsx("h-1.5 w-full overflow-hidden rounded-full bg-surface-3", className)}>
-      <div className={clsx("h-full rounded-full transition-all", tones[tone])} style={{ width: `${percent}%` }} />
+      <div className={clsx("progress-fill h-full rounded-full", tones[tone])} style={{ width: `${percent}%` }} />
     </div>
   );
 }

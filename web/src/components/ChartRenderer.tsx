@@ -1,3 +1,4 @@
+import { motionDuration, reducedMotion } from "../lib/motion";
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
 import { BarChart, BoxplotChart, CustomChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart } from "echarts/charts";
@@ -9,10 +10,11 @@ import type { ChartProps } from "./Chart";
 
 echarts.use([BarChart, BoxplotChart, CustomChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart, DataZoomComponent, GraphicComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, TooltipComponent, VisualMapComponent, CanvasRenderer]);
 
-export function ChartRenderer({ option, height = 260, className, onEvents, loading }: ChartProps) {
+export function ChartRenderer({ option, height = 260, className, onEvents, loading, highlightedSeries }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const { theme } = useTheme();
+  const hasDrawn = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -30,8 +32,20 @@ export function ChartRenderer({ option, height = 260, className, onEvents, loadi
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    chart.setOption(option, { notMerge: true, lazyUpdate: true });
+    const animate = option.animation !== false && !hasDrawn.current && !loading && !containerRef.current?.closest('[data-updating="true"]') && !reducedMotion();
+    const series = option.series;
+    chart.setOption({ ...option, animation: animate, animationDuration: motionDuration("enter"), animationDurationUpdate: 0,
+      series: Array.isArray(series) ? series.map(item => ({ ...item, stateAnimation: { duration: motionDuration("normal") }, animation: animate && item.animation !== false, animationDuration: motionDuration("enter"), animationDurationUpdate: 0 })) : series,
+    }, { notMerge: true, lazyUpdate: true });
+    if (!loading) hasDrawn.current = true;
   }, [option, theme]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.dispatchAction({ type: "downplay" });
+    if (highlightedSeries) chart.dispatchAction({ type: "highlight", seriesName: highlightedSeries });
+  }, [highlightedSeries, option, theme]);
 
   useEffect(() => {
     const chart = chartRef.current;
