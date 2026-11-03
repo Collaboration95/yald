@@ -79,7 +79,7 @@ export interface Series {
   bucket: "hour" | "day" | "week";
   metric: string;
   groupBy: string;
-  groups: { name: string; total: number }[];
+  groups: { name: string; total: number; pricedRequests?: number }[];
   buckets: SeriesBucket[];
 }
 
@@ -313,6 +313,10 @@ export interface PerformanceResponse {
     throughput: { p50: number | null; p10: number | null; mean: number | null };
   };
   byModel: BreakdownRow[];
+  speedByModel: {
+    minimums: { box: number; p99: number };
+    box: { model: string; n: number; p10: number | null; p25: number | null; p50: number | null; p75: number | null; p90: number | null; p99: number | null; max: number | null }[];
+  };
   ttftVsOutput: { ttftMs: number; outputTokens: number; model: string; ts: number }[];
   slowest: RequestRow[];
   context: { buckets: { name: string; value: number }[]; maxInput: number; p50Input: number | null; p95Input: number | null; eligibleRequests: number; totalRequests: number };

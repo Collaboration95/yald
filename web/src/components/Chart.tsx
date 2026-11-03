@@ -10,6 +10,7 @@ export interface ChartProps {
   className?: string;
   onEvents?: Record<string, (params: unknown) => void>;
   loading?: boolean;
+  highlightedSeries?: string | null;
 }
 
 const ChartRenderer = lazy(() => import("./ChartRenderer").then(module => ({ default: module.ChartRenderer })));

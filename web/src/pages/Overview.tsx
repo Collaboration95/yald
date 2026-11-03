@@ -1,15 +1,19 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, CircleDollarSign, Flame, Gauge, Layers, Timer, Zap } from "lucide-react";
-import { conversationLink, sourceLabel, useEndpoint } from "../api";
+import { Activity, Flame, Layers } from "lucide-react";
+import { filtersKey, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
 import { usePreferences } from "../lib/preferences";
-import { Badge, Card, CardHeader, InfoTip, MiniSpark, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { Badge, Card, CardHeader, InfoTip, MiniSpark, ProgressBar, Segmented, Stat, StateBlock } from "../components/ui";
+import { SessionLink } from "../components/SessionLink";
 import { Chart } from "../components/Chart";
 import { stackedAreaChart } from "../components/chartOptions";
-import { formatCompact, formatCountdown, formatDuration, formatInteger, formatPercent, formatRelative, formatShortDate, formatUsd, quotaLabel, sessionLabel } from "../lib/format";
+import { formatCompact, formatCountdown, formatInteger, formatPercent, formatRelative, formatUsd, quotaLabel } from "../lib/format";
 import type { OverviewResponse } from "../types";
+import { useChartStyle } from "../lib/chartStyle";
+import { colorAt } from "../lib/palette";
+import { overviewSeries, planAccounts } from "../lib/overviewUsage";
 import { displayNow } from "../lib/demo";
 
 const STALE_QUOTA_MS = 24 * 3_600_000;
@@ -25,155 +29,43 @@ export function OverviewPage() {
   const query = useEndpoint<OverviewResponse>("/api/overview", filters, { metric, groupBy });
   const data = query.data;
 
+  const design = useChartStyle();
+  const [isolated, setIsolated] = useState<string | null>(null);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const scopeKey = filtersKey(filters);
+  useEffect(() => { setIsolated(null); setHighlighted(null); }, [scopeKey, metric, groupBy]);
+  useEffect(() => {
+    if (data && isolated && !data.series.groups.some(group => group.name === isolated)) setIsolated(null);
+  }, [data, isolated]);
+  const colors = useMemo(() => Object.fromEntries((data?.series.groups ?? []).map((group, index) => [group.name, group.name === "Other" ? "#64748b" : colorAt(index)])), [data]);
+
   const seriesOption = useMemo(() => {
     if (!data) return null;
     const labels = data.series.buckets.map(bucket => bucket.label);
-    const names = data.series.groups.map(group => group.name);
-    const series = names.map(name => ({
-      name,
-      data: data.series.buckets.map(bucket => bucket.groups[name] ?? 0),
-    }));
+    const series = overviewSeries(data.series, isolated);
     const formatter = metric === "cost" ? (value: number) => formatUsd(value) : (value: number) => formatCompact(value);
-    return stackedAreaChart(chartTheme, labels, series, { formatter });
-  }, [data, chartTheme, metric]);
+    return stackedAreaChart(chartTheme, labels, series, { formatter, showLegend: false, colors });
+  }, [data, chartTheme, metric, isolated, colors]);
 
   const summary = data?.summary;
-  const unpricedShare = summary ? summary.unpricedRequests / Math.max(1, summary.requests) : 0;
   const quotaWindows = data?.quotaScope.available === false ? [] : data?.quota.windows ?? [];
 
+  const accounts = planAccounts(quotaWindows);
+
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Stat
-          label="Requests"
-          value={summary ? formatInteger(summary.requests) : "—"}
-          hint={summary && summary.errors > 0 ? `${formatInteger(summary.errors)} failed` : undefined}
-          delta={data?.deltas.requests}
-          deltaTone="none"
-          spark={data?.sparkline.requests}
-          icon={<Layers size={13} />}
-        />
-        <Stat
-          label="Tokens"
-          value={summary ? formatCompact(summary.tokens.total) : "—"}
-          hint={summary ? `${formatCompact(summary.tokens.output)} output` : undefined}
-          delta={data?.deltas.tokens}
-          deltaTone="none"
-          spark={data?.sparkline.tokens}
-          icon={<Activity size={13} />}
-        />
-        <Stat
-          label="Estimated cost"
-          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cost) : "—"}
-          info={unpricedShare >= 0.05 && summary ? `${formatInteger(summary.unpricedRequests)} of ${formatInteger(summary.requests)} requests have no list price (subscription or free routes) and add no dollars. Costs are API list-price equivalents, not a bill.` : "API list-price equivalents, not a bill."}
-          delta={data?.deltas.cost}
-          deltaTone="none"
-          spark={data?.sparkline.cost}
-          tone="good"
-          icon={<CircleDollarSign size={13} />}
-        />
-        <Stat
-          label="Success rate"
-          tag="Codex only"
-          value={summary ? formatPercent(summary.successRate) : "—"}
-          delta={data?.deltas.successRate}
-          tone={summary && summary.successRate !== null && summary.successRate < 0.95 ? "warn" : "neutral"}
-          icon={<Gauge size={13} />}
-        />
-        <Stat
-          label="Median TTFT"
-          tag="Codex only"
-          value={summary ? formatDuration(summary.ttft.p50) : "—"}
-          delta={data?.deltas.ttftP50}
-          deltaTone="inverse"
-          tone="info"
-          icon={<Timer size={13} />}
-        />
-        <Stat
-          label="Cache savings"
-          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cache.savingsUsd) : "—"}
-          hint={summary && summary.cache.hitRate !== null ? `${formatPercent(summary.cache.hitRate, 0)} cache hit` : undefined}
-          info="What caching saved against paying the full input price for every cached token."
-          delta={data?.deltas.cacheHitRate}
-          deltaTone="none"
-          tone="good"
-          icon={<Zap size={13} />}
-        />
-      </div>
-
-      <Card>
-        <CardHeader
-          title="Usage over time"
-          action={
-            <div className="flex items-center gap-1.5">
-              <Segmented
-                size="sm"
-                value={metric}
-                options={[
-                  { id: "tokens", label: "Tokens" },
-                  { id: "cost", label: "Cost" },
-                  { id: "requests", label: "Requests" },
-                ]}
-                onChange={value => set({ metric: value })}
-              />
-              <Segmented
-                size="sm"
-                value={groupBy}
-                options={[
-                  { id: "model", label: "Model" },
-                  { id: "provider", label: "Provider" },
-                  { id: "effort", label: "Effort" },
-                ]}
-                onChange={groupBy => set({ groupBy })}
-              />
-            </div>
-          }
-        />
-        <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
-          {seriesOption ? <Chart option={seriesOption} height={288} /> : null}
-        </StateBlock>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader
-            title="Top models"
-            action={<Link to={{ pathname: "/cost", search }} className="text-[11px] font-medium text-accent">All models</Link>}
-          />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topModels.length === 0}>
-            <TableShell>
-              <thead>
-                <tr>
-                  <Th>Model</Th>
-                  <Th align="right">Tokens</Th>
-                  <Th align="right">Share</Th>
-                  <Th align="right">Cost</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.topModels.slice(0, 6).map(model => (
-                  <tr key={model.key} className="transition hover:bg-surface-2">
-                    <Td className="max-w-[260px]"><ModelTag model={model.key} /></Td>
-                    <Td align="right">{formatCompact(model.tokens)}</Td>
-                    <Td align="right">{formatPercent(model.share, 0)}</Td>
-                    <Td align="right">{model.pricedRequests > 0 ? formatUsd(model.cost) : <span className="text-muted">—</span>}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </TableShell>
-          </StateBlock>
-        </Card>
-
-        <div className="space-y-3">
-          {quotaWindows.length > 0 ? (
-            <Card>
-              <CardHeader
-                title={<span className="inline-flex items-center gap-1.5">Plan usage
-                  <InfoTip label="About plan usage">An account-wide reading from opencodex, or from Codex rollouts where marked. It is not one project's own usage, so filters do not narrow it.</InfoTip></span>}
-                action={labsEnabled ? <Link to="/labs/quota-pace" className="text-[11px] font-medium text-accent">Pace</Link> : undefined}
-              />
-              <ul className="space-y-3">
-                {quotaWindows.map(window => {
+    <div className="space-y-3 editorial editorial-overview">
+      <div className="overview-lead space-y-3">
+        {quotaWindows.length > 0 ? (
+          <Card>
+            <CardHeader
+              title={<span className="inline-flex items-center gap-1.5">Plan usage
+                <InfoTip label="About plan usage">An account-wide reading from opencodex, or from Codex rollouts where marked. It is not one project's own usage, so filters do not narrow it.</InfoTip></span>}
+              action={labsEnabled ? <Link to="/labs/quota-pace" className="text-[11px] font-medium text-accent">Pace</Link> : undefined}
+            />
+            <p className="mb-2 text-[11px] text-muted">Codex · latest observed account first; active account is not reported by the source.</p>
+            {accounts.map((account, index) => {
+              const rows = <ul className="space-y-3">
+                {account.windows.map(window => {
                   const burn = data?.quota.burn.find(entry => entry.account === window.account && entry.window === window.window);
                   const tone = window.usedPercent >= 90 ? "bad" : window.usedPercent >= 70 ? "warn" : "accent";
                   const now = displayNow();
@@ -182,8 +74,8 @@ export function OverviewPage() {
                   return (
                     <li key={`${window.account}-${window.window}`}>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-[11.5px] font-medium text-ink">{quotaLabel(window.window)}</p>
-                        <span className="num text-[12px] font-semibold text-ink">{window.usedPercent}% used</span>
+                        <p className="truncate text-[11.5px] font-medium text-ink">Codex · Account {account.number} · {quotaLabel(window.window)}</p>
+                        <span className="num text-[12px] font-semibold text-ink">{stale ? `${window.usedPercent}% at last reading` : `${window.usedPercent}% used`}</span>
                       </div>
                       <ProgressBar value={window.usedPercent} max={100} tone={tone} className="mt-1.5" />
                       {history.length > 1 ? <MiniSpark values={history.map(point => point.usedPercent)} className="mt-1 h-5 w-full" /> : null}
@@ -196,26 +88,97 @@ export function OverviewPage() {
                     </li>
                   );
                 })}
-              </ul>
-            </Card>
-          ) : null}
-          <Card>
-            <CardHeader title="Biggest sessions" action={<Link to={{ pathname: "/sessions", search }} className="text-[11px] font-medium text-accent">All</Link>} />
-            <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
-              <ul className="space-y-2">
-                {data?.topConversations.slice(0, 5).map(session => (
-                  <li key={JSON.stringify([session.source, session.id])} className="flex items-center justify-between gap-2">
-                    <Link to={conversationLink(session, search)} className="min-w-0 truncate text-[11.5px] text-info hover:underline" title={`${session.project ?? session.id} · ${sourceLabel(session.source)}`}>
-                      {sessionLabel(session)} <span className="text-[10.5px] text-muted">· {formatShortDate(session.startedAt)}</span>
-                    </Link>
-                    <span className="num shrink-0 text-[11px] text-muted">{formatCompact(session.tokens)}</span>
-                  </li>
-                ))}
-              </ul>
-            </StateBlock>
+              </ul>;
+              return index === 0 ? <div key={account.key}>{rows}</div> : <details key={account.key} className="mt-3"><summary className="cursor-pointer text-[11px] text-muted">Codex · Account {account.number}</summary><div className="mt-2">{rows}</div></details>;
+            })}
           </Card>
-        </div>
+        ) : null}
+
+        <Card>
+          <CardHeader
+            title={<span className="inline-flex items-center gap-1.5">Usage over time{metric === "cost" ? <InfoTip label="About cost">API list-price equivalents, not a bill. {summary && summary.unpricedRequests > 0 ? `${formatInteger(summary.unpricedRequests)} of ${formatInteger(summary.requests)} requests have no list price and add no dollars.` : ""}</InfoTip> : null}</span>}
+            action={
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Segmented
+                  size="sm"
+                  value={metric}
+                  options={[
+                    { id: "tokens", label: "Tokens" },
+                    { id: "cost", label: "Cost" },
+                    { id: "requests", label: "Requests" },
+                  ]}
+                  onChange={value => set({ metric: value })}
+                />
+                <Segmented
+                  size="sm"
+                  value={groupBy}
+                  options={[
+                    { id: "model", label: "Model" },
+                    { id: "provider", label: "Provider" },
+                    { id: "effort", label: "Effort" },
+                  ]}
+                  onChange={groupBy => set({ groupBy })}
+                />
+              </div>
+            }
+          />
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(180px,1fr)]">
+              {seriesOption ? <Chart option={seriesOption} height={288} highlightedSeries={highlighted} /> : null}
+              <ul className="space-y-1" aria-label="Usage series">
+                {data?.series.groups.map(group => <li key={group.name}><button type="button" aria-pressed={isolated === group.name}
+                  style={{ opacity: (highlighted ?? isolated) && (highlighted ?? isolated) !== group.name ? 0.35 : 1 }} className="usage-series-row flex w-full items-center gap-2 rounded p-2 text-left text-[11px] hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+                  onMouseEnter={() => setHighlighted(group.name)} onMouseLeave={() => setHighlighted(null)} onFocus={() => setHighlighted(group.name)} onBlur={() => setHighlighted(null)}
+                  onClick={() => setIsolated(current => current === group.name ? null : group.name)}>
+                  <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: design?.colorFor(group.name, colors[group.name]!) ?? colors[group.name] }} />
+                  <span className="min-w-0 flex-1 truncate">{group.name}</span><span className="num">{metric === "cost" ? (group.pricedRequests ? formatUsd(group.total) : "—") : formatCompact(group.total)}</span>
+                  <span className="num text-muted">{metric === "cost" && !group.pricedRequests ? "—" : formatPercent(group.total / Math.max(1e-9, data.series.groups.reduce((sum, row) => sum + row.total, 0)), 0)}</span>
+                </button></li>)}
+              </ul>
+            </div>
+          </StateBlock>
+        </Card>
+
       </div>
+      <aside className="overview-aside space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Stat
+            label="Requests"
+            value={summary ? formatInteger(summary.requests) : "—"}
+            hint={summary && summary.errors > 0 ? `${formatInteger(summary.errors)} failed` : undefined}
+            delta={data?.deltas.requests}
+            deltaTone="none"
+            spark={data?.sparkline.requests}
+            icon={<Layers size={13} />}
+          />
+          <Stat
+            label="Tokens"
+            value={summary ? formatCompact(summary.tokens.total) : "—"} exact={summary ? formatInteger(summary.tokens.total) : undefined}
+            hint={summary ? `${formatCompact(summary.tokens.output)} output` : undefined}
+            delta={data?.deltas.tokens}
+            deltaTone="none"
+            spark={data?.sparkline.tokens}
+            icon={<Activity size={13} />}
+          />
+        </div>
+
+        <Card>
+          <CardHeader title="Biggest sessions" action={<Link to={{ pathname: "/sessions", search }} className="text-[11px] font-medium text-accent">All</Link>} />
+          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
+            <ul className="space-y-2">
+              {data?.topConversations.slice(0, 5).map(session => (
+                <li key={JSON.stringify([session.source, session.id])}>
+                  <div className="flex items-center justify-between gap-2">
+                    <SessionLink session={session} search={search} date />
+                    <span className="num shrink-0 text-[11px] text-muted">{formatCompact(session.tokens)}</span>
+                  </div>
+                  <ProgressBar value={session.tokens} max={data.topConversations[0]?.tokens ?? 1} className="mt-1.5" />
+                </li>
+              ))}
+            </ul>
+          </StateBlock>
+        </Card>
+      </aside>
     </div>
   );
 }

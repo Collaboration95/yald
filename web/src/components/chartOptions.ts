@@ -82,7 +82,7 @@ export function stackedAreaChart(
   const colorOf = (name: string, index: number) => options.colors?.[name] ?? colorAt(index);
   return {
     grid: baseGrid({ top: 16, bottom: options.showLegend === false ? 4 : LEGEND_SPACE }),
-    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => formatter(Number(value)) },
+    tooltip: { ...tooltipCommon(theme), valueFormatter: (value: unknown) => typeof value === "number" && Number.isFinite(value) ? formatter(value) : "—" },
     legend: legendCommon(theme, options.showLegend !== false),
     xAxis: { type: "category", boundaryGap: false, data: labels, ...axisCommon(theme), axisLabel: dateAxisLabel(theme) },
     yAxis: { type: "value", ...(options.max !== undefined ? { max: options.max } : {}), ...axisCommon(theme), axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
@@ -384,18 +384,19 @@ export interface BoxRow {
 }
 
 /**
- * Horizontal box plot on a log value axis: the box is p25-p75 with a line at p50, the whiskers are
+ * Horizontal box plot on a log value axis (linear is opt-in): the box is p25-p75 with a line at p50, the whiskers are
  * p10 and p90, and p99 and the maximum are drawn as markers. Statistics come from the server;
  * the browser never sees the individual points. No in-chart legend (the caller explains the marks).
  */
 export function boxplotChart(
   theme: ThemeTokens,
   rows: BoxRow[],
-  options: { formatter?: (value: number) => string; color?: string } = {},
+  options: { formatter?: (value: number) => string; color?: string; scale?: "log" | "linear" } = {},
 ): ChartOption {
   const formatter = options.formatter ?? ((value: number) => String(value));
   const shown = rows.filter(row => row.box !== null);
-  const at = (value: number) => Math.max(1, value); // a log axis cannot hold 0
+  const log = options.scale !== "linear";
+  const at = (value: number) => log ? Math.max(1, value) : value;
   const markers = (pick: (row: BoxRow) => number | null) => shown.flatMap((row, index) => {
     const value = pick(row);
     return value === null ? [] : [[at(value), index]];
@@ -416,7 +417,7 @@ export function boxplotChart(
         return `<b>${row.label}</b><br/>${row.n.toLocaleString()} requests<br/>p10 ${formatter(p10)} · p25 ${formatter(p25)}<br/>p50 ${formatter(p50)}<br/>p75 ${formatter(p75)} · p90 ${formatter(p90)}<br/>p99 ${row.p99 === null ? "too few requests" : formatter(row.p99)} · max ${row.max === null ? "—" : formatter(row.max)}`;
       },
     },
-    xAxis: { type: "log", min: 10 ** Math.floor(Math.log10(Math.min(...shown.map(row => at(row.box![0])), 1e6))), ...axis, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
+    xAxis: { type: log ? "log" : "value", min: log ? 10 ** Math.floor(Math.log10(Math.min(...shown.map(row => at(row.box![0])), 1e6))) : 0, ...axis, axisLabel: { color: theme.axis, fontSize: 11, formatter: (value: number) => formatter(value) } },
     yAxis: { type: "category", inverse: true, data: shown.map(row => row.label), ...axis, splitLine: { show: false } },
     series: [
       {

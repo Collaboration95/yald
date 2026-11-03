@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Coins, Trophy } from "lucide-react";
-import { conversationLink, exportUrl, sourceLabel, useEndpoint } from "../api";
+import { exportUrl, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { useTheme } from "../lib/theme";
-import { Card, CardHeader, Expandable, InfoTip, ModelTag, ProgressBar, Segmented, Stat, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { Card, CardHeader, Expandable, InfoTip, ModelTag, ProgressBar, Segmented, StateBlock, TableShell, Td, Th } from "../components/ui";
+import { SessionLink } from "../components/SessionLink";
 import { Chart } from "../components/Chart";
-import { lineChart, stackedBarChart } from "../components/chartOptions";
-import { formatCompact, formatInteger, formatPercent, formatShortDate, formatUsd, formatUsdAxis, sessionLabel } from "../lib/format";
+import { axisCommon, stackedBarChart, tooltipCommon } from "../components/chartOptions";
+import { formatCompact, formatInteger, formatPercent, formatUsd, formatUsdAxis } from "../lib/format";
 import { TokenClassCard, useInView } from "./CostStructure";
 import type { CostResponse, SpendStructureResponse } from "../types";
 
@@ -23,7 +23,6 @@ export function CostPage() {
   const [sentinel, inView] = useInView<HTMLDivElement>();
   const structure = useEndpoint<SpendStructureResponse>("/api/cost/structure", { ...filters, groupBy: "", metric: "" }, {}, { enabled: inView });
   const section = { data: structure.data, loading: structure.isLoading && inView, error: structure.error };
-  const top10 = structure.data?.concentration.top10Sessions;
 
   const costSeriesOption = useMemo(() => {
     if (!data) return null;
@@ -32,38 +31,54 @@ export function CostPage() {
       name: group.name,
       data: data.series.buckets.map(bucket => bucket.groups[group.name] ?? 0),
     }));
-    return stackedBarChart(chartTheme, labels, series, { formatter: value => formatUsd(value) });
-  }, [data, chartTheme]);
-
-  const cumulativeOption = useMemo(() => {
-    if (!data) return null;
-    return lineChart(chartTheme, data.cumulative.map(point => point.label), [
-      { name: "Cumulative cost", data: data.cumulative.map(point => point.cumulative), area: true },
-    ], { formatter: value => formatUsdAxis(value), showLegend: false });
+    const total = data.cumulative.at(-1)?.cumulative ?? 0;
+    const bars = stackedBarChart(chartTheme, labels, series);
+    return {
+      ...bars,
+      grid: [
+        { left: 64, right: 16, top: 12, height: 210 },
+        { left: 64, right: 16, top: 258, height: 58 },
+      ],
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      tooltip: {
+        ...tooltipCommon(chartTheme),
+        formatter: (params: { dataIndex: number }[]) => {
+          const index = params[0]?.dataIndex;
+          if (index === undefined) return "";
+          const daily = series.reduce((sum, group) => sum + (group.data[index] ?? 0), 0);
+          return `${formatUsd(daily)}, ${total > 0 ? formatPercent(daily / total, 0) : "—"} of this window, ${formatUsd(data.cumulative[index]?.cumulative ?? 0)} so far`;
+        },
+      },
+      legend: { ...(bars.legend as Record<string, unknown>), top: 342, bottom: undefined },
+      xAxis: [0, 1].map(gridIndex => ({
+        type: "category" as const, gridIndex, data: labels, boundaryGap: true,
+        ...axisCommon(chartTheme), axisLabel: { ...axisCommon(chartTheme).axisLabel, show: gridIndex === 1 },
+      })),
+      yAxis: [0, 1].map(gridIndex => ({
+        type: "value" as const, gridIndex, ...axisCommon(chartTheme),
+        axisLabel: { ...axisCommon(chartTheme).axisLabel, formatter: formatUsdAxis },
+      })),
+      series: [
+        ...series.map((_, index) => ({
+          ...(bars.series as Record<string, unknown>[])[index], xAxisIndex: 0, yAxisIndex: 0,
+        })),
+        { name: "Running total", type: "line" as const, xAxisIndex: 1, yAxisIndex: 1, showSymbol: false,
+          areaStyle: { opacity: 0.12 }, data: data.cumulative.map(point => point.cumulative) },
+      ],
+    };
   }, [data, chartTheme]);
 
   // Models with nothing priced (free routes, test names) would pad the table with $0 rows: they fold into "+N unpriced".
   const priced = data?.byModel.filter(model => model.pricedRequests > 0) ?? [];
   const unpriced = data?.byModel.filter(model => model.pricedRequests === 0) ?? [];
-  const unpricedShare = summary ? summary.unpricedRequests / Math.max(1, summary.requests) : 0;
+  const finalTotal = data?.cumulative.at(-1)?.cumulative;
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Stat
-          label="Estimated cost"
-          value={summary && summary.pricedRequests > 0 ? formatUsd(summary.cost) : "—"}
-          info={`API list-price equivalents, not a bill.${unpricedShare >= 0.05 && summary ? ` ${formatInteger(summary.unpricedRequests)} of ${formatInteger(summary.requests)} requests have no list price (subscription or free routes) and add no dollars.` : ""}`}
-          tone="good"
-          icon={<Coins size={13} />}
-        />
-        <Stat label="Cost / 1M tokens" value={summary && data && summary.pricedRequests > 0 && data.pricedTokens > 0 ? formatUsd(summary.cost / data.pricedTokens * 1e6) : "—"} info="Priced cost over priced tokens, every token class." tone="info" />
-        <Stat label="Top 10 sessions" value={top10 ? formatPercent(top10.share, 0) : "—"} hint="of spend" icon={<Trophy size={13} />} />
-      </div>
-
+    <div className="space-y-3 editorial editorial-cost">
       <Card>
         <CardHeader
-          title="Spend over time"
+          title={<span className="inline-flex items-center gap-1.5">Spend over time
+            <InfoTip label="About estimated spend">API list-price equivalents, not a bill.{summary && summary.unpricedRequests > 0 ? ` ${formatInteger(summary.unpricedRequests)} of ${formatInteger(summary.requests)} requests have no list price (subscription or free routes) and add no dollars.` : ""}</InfoTip></span>}
           action={
             <Segmented
               size="sm"
@@ -78,39 +93,29 @@ export function CostPage() {
           }
         />
         <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.series.buckets.length === 0}>
-          {costSeriesOption ? <Chart option={costSeriesOption} height={288} /> : null}
+          <p className="num mb-2 text-[28px] font-semibold text-ink">{summary && summary.pricedRequests > 0 && finalTotal !== undefined ? formatUsd(finalTotal) : "—"}<span className="ml-2 text-[11.5px] font-normal text-muted">running total</span></p>
+          {costSeriesOption ? <Chart option={costSeriesOption} height={374} /> : null}
         </StateBlock>
       </Card>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <Card>
-          <CardHeader title="Cumulative spend" />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data}>
-            {cumulativeOption ? <Chart option={cumulativeOption} height={236} /> : null}
-          </StateBlock>
-        </Card>
-        <Card>
-          <CardHeader title="Most expensive sessions" action={<Link to={{ pathname: "/sessions", search }} className="text-[11px] font-medium text-accent">All sessions</Link>} />
-          <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
-            <ul className="space-y-2.5">
-              {data?.topConversations.slice(0, 6).map(session => (
-                <li key={JSON.stringify([session.source, session.id])}>
-                  <div className="flex items-center justify-between gap-2">
-                    <Link to={conversationLink(session, search)} className="min-w-0 truncate text-[11.5px] text-info hover:underline" title={`${session.project ?? session.id} · ${sourceLabel(session.source)}`}>
-                      {sessionLabel(session)} <span className="text-[10.5px] text-muted">· {formatShortDate(session.startedAt)}</span>
-                    </Link>
-                    <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{session.pricedRequests > 0 ? formatUsd(session.cost) : "—"}</span>
-                  </div>
-                  <ProgressBar value={session.cost} max={data.topConversations[0]?.cost ?? 1} className="mt-1.5" />
-                </li>
-              ))}
-            </ul>
-          </StateBlock>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader title="Most expensive sessions" action={<Link to={{ pathname: "/sessions", search }} className="text-[11px] font-medium text-accent">All sessions</Link>} />
+        <StateBlock loading={query.isLoading} error={query.error} empty={!data || data.topConversations.length === 0}>
+          <ul className="space-y-2.5">
+            {data?.topConversations.slice(0, 6).map(session => (
+              <li key={JSON.stringify([session.source, session.id])}>
+                <div className="flex items-center justify-between gap-2">
+                  <SessionLink session={session} search={search} date />
+                  <span className="num shrink-0 text-[11.5px] font-semibold text-ink">{session.pricedRequests > 0 ? formatUsd(session.cost) : "—"} · {formatCompact(session.tokens)} tokens</span>
+                </div>
+                <ProgressBar value={session.cost} max={data.topConversations[0]?.cost ?? 1} className="mt-1.5" />
+              </li>
+            ))}
+          </ul>
+        </StateBlock>
+      </Card>
 
-      <div ref={sentinel} aria-hidden="true" />
-      <TokenClassCard {...section} />
+      <TokenClassCard {...section} sentinel={sentinel} />
 
       <Card>
         <CardHeader

@@ -1,6 +1,6 @@
 # Investigating usage with Yald
 
-This guide describes 0.4.0, including Claude ingestion, reports, Yaldi and Labs.
+This guide describes 0.5.0, including Claude ingestion, reports, Yaldi and Labs.
 The earlier v0.1.0 prerelease has the opencodex dashboard only. See
 [installation](install.md) for GitHub asset availability and source setup.
 
@@ -11,7 +11,7 @@ explains what Yald reads and writes.
 
 ## Dashboard views
 
-The desktop dashboard supports light and dark themes. Visible views poll every
+The dashboard supports light and dark themes, with navigation wrapping above the page on narrow screens. Visible views poll every
 30 seconds, unchanged responses use ETags, and hidden tabs pause polling.
 Refresh forces a re-read. After a filter or range change, the previous numbers
 stay on screen, dimmed under an "Updating" notice, until the new selection's
@@ -23,48 +23,65 @@ so. Unavailable values stay unavailable in saved results. See
 [data locations](install.md#data-locations-and-local-archive) for what the browser keeps. Recorded usage is available with the proxy stopped;
 quota then remains the last captured account observation.
 
-- **Overview:** six headline figures with the change against the previous period
-  (hover a change for what it compares), usage over time by model, provider or
-  effort, the top models, plan usage and the biggest sessions. Success rate and
-  time to first token are tagged **Codex only**. Plan usage is an account-wide
-  opencodex reading; a reading older than a day is marked stale. It shows only
-  when your selection includes opencodex.
-- **Usage:** cached versus new tokens, the cache hit rate, tokens by model,
-  provider or effort, and the activity heatmap (click a cell for its busiest
-  dates), with effort and provider tables. Reasoning is already within output.
-  Claude Code records no effort level, so its requests read "Not recorded".
-- **Cost:** estimated cost, cost per million tokens and the share of spend held by
-  your ten costliest sessions; spend over time, cumulative spend, the most
-  expensive sessions, where tokens and dollars go by token class for each source,
-  and a cost-by-model table (top eight; models with no price fold into
-  "+N unpriced"). Dollars are API list-price equivalents, not a bill. Use Cache
-  savings in Labs for net cache economics.
-- **Performance:** speed and reliability for opencodex requests, tagged **Codex
-  only** because Claude transcripts record no timing or outcome: time to first
-  token and latency percentiles, generation speed, a first-token/output scatter,
-  timings by model and the slowest requests (requests open for over ten minutes
-  are stalled streams and are left out). When there are failures it adds
-  failures over time, an error breakdown and recent failures grouped by model and
-  error.
+Compact token tiles reveal exact counts on hover or focus; tap or press Enter to
+keep the exact count visible. Session links across the dashboard use recorded
+Claude Code titles when available, with project or session labels as the fallback.
+Small animations respect reduced motion and do not replay on background refresh.
+
+- **Overview:** account-wide Codex plan usage and usage over time lead the page,
+  with Requests, Tokens and biggest sessions beside them on desktop.
+  The ranked model, provider or effort list is the chart legend: hover to emphasise,
+  click to isolate, and click again to restore all series. Cost values are API
+  list-price equivalents, not a bill; its info tip reports unpriced requests.
+  Plan readings older than a day or past their reset are marked stale. The latest
+  observed account appears first; other accounts expand. The source does not
+  identify the active account. Claude Code plan readings are not available here yet.
+- **Usage:** total, output and reasoning tokens, the cache hit rate tile, and a
+  compact activity grid. Drag weekday/hour cells to total tokens or requests;
+  Shift+Arrow extends a keyboard selection. On narrow
+  screens the grid scrolls sideways, so a touch drag selects along one hour. These are recurring weekday/hour
+  cells, not a date range. Click a cell for its busiest dates below the grid.
+  Reasoning is already included in output.
+- **Cost:** daily spend by model, provider or effort above a linked running-total
+  strip, with the final total as the headline. The (i) explains list-price
+  equivalents (not a bill) and unpriced requests. The most expensive sessions show
+  cost and total tokens together. Token-class shares and the cost-by-model table
+  (with CSV export and per-million-token prices) remain; models with no price fold
+  into "+N unpriced". Use Cache savings in Labs for net cache economics.
+- **Performance:** output tokens per second, generation speed, a speed-by-model
+  box plot and a first-token/output scatter, tagged **Codex only** because Claude
+  transcripts record no timing or outcome. Boxes need 10 eligible requests; models
+  beyond the top 12 fold into Other. The (i) explains the marks and linear scale.
+  Failures over time appears when there are failed or cancelled requests.
 - **Context:** how long contexts are (`inputTokens`, including cached tokens):
   median and p90, requests by context size, a box plot per model, length over
-  time, a per-model table, what longer contexts coincide with by band, and
-  session growth. Statistics below their minimum sample read "few requests". The
+  time and what longer contexts coincide with by band. Session growth lives in
+  Labs. Statistics below their minimum sample read "few requests". The
   box-plot legend, caveats and coverage sit behind (i) tooltips; a **Partial**
   badge appears when under 95% of requests could be measured.
-- **Outage episodes** on Performance group errors less than 10 minutes apart. A
-  timeline and table show their size, length and status mix, and the successes inside
-  them. Open an episode to see all of its requests. Classes are inferred from status codes.
 - **Sessions:** source-qualified sessions, named by the title Claude Code recorded
   if there is one, otherwise by the project they ran in, ranked
-  by tokens, cost, requests, recency or errors; the count and medians cover every
+  by tokens, cost, requests, recency or errors; the count covers every
   session in the selection. Detail shows tokens over the session, context size
   per request and the requests, with cache misses (a request that reread none of
   its prompt from the cache) highlighted.
 
-- **Working style:** the Case file recap for the last 7 days, then session shapes,
+- **Working style (Labs):** the Case file recap for the last 7 days, then session shapes,
   sessions at once, days with data and requests by hour. Labels describe size and
-  span. `yald report --recap` prints the same recap, and the card can export a PNG.
+  span. Old `/style` links open `/labs/style`, preserving query parameters.
+  `yald report --recap` prints the same recap, and the card can export a PNG.
+
+- **Subagents:** Claude Code agent shares, trends, agent types, first-request cache-write
+  cost, sessions to inspect, and project/model splits. The fan-out distribution
+  and spawn-depth chart are omitted; session links lead to the delegation tree.
+- **Agent turns (Labs):** turn depth, autonomy, stop reasons and tool use.
+  Old `/turns` links open `/labs/turns`, preserving query parameters. Both moved
+  pages default to 7 days and use Labs' time, Source, Project and Model filters;
+  Provider, Agent, Effort, Outcome and Search do not constrain them. Labs must be on.
+
+Provider, Effort and Outcome live in **More filters**. Its count shows how many
+of these three filters are active. Clear them in the menu; existing URL parameters
+still work.
 
 Models, Quota and Reliability are no longer pages: their links open Cost, Overview
 and Performance. `/conversations` links open `/sessions`.
@@ -84,8 +101,8 @@ and stops their queries; a disabled Labs link offers to turn it back on. **Hide
 artwork**, in the same menu, hides Yaldi's decorative images while keeping every
 explanation, value and control. Artwork supplies no evidence of its own.
 
-Labs opens on a board of four cases, each a finding and one number. Every
-investigation uses one layout: Yaldi's one-line verdict with a big number, one
+Labs opens on a board of seven cases, including Working style and Agent turns.
+The original metric investigations use one layout: Yaldi's one-line verdict with a big number, one
 chart, a top-five list with short names, a **See the requests** button, and an (i)
 holding the rule, coverage, scope and windows. The board shows one 30-day window
 until you pick a range; its Investigate links keep that window. Direct investigation

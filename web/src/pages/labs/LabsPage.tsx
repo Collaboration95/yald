@@ -84,6 +84,10 @@ export function LabsPage() {
     <CacheCard />
     <GrowthCard />
     <QuotaCard />
+    <CaseCard path="style" title="Working style" loading={false} error={false}
+      headline="Explore session shapes and activity patterns" detail="Session size, overlap and requests by hour." />
+    <CaseCard path="turns" title="Agent turns" loading={false} error={false}
+      headline="Explore turn depth and autonomy" detail="How turns end and which tools they request." />
   </section>;
 }
 

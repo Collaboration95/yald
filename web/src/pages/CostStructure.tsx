@@ -35,13 +35,15 @@ interface Section {
   data: SpendStructureResponse | undefined;
   loading: boolean;
   error: unknown;
+  /** Marks the point that starts this section's fetch; it sits in the card so the page grid never lays it out or hides it. */
+  sentinel?: React.Ref<HTMLDivElement>;
 }
 
 const CLASS_NAMES = { freshInput: "Fresh input", cacheRead: "Cache read", cacheWrite: "Cache write", output: "Output" } as const;
 const CLASS_KEYS = ["freshInput", "cacheRead", "cacheWrite", "output"] as const;
 
 /** One tokens-versus-cost pair per source: which token class holds the volume and which holds the dollars. */
-export function TokenClassCard({ data, loading, error }: Section) {
+export function TokenClassCard({ data, loading, error, sentinel }: Section) {
   const { chartTheme } = useTheme();
   const sources = data?.classMix ?? [];
   const charts = useMemo(() => sources.map(source => ({
@@ -53,6 +55,7 @@ export function TokenClassCard({ data, loading, error }: Section) {
   })), [sources, chartTheme]);
   return (
     <Card>
+      <div ref={sentinel} aria-hidden="true" />
       <CardHeader
         title={<span className="inline-flex items-center gap-1.5">Where the tokens and dollars go
           <InfoTip label="About this chart">Each class's share of tokens beside its share of cost, for requests that have a list price. Reasoning is inside output. Dollars are API list-price equivalents, not a bill.</InfoTip></span>}

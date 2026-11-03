@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MovedTo } from "../src/components/MovedTo";
 import { parseWindow } from "../../server/src/time/window";
 import { filtersToParams, type Filters } from "../src/api";
 import { PreferencesProvider } from "../src/lib/preferences";
@@ -14,10 +15,12 @@ import { useLabsFilters } from "../src/pages/labs/shared";
 const targets = [
   { path: "project-radar", label: "Projects", api: "/api/labs/projects" },
   { path: "cache-detective", label: "Cache savings", api: "/api/labs/cache" },
+  { path: "style", label: "Working style", api: "/api/style" },
+  { path: "turns", label: "Agent turns", api: "/api/turns" },
 ];
 const clock = { now: Date.parse("2026-10-25T12:00:00Z"), first: Date.parse("2026-08-01T00:00:00Z") };
 const intent = new URLSearchParams({ tz: "Asia/Singapore", sources: "claude-code", projects: "/synthetic/app", models: "claude-test",
-  providers: "hidden-provider", conversationId: "synthetic-session", sessionSource: "claude-code", day: "2026-10-20",
+  providers: "hidden-provider", agents: "subagent", efforts: "high", statuses: "error", search: "no-match", conversationId: "synthetic-session", sessionSource: "claude-code", day: "2026-10-20",
   selector: '{"cohort":{"providers":["literal,provider"]}}', priorSelector: "paired-case", investigation: "project-radar" });
 intent.append("tag", "one");
 intent.append("tag", "two");
@@ -37,7 +40,7 @@ function renderRoute(route: string) {
     </FiltersProvider></MemoryRouter></ThemeProvider></QueryClientProvider>);
     const links = [...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/g)]
       .map(match => ({ href: match[1]!.replace(/&amp;/g, "&"), label: match[2]! }));
-    return { filters: filters!, links, queries: client.getQueryCache().getAll().map(query => query.queryKey) };
+    return { html, filters: filters!, links, queries: client.getQueryCache().getAll().map(query => query.queryKey) };
   } finally { client.clear(); }
 }
 
@@ -57,7 +60,9 @@ describe("Labs board navigation", () => {
           const tab = board.links.find(link => link.label === target.label)!;
           const destination = renderRoute(tab.href);
           expect(destination.filters).toEqual(board.filters);
-          expect(requestWindow(destination, target.api)).toEqual(requestWindow(board, target.api));
+          if (["style", "turns"].includes(target.path)) {
+            expect(requestWindow(destination, target.api)).toEqual(parseWindow(Object.fromEntries(new URLSearchParams(filtersToParams(board.filters))), clock));
+          } else expect(requestWindow(destination, target.api)).toEqual(requestWindow(board, target.api));
           const expected = new URLSearchParams(params); expected.set("range", "30d");
           expect([...new URL(tab.href, "http://fixture.invalid").searchParams]).toEqual([...expected]);
           expect(board.links.find(link => link.label === "Investigate" && link.href.startsWith(`/labs/${target.path}?`))?.href).toBe(tab.href);
@@ -75,7 +80,7 @@ describe("Labs board navigation", () => {
     { range: "90d", from: "2026-10-01", to: "2026-10-10" },
     { last: "12h", to: "2026-10-10" },
   ]) {
-    test(`explicit window ${JSON.stringify(window)} and unrelated query/identity survive both tabs`, () => {
+    test(`explicit window ${JSON.stringify(window)} and unrelated query/identity survive investigation tabs`, () => {
       const params = new URLSearchParams(intent);
       for (const [key, value] of Object.entries(window)) params.set(key, value);
       const board = renderRoute(`/labs/?${params}`);
@@ -84,12 +89,14 @@ describe("Labs board navigation", () => {
         expect([...new URL(tab.href, "http://fixture.invalid").searchParams]).toEqual([...params]);
         const destination = renderRoute(tab.href);
         expect(filtersToParams(destination.filters)).toBe(filtersToParams(board.filters));
-        expect(requestWindow(destination, target.api)).toEqual(requestWindow(board, target.api));
+        if (["style", "turns"].includes(target.path)) {
+          expect(requestWindow(destination, target.api)).toEqual(parseWindow(Object.fromEntries(new URLSearchParams(filtersToParams(board.filters))), clock));
+        } else expect(requestWindow(destination, target.api)).toEqual(requestWindow(board, target.api));
       }
     });
   }
 
-  for (const [path, range] of [["project-radar", "7d"], ["cache-detective", "7d"], ["spend-spikes", "30d"], ["context-replay", "30d"]]) {
+  for (const [path, range] of [["project-radar", "7d"], ["cache-detective", "7d"], ["spend-spikes", "30d"], ["context-replay", "30d"], ["style", "7d"], ["turns", "7d"]]) {
     test(`direct ${path} keeps its ${range} default without injecting it into onward tabs`, () => {
       for (const suffix of ["", "/"]) {
         const direct = renderRoute(`/labs/${path}${suffix}?${intent}`);
@@ -106,3 +113,36 @@ describe("Labs board navigation", () => {
     });
   }
 });
+
+for (const path of ["style", "turns"]) {
+  test(`${path} uses the visible Labs cohort and is gated when Labs is off`, () => {
+    const result = renderRoute(`/labs/${path}?${intent}`);
+    expect(result.filters).toMatchObject({ providers: [], agents: [], efforts: [], statuses: [], search: "",
+      sources: ["claude-code"], projects: ["/synthetic/app"], models: ["claude-test"] });
+    const client = new QueryClient();
+    try {
+      const html = renderToString(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/labs/${path}`]}><FiltersProvider>
+        <PreferencesProvider storage={{ getItem: () => null, setItem: () => {} }}>
+          <Routes><Route path="/labs" element={<LabsLayout />}><Route path=":investigation" element={<LabsInvestigationPage />} /></Route></Routes>
+        </PreferencesProvider>
+      </FiltersProvider></MemoryRouter></QueryClientProvider>);
+      expect(html).toContain("Labs is off");
+      expect(client.getQueryCache().getAll()).toHaveLength(0);
+    } finally { client.clear(); }
+  });
+}
+
+for (const [from, to] of [["/style", "/labs/style"], ["/turns", "/labs/turns"]]) {
+  test(`${from} redirects with replace and preserves every query parameter`, () => {
+    let destination: ReturnType<typeof MovedTo> | undefined;
+    function RedirectProbe() { destination = MovedTo({ to: to! }); return null; }
+    renderToString(<MemoryRouter initialEntries={[`${from}?${intent}`]}><RedirectProbe /></MemoryRouter>);
+    expect(destination!.props).toMatchObject({ replace: true, to: { pathname: to, search: `?${intent}` } });
+    const target = renderRoute(`${destination!.props.to.pathname}${destination!.props.to.search}`);
+    expect(target.filters.providers).toEqual([]);
+    expect(target.filters.agents).toEqual([]);
+    expect(target.filters.efforts).toEqual([]);
+    expect(target.filters.statuses).toEqual([]);
+    expect(target.filters.search).toBe("");
+  });
+}

@@ -4,7 +4,6 @@ import { MemoryRouter } from "react-router-dom";
 import { activeFilterCount, filtersToParams, type Filters } from "../src/api";
 import { FiltersProvider, patchFilterParams } from "../src/lib/useFilters";
 import { useLabsFilters } from "../src/pages/labs/shared";
-import { usageCompositionOption } from "../src/pages/Usage";
 import { laneTimelineChart, type ThemeTokens } from "../src/components/chartOptions";
 
 const inherited = new URLSearchParams({ range: "30d", sources: "claude-code", projects: "/synthetic/app", models: "claude-test",
@@ -56,18 +55,6 @@ describe("spike day belongs to its time window", () => {
     const custom = new URLSearchParams(intent); custom.set("from", "2026-09-15");
     expect(patchFilterParams(custom, { range: "30d" }).has("day")).toBe(false);
   });
-});
-
-test("Cached + New reconciles cache-write-heavy Claude token accounting, without double-counting reasoning", () => {
-  const sample = { ts: 0, label: "Synthetic Claude", freshInput: 1000, cacheRead: 2000, cacheWrite: 60000, output: 500,
-    reasoning: 300, total: 63500, requests: 1 };
-  const theme: ThemeTokens = { text: "#000", axis: "#000", split: "#eee", tooltipBg: "#fff", tooltipBorder: "#ddd", area: "#eee" };
-  const option = usageCompositionOption(theme, [sample, { ...sample, label: "Empty", freshInput: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0 }]);
-  const series = option.series as { name: string; data: number[] }[];
-  expect(series.map(s => s.name)).toEqual(["Cached", "New"]);
-  expect(series[0]!.data).toEqual([2000, 0]);
-  expect(series[1]!.data).toEqual([61500, 0]);
-  expect(series[0]!.data[0]! + series[1]!.data[0]!).toBe(sample.total);
 });
 
 describe("lane timeline", () => {

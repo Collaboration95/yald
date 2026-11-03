@@ -4,6 +4,38 @@ All notable changes to yald are recorded here. This project follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-01 — Fewer numbers, more dashboard
+
+### Added
+
+- **Usage over time and top models in one pane.** The ranked list on Overview is now the chart's legend: hover a row to emphasise it, click to isolate it, and click again to restore every series. It follows the Tokens, Cost and Requests switch and the Model, Provider and Effort grouping. A group with no list price reads "—", never $0.00.
+- **Drag across When you work.** The smaller activity grid totals tokens and requests for any weekday and hour range, by mouse, touch or Shift+Arrow. Clicking a cell still lists its busiest dates.
+- **Daily and running spend together.** Cost shows daily bars above a running-total strip on the same dates, and the final total is the page's headline.
+- **Speed by model on Performance.** A Codex-only box plot of output tokens per second, from the new `speedByModel` field on `/api/performance`. It shows the 10 most used models. Boxes need 10 eligible requests and p99 needs 100.
+- **More filters.** Provider, Effort and Outcome moved into one toolbar menu, with a count when any of them is active. URL parameters are unchanged.
+
+### Changed
+
+- **Fewer modules everywhere.** Each page now has one lead module and an uneven layout, and cards fit their content instead of stretching to the window.
+- **Working style and Agent turns moved to Labs.** `/style` and `/turns` redirect and keep their query parameters. Labs is off by default, so turn it on to see them. Both open on 7 days.
+- **Plan usage leads Overview.** Rows name their tool and account, and other Codex accounts collapse. The source does not identify the active account, so the latest observed one comes first. Claude Code plan readings are still not available ([#160](https://github.com/Collaboration95/yald/issues/160)).
+- **Most expensive sessions show cost and total tokens together.**
+- **Session links match the theme.** They use real titles where recorded, with ink text, a coral hover and an arrow, on every page.
+- **Bigger numbers, bolder metric names, and tiles that respond.** Every tile reacts on hover, focus and tap, and swaps a compact number for the exact one.
+- **Small animations throughout,** including a sliding segmented control, a turning settings gear, sliding switches, popovers that animate out, a nav marker, growing bars, count-ups on first load and a theme cross-fade. Nothing replays on the background refresh, and reduced motion turns all of it off.
+
+### Removed
+
+- **Overview:** the Estimated cost, Success rate, Median TTFT and Cache savings tiles, and the separate Top models table.
+- **Usage:** Cached vs new tokens, the Cache hit rate chart, Tokens by group, and the By effort and By provider tables.
+- **Cost:** the Estimated cost, Cost / 1M tokens and Top 10 sessions tiles, and the standalone Cumulative spend card. The list-price and unpriced-request notes moved to an (i) on the spend chart.
+- **Performance:** the TTFT, latency and success tiles, Latency and first token over time, By model, Slowest requests, Outage episodes, Error breakdown and Recent failures.
+- **Context:** the By model table, Session growth (it stays in Labs) and the Median TTFT column.
+- **Sessions:** the Median requests and Median tokens tiles.
+- **Subagents:** Fan-out and Spawn depth.
+
+These removals are from the dashboard only. API fields and `yald report` are unchanged, and no stored data is touched.
+
 ## [0.4.0] - 2026-10-30 — A leaner dashboard, and where the money goes
 
 ### Added

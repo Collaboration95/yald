@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { fetchJson, useEndpoint } from "../api";
-import { useFilters } from "../lib/useFilters";
+import { useLabsFilters } from "./labs/shared";
 import { useTheme } from "../lib/theme";
 import { usePreferences } from "../lib/preferences";
 import { DEMO } from "../lib/demo";
@@ -23,7 +23,7 @@ function recapPose(error: unknown, requests: number | undefined, notes: { text: 
 
 /** A summary, not evidence: its numbers never link to a Labs case. Static, and complete with the artwork hidden. */
 function CaseFile() {
-  const { filters } = useFilters();
+  const filters = useLabsFilters();
   const { hideArtwork } = usePreferences();
   const { theme } = useTheme();
   const [includeNames, setIncludeNames] = useState(false);
@@ -64,7 +64,7 @@ function CaseFile() {
 const ARCHETYPE_INFO = "Poke: 1-3 requests. Quick: 4-24. Deep: 25-999 within one local day. Marathon: 1,000 or more, or 25 or more across two or more local days. Labels describe size and span, not value. Clipped sessions may be larger than shown.";
 
 export function WorkingStylePage() {
-  const { filters } = useFilters();
+  const filters = useLabsFilters();
   const { chartTheme } = useTheme();
   const query = useEndpoint<WorkingStyleResponse>("/api/style", filters);
   const data = query.data;
