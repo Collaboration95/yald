@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { filtersKey, useEndpoint } from "../api";
 import { useFilters } from "../lib/useFilters";
 import { Card, CardHeader, Segmented, Stat, StateBlock, Td, Th } from "../components/ui";
+import { Chart } from "../components/Chart";
+import { cacheComparison, cachePercent, type CacheSeries } from "../components/cacheComparison";
+import { useTheme } from "../lib/theme";
 import { ActivityGrid } from "../components/ActivityGrid";
 import { formatCompact, formatInteger, formatPercent, formatShortDate } from "../lib/format";
 import type { UsageHeatmapDatesResponse, UsageResponse } from "../types";
@@ -14,6 +17,9 @@ export function UsagePage() {
   const { filters } = useFilters();
   const query = useEndpoint<UsageResponse>("/api/usage", filters, { metric: "tokens", groupBy: "model" });
   const data = query.data;
+  const { chartTheme } = useTheme();
+  const [cacheSeries, setCacheSeries] = useState<CacheSeries>("all");
+  const cache = useMemo(() => cacheComparison(chartTheme, data?.cache ?? [], cacheSeries), [chartTheme, data?.cache, cacheSeries]);
   const [heatmapMetric, setHeatmapMetric] = useState<"tokens" | "requests">("tokens");
   const filterKey = filtersKey(filters);
   const [selection, setSelection] = useState<HeatmapSelection | null>(null);
@@ -61,6 +67,36 @@ export function UsagePage() {
         <Stat label="Reasoning tokens" value={summary ? formatCompact(summary.tokens.reasoning) : "—"} exact={summary ? formatInteger(summary.tokens.reasoning) : undefined} hint="Included in output" tone="violet" />
         <Stat label="Cache hit rate" value={summary ? formatPercent(summary.cache.hitRate) : "—"} info={cachePartial} tone="good" />
       </div>
+
+      <Card className="max-w-[980px]">
+        <CardHeader title="Cache comparison" />
+        <p className="mb-2 text-[11px] text-muted">Measured input only: Cached is cache reads; New is measured input minus cache reads. Cache writes are included in New. Output is excluded. Missing measurements are gaps.</p>
+        <p className="mb-3 text-[11px] text-muted">{cacheCoverage ? `Cache counters measured on ${formatInteger(cacheCoverage.eligibleRequests)} of ${formatInteger(cacheCoverage.totalRequests)} requests.` : "Cache coverage unavailable."}</p>
+        <StateBlock loading={query.isLoading} error={query.error} empty={!cache.hasRates && !cache.hasTokens} emptyLabel="No measured cache data in this window.">
+          <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+            <section className="min-w-0" aria-label="Cache hit rate trend">
+              <h3 className="text-[12px] font-medium">Cache hit rate</h3>
+              {cache.hasRates && <p className="text-[11px] text-muted">Displayed range: {cachePercent(cache.bounds[0])}–{cachePercent(cache.bounds[1])}</p>}
+              {cache.hasRates ? <Chart option={cache.rate} height={240} /> : <p className="py-12 text-[12px] text-muted">No input denominator for a cache percentage.</p>}
+            </section>
+            <section className="min-w-0" aria-label="Cached and new input tokens">
+              <h3 className="mb-1 text-[12px] font-medium">Input tokens</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented size="sm" value={cacheSeries} options={[{ id: "all", label: "Both" }, { id: "Cached", label: "Cached" }, { id: "New", label: "New" }]} onChange={setCacheSeries} />
+                <span className="text-[11px] text-muted">Select a series to rescale</span>
+              </div>
+              <p className="text-[11px] text-muted">Cached · green; New · blue. Exact counts on hover.</p>
+              <Chart option={cache.tokens} height={240} />
+            </section>
+          </div>
+          <details className="mt-2 text-[11px]">
+            <summary className="cursor-pointer">Exact cache measurements and coverage</summary>
+            <div className="overflow-x-auto"><table className="w-full"><thead><tr><Th>Bucket</Th><Th>Hit rate</Th><Th>Measured input</Th><Th>Cached</Th><Th>New</Th><Th>Measured requests</Th></tr></thead><tbody>
+              {data?.cache.map(point => <tr key={point.ts}><Td>{point.label}</Td><Td>{point.hitRate === null ? "Unavailable" : cachePercent(point.hitRate)}</Td><Td>{point.eligibleRequests ? formatInteger(point.input) : "Unavailable"}</Td><Td>{point.eligibleRequests ? formatInteger(point.cacheRead) : "Unavailable"}</Td><Td>{point.eligibleRequests ? formatInteger(point.input - point.cacheRead) : "Unavailable"}</Td><Td>{formatInteger(point.eligibleRequests)} of {formatInteger(point.totalRequests)}</Td></tr>)}
+            </tbody></table></div>
+          </details>
+        </StateBlock>
+      </Card>
 
       <Card className="max-w-[980px]">
         <CardHeader className="flex-col sm:flex-row" title="When you work" action={

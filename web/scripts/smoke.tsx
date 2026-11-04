@@ -125,7 +125,7 @@ const PAGES: PageSpec[] = [
     route: "/usage",
     Component: UsagePage,
     queries: [{ path: "/api/usage", params: filtersToParams(DEFAULT_FILTERS, { metric: "tokens", groupBy: "model" }) }],
-    expect: ["Total tokens", "Output tokens", "Reasoning tokens", "Cache hit rate", "When you work"],
+    expect: ["Total tokens", "Output tokens", "Reasoning tokens", "Cache hit rate", "Cache comparison", "When you work"],
   },
   {
     name: "Cost",
@@ -286,6 +286,8 @@ async function checkMeasurementCohorts() {
   client.setQueryData(["/api/meta"], await fetchJson("/api/meta"));
   const html = renderPage(PerformancePage, client, "/performance?models=f01-transcript", "/performance");
   const overviewHtml = renderPage(OverviewPage, client, "/?models=f01-transcript", "/");
+  check(!overviewHtml.includes('data-stat="Success rate"') && !overviewHtml.includes('data-stat="Median TTFT"') && !overviewHtml.includes("Codex only"), "Overview omits empty outcome/timing cards for an unmeasured cohort");
+  check(!html.includes("Outage") && !html.includes("upstream"), "Performance omits removed outage episode timeline");
   check(reliability.successRate === null && reliability.measurementCoverage.outcomes.eligibleRequests === 0 && reliability.outcomes[0]?.name === "unobserved", "Claude-only outcome denominator");
   check(!html.includes("Could not load data") && !html.includes("NaN"), "Claude-only performance rendering");
   const badge = renderToString(<OutcomeDot outcome="unobserved" />);
