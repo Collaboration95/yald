@@ -718,8 +718,8 @@
   :root .relay-content .editorial > * { margin: 0; grid-column: span 4; min-width: 0; }
   :root .editorial-overview > .widget-card { grid-column: span 8; }
   :root .editorial-overview > .grid:has(.stat-card) { grid-column: span 4; grid-template-columns: minmax(0, 1fr); }
-  :root .editorial-usage > .widget-card { grid-column: 1 / span 9; grid-row: 1; }
-  :root .editorial-usage > .grid { grid-column: 10 / span 3; grid-template-columns: minmax(0, 1fr); }
+  :root .editorial-usage > .widget-card { grid-column: 1 / span 9; }
+  :root .editorial-usage > .grid { grid-column: 10 / span 3; grid-row: 1 / span 2; grid-template-columns: minmax(0, 1fr); }
   :root .editorial-cost > .widget-card:first-child { grid-column: span 8; }
   :root .editorial-cost > .widget-card:last-child { grid-column: span 7; }
   :root .editorial-performance > .flex { grid-column: 1 / -1; }

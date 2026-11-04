@@ -1,0 +1,7 @@
+{
+  "evidence": "synthetic production build + overridden cache response; not installed-user runtime evidence",
+  "checks": [
+    "1440px: keyboard Enter isolates New; manual/background refresh and filter preserve selection and recalculate bounds; cards do not overlap; zero/full/single/constant/zero-input/empty states; no page overflow",
+    "390px: keyboard Enter isolates New; manual/background refresh and filter preserve selection and recalculate bounds; cards do not overlap; zero/full/single/constant/zero-input/empty states; no page overflow"
+  ]
+}

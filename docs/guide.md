@@ -37,7 +37,12 @@ Small animations respect reduced motion and do not replay on background refresh.
   observed account appears first; other accounts expand. The source does not
   identify the active account. Claude Code plan readings are not available here yet.
 - **Usage:** total, output and reasoning tokens, the cache hit rate tile, and a
-  compact activity grid. Drag weekday/hour cells to total tokens or requests;
+  focused cache comparison and compact activity grid. Cache percentages use a padded
+  observed range, disclosed above the plot. Select Cached or New to inspect and
+  rescale input token counts independently; the choice survives refresh and filters.
+  New includes cache writes. Both plots use only requests with measured cache
+  counters, exclude output, and leave missing measurements as gaps. Expand exact
+  measurements for counts and coverage by bucket. Drag weekday/hour cells to total tokens or requests;
   Shift+Arrow extends a keyboard selection. On narrow
   screens the grid scrolls sideways, so a touch drag selects along one hour. These are recurring weekday/hour
   cells, not a date range. Click a cell for its busiest dates below the grid.
